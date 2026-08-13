@@ -13,7 +13,18 @@ async function withServer(t, run) {
     await fs.rm(vault, { recursive: true, force: true });
   });
   const health = await fetch(`${started.url}/api/health`).then(res => res.json());
-  assert.equal(started.vault, path.resolve(vault), 'test server must use only its temporary vault internally');
+  const [actualVault, expectedVault] = await Promise.all([
+    fs.realpath(started.vault),
+    fs.realpath(vault),
+  ]);
+  const normalizeIdentity = value => process.platform === 'win32'
+    ? path.normalize(value).toLowerCase()
+    : path.normalize(value);
+  assert.equal(
+    normalizeIdentity(actualVault),
+    normalizeIdentity(expectedVault),
+    'test server must use only its temporary vault internally',
+  );
   assert.equal(health.vault, path.basename(vault), 'public health response must expose only the vault label');
   return run({ vault, ...started });
 }
