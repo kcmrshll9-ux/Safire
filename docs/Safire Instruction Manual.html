@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Safire Instruction Manual v1.1.0</title>
+<style>
+  :root {
+    --bg:#070812; --ink:#142033; --muted:#5d6d86; --paper:#ffffff; --soft:#f6f3ff;
+    --ember:#ff8a1c; --rose:#ff3d7f; --violet:#7c3aed; --aqua:#18cde9; --gold:#ffe66d;
+    --line:#dbe2ef; --code:#111827;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; padding:0; font-family: Inter, "Segoe UI", Arial, sans-serif; color:var(--ink); background:#eceff7; line-height:1.56; }
+  body { counter-reset: section; }
+  @page { size: Letter; margin: 0.62in 0.58in 0.68in; }
+  @media print {
+    body { background:#fff; font-size:14px; line-height:1.46; }
+    .page { box-shadow:none !important; margin:0 !important; width:auto !important; min-height:auto !important; }
+    .cover { min-height:9.7in; page-break-after:always; }
+    .break { page-break-before:always; }
+    .content { padding:28px 44px 38px; }
+    h2 { margin:24px 0 9px; }
+    h3 { margin:17px 0 6px; }
+    p { margin:6px 0 9px; }
+    ul,ol { margin-top:6px; margin-bottom:10px; }
+    .card,.callout,table,pre { break-inside:avoid; }
+    a { color:inherit; text-decoration:none; }
+    .no-print { display:none; }
+  }
+  .page { width:8.5in; min-height:11in; margin:24px auto; background:var(--paper); box-shadow:0 24px 70px rgba(16,24,40,.18); overflow:hidden; }
+  .cover { position:relative; color:#fff; background:
+    radial-gradient(circle at 13% 16%, rgba(255,138,28,.45), transparent 28%),
+    radial-gradient(circle at 86% 10%, rgba(24,205,233,.25), transparent 30%),
+    radial-gradient(circle at 75% 86%, rgba(124,58,237,.45), transparent 34%),
+    linear-gradient(135deg,#070812,#12142e 54%,#080812); padding:62px 62px 48px; }
+  .cover:after { content:""; position:absolute; inset:0; background-image:linear-gradient(rgba(255,255,255,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px); background-size:34px 34px; mask-image:radial-gradient(circle at 50% 25%, black, transparent 86%); pointer-events:none; }
+  .cover-inner { position:relative; z-index:1; height:100%; display:flex; flex-direction:column; justify-content:space-between; }
+  .brand-row { display:flex; align-items:center; gap:20px; }
+  .logo { width:86px; height:86px; border-radius:24px; padding:12px; background:rgba(255,255,255,.09); border:1px solid rgba(255,255,255,.16); box-shadow:0 0 48px rgba(255,138,28,.33); }
+  .eyebrow { color:var(--gold); letter-spacing:.18em; text-transform:uppercase; font-size:12px; font-weight:800; }
+  h1 { margin:22px 0 10px; font-size:58px; line-height:1; letter-spacing:-.055em; }
+  .subtitle { font-size:22px; max-width:680px; color:#dfe7f8; margin:0 0 34px; }
+  .badge-row { display:flex; flex-wrap:wrap; gap:12px; margin:28px 0; }
+  .badge { border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.08); border-radius:999px; padding:9px 13px; font-weight:800; color:#fff; }
+  .cover-card { margin-top:42px; max-width:560px; border:1px solid rgba(255,255,255,.17); background:rgba(255,255,255,.08); backdrop-filter:blur(14px); border-radius:24px; padding:24px; }
+  .cover-meta { color:#cbd7ee; font-size:14px; }
+  .content { padding:42px 54px 54px; }
+  .toc { display:grid; grid-template-columns:1fr 1fr; gap:14px 26px; margin-top:20px; }
+  .toc a { display:flex; justify-content:space-between; gap:12px; color:var(--ink); text-decoration:none; border-bottom:1px dashed #cfd7e6; padding:7px 0; }
+  h2 { margin:34px 0 12px; font-size:28px; letter-spacing:-.03em; color:#101828; border-bottom:3px solid transparent; border-image:linear-gradient(90deg,var(--ember),var(--rose),var(--violet),transparent) 1; padding-bottom:8px; }
+  h3 { margin:24px 0 8px; font-size:18px; color:#1d2a44; }
+  p { margin:8px 0 12px; }
+  ul,ol { margin:8px 0 14px 22px; padding:0; }
+  li { margin:5px 0; }
+  code, kbd { font-family:"Cascadia Mono", Consolas, monospace; background:#f1f5fb; border:1px solid #d8e1ef; padding:2px 5px; border-radius:6px; color:#0f172a; }
+  pre { background:#0f172a; color:#e5eefc; border-radius:16px; padding:16px; overflow:auto; font-size:12.5px; line-height:1.45; }
+  .callout { border-left:5px solid var(--ember); background:#fff8ed; border-radius:14px; padding:14px 16px; margin:16px 0; }
+  .privacy { border-left-color:var(--aqua); background:#ecfeff; }
+  .danger { border-left-color:var(--rose); background:#fff1f5; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .card { border:1px solid var(--line); border-radius:18px; padding:16px; background:linear-gradient(180deg,#fff,#fafbff); }
+  .card h3 { margin-top:0; }
+  .steps { counter-reset: step; }
+  .step { position:relative; padding-left:48px; }
+  .step:before { counter-increment:step; content:counter(step); position:absolute; left:14px; top:15px; width:24px; height:24px; border-radius:50%; display:grid; place-items:center; color:#190b02; font-weight:900; background:linear-gradient(135deg,var(--gold),var(--ember)); }
+  table { width:100%; border-collapse:collapse; margin:14px 0 22px; font-size:13.5px; }
+  th { background:#101828; color:#fff; text-align:left; }
+  th,td { border:1px solid #d9e2ef; padding:9px 10px; vertical-align:top; }
+  tr:nth-child(even) td { background:#fbfcff; }
+  .footer-note { margin-top:34px; padding-top:14px; border-top:1px solid var(--line); color:var(--muted); font-size:12.5px; }
+  .credits-list strong { color:#101828; }
+  .mini { font-size:12.5px; color:var(--muted); }
+  .watermark { position:absolute; right:52px; bottom:46px; opacity:.11; font-size:120px; font-weight:900; letter-spacing:-.08em; }
+</style>
+</head>
+<body>
+<main class="page">
+<section class="cover">
+  <div class="cover-inner">
+    <div>
+      <div class="brand-row">
+        <img class="logo" src="../public/fire-icon.png" alt="Safire flame logo" />
+        <div><div class="eyebrow">Instruction Manual</div><div class="cover-meta">Safire v1.1.0 · July 2026</div></div>
+      </div>
+      <h1>Safire</h1>
+      <p class="subtitle">A privacy-focused, local-first Markdown knowledge forge for notes, ideas, projects, daily logs, backlinks, tags, graph exploration, attachments, and recoverable edits.</p>
+      <div class="badge-row"><span class="badge">Local files</span><span class="badge">Markdown vault</span><span class="badge">Backups</span><span class="badge">Historical guide</span></div>
+      <div class="cover-card">
+        <strong>What this manual covers</strong>
+        <p>Installation and launch, the Safire workspace, writing notes, organizing a vault, links and graph view, attachments, backups, restore, settings, keyboard shortcuts, privacy, troubleshooting, and credits.</p>
+      </div>
+    </div>
+    <div class="cover-meta">Historical guide · Safire 1.1.0 · Superseded by the current user guide</div>
+  </div>
+  <div class="watermark">S</div>
+</section>
+
+<section class="content break">
+  <h2>Table of Contents</h2>
+  <div class="toc">
+    <a href="#overview"><span>1. Overview</span><span>3</span></a>
+    <a href="#quickstart"><span>2. Quick Start</span><span>4</span></a>
+    <a href="#workspace"><span>3. Workspace Tour</span><span>5</span></a>
+    <a href="#notes"><span>4. Creating & Editing Notes</span><span>6</span></a>
+    <a href="#markdown"><span>5. Markdown & Toolbar</span><span>7</span></a>
+    <a href="#organization"><span>6. Folders, Tags & Search</span><span>8</span></a>
+    <a href="#links"><span>7. Wikilinks, Backlinks & Graph</span><span>9</span></a>
+    <a href="#attachments"><span>8. Attachments</span><span>10</span></a>
+    <a href="#daily"><span>9. Daily Notes</span><span>11</span></a>
+    <a href="#backups"><span>10. Backups & Restore</span><span>12</span></a>
+    <a href="#settings"><span>11. Settings</span><span>13</span></a>
+    <a href="#privacy"><span>12. Privacy & Safety</span><span>14</span></a>
+    <a href="#troubleshooting"><span>13. Troubleshooting</span><span>15</span></a>
+    <a href="#credits"><span>14. Credits</span><span>16</span></a>
+  </div>
+
+  <h2 id="overview">1. Overview</h2>
+  <p><strong>Safire</strong> is a desktop knowledge workspace that stores your writing as normal <code>.md</code> Markdown files on your computer. It is designed to feel polished and app-like while keeping your information readable, portable, and under your control.</p>
+  <div class="grid">
+    <div class="card"><h3>Local-first</h3><p>Your notes live in a folder called a vault. They remain ordinary files that can be backed up, copied, searched, or opened outside Safire.</p></div>
+    <div class="card"><h3>Connected thinking</h3><p>Use <code>[[wikilinks]]</code>, backlinks, outgoing links, tags, and graph view to connect notes into a living knowledge map.</p></div>
+    <div class="card"><h3>Writing flow</h3><p>Use split view, preview view, edit view, tabs, autosave, command palette, quick switcher, and Markdown toolbar shortcuts.</p></div>
+    <div class="card"><h3>Trust features</h3><p>Safire creates backups before writes/deletes and includes a backup browser with preview and restore.</p></div>
+  </div>
+
+  <h2 id="quickstart" class="break">2. Quick Start</h2>
+  <div class="steps">
+    <div class="card step"><h3>Launch Safire</h3><p>Open the Safire desktop app. If you are using a developer/browser run, start the server from the project folder with <code>npm start</code> and open <code>http://127.0.0.1:5277</code>.</p></div>
+    <div class="card step"><h3>Choose or confirm your vault</h3><p>Safire uses the vault selected during desktop setup. Developer/browser mode can set <code>SAFIRE_VAULT_PATH</code> explicitly.</p></div>
+    <div class="card step"><h3>Create your first note</h3><p>Click <strong>+ Note</strong>, enter a name, and start typing. Safire automatically appends <code>.md</code> when needed.</p></div>
+    <div class="card step"><h3>Link ideas together</h3><p>Type <code>[[Ideas]]</code> or use the <strong>Wiki</strong> toolbar button. Links appear in preview and can create missing notes.</p></div>
+    <div class="card step"><h3>Use commands</h3><p>Press <kbd>Ctrl</kbd> + <kbd>K</kbd> for the command palette or <kbd>Ctrl</kbd> + <kbd>O</kbd> for the quick switcher.</p></div>
+  </div>
+  <div class="callout privacy"><strong>Local service:</strong> Safire's application service binds to <code>127.0.0.1</code>, so it is intended to be reachable only from the same computer.</div>
+
+  <h2 id="workspace" class="break">3. Workspace Tour</h2>
+  <table>
+    <thead><tr><th>Area</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td>Ribbon</td><td>Compact vertical controls for files, search, graph, backups, settings, and command palette.</td></tr>
+      <tr><td>Sidebar</td><td>App identity/version, note/folder buttons, search box, vault path, file tree, and tag cloud.</td></tr>
+      <tr><td>Tabs</td><td>Keep multiple notes open and switch between them quickly.</td></tr>
+      <tr><td>Top bar</td><td>Shows active note title, save/autosave state, view mode buttons, attach, backups, settings, rename, save, and delete.</td></tr>
+      <tr><td>Editor</td><td>Write raw Markdown. In split mode it appears beside the rendered preview.</td></tr>
+      <tr><td>Preview</td><td>Rendered Markdown with clickable wikilinks and attachment links.</td></tr>
+      <tr><td>Inspector</td><td>Backlinks, outgoing links, properties, status, vault health, and shortcut reminders.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="notes">4. Creating & Editing Notes</h2>
+  <h3>Create a note</h3>
+  <ol><li>Click <strong>+ Note</strong>.</li><li>Enter a title or path, such as <code>Projects/Safire Ideas</code>.</li><li>Click <strong>Create note</strong>.</li></ol>
+  <h3>Rename or move a note</h3>
+  <p>Click <strong>Rename</strong> and enter a new path. Including a folder path moves the note, for example <code>Projects/Ideas.md</code>.</p>
+  <h3>Delete a note</h3>
+  <p>Click <strong>Delete</strong>. Safire asks for confirmation and creates a backup copy before deletion.</p>
+  <div class="callout danger"><strong>Important:</strong> Although Safire creates backups, keep a separate backup of your vault folder using your normal PC backup method.</div>
+
+  <h2 id="markdown" class="break">5. Markdown & Toolbar</h2>
+  <p>Safire uses Markdown, a plain-text format that remains readable even outside the app. The toolbar helps insert common Markdown patterns.</p>
+  <table>
+    <thead><tr><th>Toolbar Button</th><th>Inserts</th><th>Use For</th></tr></thead>
+    <tbody>
+      <tr><td>H1 / H2</td><td><code># Heading</code>, <code>## Heading</code></td><td>Document sections</td></tr>
+      <tr><td>B / I</td><td><code>**bold**</code>, <code>*italic*</code></td><td>Emphasis</td></tr>
+      <tr><td>`Code` / Block</td><td><code>`inline code`</code>, fenced code blocks</td><td>Commands, snippets, technical notes</td></tr>
+      <tr><td>Quote</td><td><code>&gt; quote</code></td><td>Quoted material or highlights</td></tr>
+      <tr><td>List / Task</td><td><code>- item</code>, <code>- [ ] task</code></td><td>Lists and checklists</td></tr>
+      <tr><td>Link</td><td><code>[text](https://...)</code></td><td>Web links or file links</td></tr>
+      <tr><td>Wiki</td><td><code>[[Note Name]]</code></td><td>Internal note links</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="organization">6. Folders, Tags & Search</h2>
+  <h3>Folders</h3><p>Click <strong>+ Folder</strong> to create vault folders. Notes can be nested inside folders by naming them with a path.</p>
+  <h3>Tags</h3><p>Type tags directly in notes, such as <code>#project</code>, <code>#daily</code>, or <code>#ideas</code>. Safire collects tags into the sidebar tag cloud.</p>
+  <h3>Search</h3><p>Use the sidebar search box to search note names and note content. Clicking a result opens the note.</p>
+
+  <h2 id="links" class="break">7. Wikilinks, Backlinks & Graph</h2>
+  <p>Wikilinks connect notes by title. For example, typing <code>[[Project Plan]]</code> creates a clickable link to a note named <code>Project Plan.md</code>.</p>
+  <ul>
+    <li><strong>Outgoing links</strong> show notes that the current note points to.</li>
+    <li><strong>Backlinks</strong> show notes that point back to the current note.</li>
+    <li><strong>Graph view</strong> shows a visual map of note relationships.</li>
+  </ul>
+  <div class="callout"><strong>Tip:</strong> Use wikilinks liberally while writing. You can create missing notes later by clicking unresolved links in preview.</div>
+
+  <h2 id="attachments">8. Attachments</h2>
+  <p>Safire can copy files into the vault and insert Markdown links to them.</p>
+  <h3>Add an attachment</h3>
+  <ol><li>Click <strong>Attach</strong> or <strong>Attach file</strong>, or drag/drop a file into the editor.</li><li>Safire copies the file into the vault's <code>Attachments/</code> folder.</li><li>A Markdown link is inserted into the note.</li></ol>
+  <h3>Open an attachment</h3>
+  <p>Click the attachment link in preview. Safire opens the file in an in-app attachment viewer so the note app stays open. Use <strong>Back to Safire</strong>, the close button, or <kbd>Esc</kbd> to return to your note.</p>
+  <h3>Image attachments</h3>
+  <p>Images are inserted as Markdown image links and display in preview.</p>
+
+  <h2 id="daily">9. Daily Notes</h2>
+  <p>Click <strong>Today</strong> to open or create a daily note under <code>Daily Notes/YYYY-MM-DD.md</code>. Daily notes are useful for logs, scratch notes, work journals, and lightweight task capture.</p>
+  <pre># 2026-07-06
+
+## Notes
+
+## Tasks
+
+- [ ]
+
+#daily</pre>
+
+  <h2 id="backups" class="break">10. Backups & Restore</h2>
+  <p>Safire creates dated backup files before note saves and deletes. These backups are stored under <code>.safire-backups/</code> inside the vault.</p>
+  <h3>Preview backups</h3><ol><li>Open a note.</li><li>Click <strong>Backups</strong>.</li><li>Select a backup from the list to preview its content.</li></ol>
+  <h3>Restore a backup</h3><ol><li>Select a backup.</li><li>Click <strong>Restore this backup</strong>.</li><li>Confirm. Safire creates a safety backup of the current note first, then restores the selected version.</li></ol>
+
+  <h2 id="settings">11. Settings</h2>
+  <p>Open <strong>Settings</strong> from the top bar or command palette. Settings are stored locally inside the vault.</p>
+  <table><thead><tr><th>Setting</th><th>Description</th></tr></thead><tbody>
+    <tr><td>Autosave</td><td>Turn automatic save on or off.</td></tr>
+    <tr><td>Autosave delay</td><td>Controls how long Safire waits after edits before autosaving.</td></tr>
+    <tr><td>Startup note</td><td>The note Safire opens at launch.</td></tr>
+    <tr><td>Default view</td><td>Choose Split, Edit, Preview, or Graph as the default view.</td></tr>
+    <tr><td>Daily notes folder</td><td>Folder used for daily notes.</td></tr>
+    <tr><td>Backup retention days</td><td>Retention preference for future backup management.</td></tr>
+    <tr><td>Confirm deletes</td><td>Control whether deletion confirmation is required.</td></tr>
+  </tbody></table>
+
+  <h2 id="shortcuts" class="break">Keyboard Shortcuts</h2>
+  <table><thead><tr><th>Shortcut</th><th>Action</th></tr></thead><tbody>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>K</kbd></td><td>Open command palette</td></tr>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>O</kbd></td><td>Open quick switcher</td></tr>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>S</kbd></td><td>Save active note</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>Close palette, switcher, dialogs, or attachment viewer</td></tr>
+  </tbody></table>
+
+  <h2 id="privacy">12. Privacy & Safety</h2>
+  <ul>
+    <li>Safire stores notes as plain Markdown files in your chosen vault folder.</li>
+    <li>The local API binds to <code>127.0.0.1</code> by default.</li>
+    <li>File APIs reject path traversal outside the vault.</li>
+    <li>Backups are created before writes/deletes.</li>
+    <li>Safire is not a cloud sync service. If you need off-device backup, use a backup tool you trust.</li>
+  </ul>
+
+  <h2 id="troubleshooting" class="break">13. Troubleshooting</h2>
+  <table><thead><tr><th>Issue</th><th>Suggested Action</th></tr></thead><tbody>
+    <tr><td>The app does not open</td><td>Try launching the app again. In developer mode, run <code>npm start</code> and confirm <code>http://127.0.0.1:5277</code> responds.</td></tr>
+    <tr><td>A note seems missing</td><td>Check the file tree, search by title/content, and inspect the vault folder directly.</td></tr>
+    <tr><td>A link creates the wrong note</td><td>Check spelling and capitalization of the wikilink target. Rename the note if needed.</td></tr>
+    <tr><td>Attachment does not preview</td><td>Use the Download file link in the attachment viewer and verify the file exists in <code>Attachments/</code>.</td></tr>
+    <tr><td>Need to recover old text</td><td>Open <strong>Backups</strong>, preview previous versions, and restore the correct one.</td></tr>
+    <tr><td>Preview looks stale</td><td>Save the note, refresh the app, or switch views. In browser/dev mode, a service worker cache may need a cache-busting reload.</td></tr>
+  </tbody></table>
+
+  <h2 id="credits" class="break">14. Credits</h2>
+  <p class="credits-list"><strong>Application:</strong> Safire v1.1.0, a local-first Markdown knowledge forge.</p>
+  <p class="credits-list"><strong>Status:</strong> Historical documentation retained for version reference.</p>
+  <p class="credits-list"><strong>Core technologies:</strong> React, Vite, TypeScript, Express, Electron, electron-builder, and marked.</p>
+  <p class="credits-list"><strong>Branding:</strong> Safire name, flame visual identity, and local knowledge-forge concept prepared for this original application.</p>
+  <p class="credits-list"><strong>Privacy note:</strong> Safire is designed around local Markdown files and local-only operation. It is not affiliated with Obsidian or any other proprietary notes product and does not copy proprietary code, assets, branding, names, or implementation.</p>
+  <p class="credits-list"><strong>Manual:</strong> Safire Instruction Manual v1.1.0, prepared July 2026.</p>
+  <div class="footer-note">Safire stores your work in normal Markdown files. Keep backups of your vault. This manual describes Safire v1.1.0; future versions may add, remove, or rename features.</div>
+</section>
+</main>
+</body>
+</html>

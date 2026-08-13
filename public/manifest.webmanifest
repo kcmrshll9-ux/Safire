@@ -1,0 +1,14 @@
+{
+  "name": "Safire",
+  "short_name": "Safire",
+  "description": "A privacy-focused, local-first Markdown knowledge forge for Windows.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#070812",
+  "theme_color": "#120817",
+  "icons": [
+    { "src": "/fire-icon.png", "sizes": "256x256", "type": "image/png" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

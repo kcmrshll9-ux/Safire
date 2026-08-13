@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Safire Complete User Guide v1.2.0</title>
+<style>
+  :root{--ink:#142033;--muted:#607087;--paper:#fff;--soft:#f5f7fb;--line:#dbe2ed;--blue:#356cf6;--violet:#7658e7;--amber:#ff9a3d;--gold:#ffd36e;--aqua:#2ab9d8;--danger:#c2414f}
+  *{box-sizing:border-box} html{background:#e9edf5} body{margin:0;color:var(--ink);font-family:Inter,"Segoe UI",Arial,sans-serif;font-size:10.5pt;line-height:1.57;background:#e9edf5} .page{width:8.5in;min-height:11in;margin:24px auto;background:var(--paper);box-shadow:0 22px 65px rgba(31,42,63,.18)} .content{padding:.55in .62in .58in} h1,h2,h3{letter-spacing:-.025em} h2{font-size:23pt;line-height:1.1;margin:0 0 15px;padding-bottom:9px;border-bottom:3px solid transparent;border-image:linear-gradient(90deg,var(--blue),var(--violet),transparent) 1;color:#17243a} h3{font-size:13pt;line-height:1.2;margin:21px 0 7px;color:#263957} p{margin:7px 0 11px} ul,ol{margin:7px 0 13px 21px;padding:0}li{margin:4px 0} code,kbd{font-family:"Cascadia Mono",Consolas,monospace;font-size:.89em;background:#f0f4fa;border:1px solid #d6dfec;color:#10203a;border-radius:5px;padding:1px 4px} kbd{font-weight:750;white-space:nowrap}.small{font-size:9pt}.muted{color:var(--muted)}.eyebrow{font-weight:800;text-transform:uppercase;letter-spacing:.16em;font-size:8.5pt;color:#9ab0d0}.cover{position:relative;overflow:hidden;min-height:11in;color:#fff;padding:.68in .72in;background:radial-gradient(circle at 15% 16%,rgba(255,154,61,.42),transparent 26%),radial-gradient(circle at 86% 9%,rgba(42,185,216,.26),transparent 30%),radial-gradient(circle at 77% 87%,rgba(118,88,231,.38),transparent 35%),linear-gradient(135deg,#090e1c 0%,#111d37 50%,#090d18 100%)}.cover:after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(rgba(255,255,255,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);background-size:31px 31px;mask-image:radial-gradient(circle at 44% 31%,#000,transparent 80%)}.cover-inner{position:relative;z-index:1;min-height:9.65in;display:flex;flex-direction:column;justify-content:space-between}.brand{display:flex;align-items:center;gap:17px}.logo{width:76px;height:76px;padding:10px;border-radius:22px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.16);box-shadow:0 0 42px rgba(255,154,61,.28)}.cover h1{font-size:56pt;line-height:.95;margin:28px 0 12px;letter-spacing:-.065em}.cover .subtitle{max-width:630px;font-size:18pt;line-height:1.38;color:#e1eafd;margin:0}.badges{display:flex;flex-wrap:wrap;gap:9px;margin:28px 0}.badge{border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);border-radius:999px;padding:7px 11px;font-size:9.5pt;font-weight:750}.cover-card{max-width:575px;margin-top:34px;padding:19px 21px;border-radius:20px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.07);backdrop-filter:blur(12px)}.cover-card p{color:#d6e3fb}.watermark{position:absolute;right:.55in;bottom:.35in;color:rgba(255,255,255,.075);font-size:144pt;font-weight:900;letter-spacing:-.1em}.toc{columns:2;column-gap:28px;margin-top:8px}.toc a{display:flex;justify-content:space-between;gap:12px;break-inside:avoid;color:inherit;text-decoration:none;border-bottom:1px dashed #cad5e4;padding:8px 0}.toc a span:last-child{color:#677994;font-size:9pt}.lede{font-size:12pt;color:#3b4c66;max-width:650px}.callout{margin:15px 0;padding:13px 15px;border-left:4px solid var(--blue);border-radius:12px;background:#eff5ff}.callout strong{color:#173e91}.callout.amber{border-left-color:var(--amber);background:#fff7e8}.callout.amber strong{color:#81520c}.callout.safe{border-left-color:var(--aqua);background:#eafafd}.callout.safe strong{color:#087187}.callout.alert{border-left-color:var(--danger);background:#fff0f2}.callout.alert strong{color:#922434}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.card{border:1px solid var(--line);border-radius:15px;padding:13px 14px;background:linear-gradient(180deg,#fff,#f9fbff);break-inside:avoid}.card h3{margin:0 0 5px;font-size:11.5pt}.card p{margin:0;color:#4a5c75}.steps{counter-reset:step}.step{position:relative;padding-left:47px}.step:before{counter-increment:step;content:counter(step);position:absolute;left:14px;top:13px;width:23px;height:23px;display:grid;place-items:center;border-radius:999px;color:#152136;font-weight:850;background:linear-gradient(135deg,var(--gold),var(--amber))}table{width:100%;border-collapse:collapse;margin:11px 0 18px;font-size:9.4pt}th{background:#17243a;color:#fff;text-align:left;font-weight:750}th,td{border:1px solid #d9e2ee;padding:8px 9px;vertical-align:top}tr:nth-child(even) td{background:#fafcff}.feature-table td:first-child{width:28%;font-weight:750;color:#263957}.two-col{columns:2;column-gap:28px}.avoid-break{break-inside:avoid}.footer{margin-top:32px;padding-top:12px;border-top:1px solid var(--line);font-size:8.5pt;color:var(--muted)}.rule{height:1px;background:var(--line);margin:19px 0}.tool-list{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin:12px 0}.tool{border:1px solid #d9e3f0;border-radius:10px;background:#f9fbff;padding:9px 10px}.tool b{display:block;color:#1e3a73;margin-bottom:2px}.tool span{font-size:8.8pt;color:#52657e}.page-break{break-before:page}@page{size:Letter;margin:.56in .55in .62in}@media print{html,body{background:#fff}.page{width:auto;min-height:0;margin:0;box-shadow:none}.cover{min-height:9.82in;page-break-after:always}.page-break{page-break-before:always}.content{padding:0}.no-print{display:none}a{color:inherit;text-decoration:none}}
+@media print{body{font-size:9.5pt;line-height:1.42}.cover{min-height:9.68in}.cover-inner{min-height:8.25in}h3{margin-top:15px}p{margin-bottom:7px}.card,.callout,table,pre{break-inside:avoid}}
+</style>
+</head>
+<body>
+<main class="page cover">
+  <div class="cover-inner">
+    <div>
+      <div class="brand"><img class="logo" src="../public/fire-icon.png" alt="Safire flame logo"><div><div class="eyebrow" style="color:#ffe19a">Complete User Guide</div><div style="color:#cad8ef;margin-top:5px">Safire v1.2.0 · July 2026</div></div></div>
+      <h1>Safire</h1>
+      <p class="subtitle">Historical instructions for a local-first Markdown workspace and its optional Model Context Protocol integration.</p>
+      <div class="badges"><span class="badge">Local Markdown files</span><span class="badge">Connected notes</span><span class="badge">Backups & restore</span><span class="badge">Hermes MCP</span></div>
+      <div class="cover-card"><strong>What is inside</strong><p>Launching Safire; the workspace, notes, tasks, templates, attachments, web clipping, image controls, safety, troubleshooting, and a clear guide to the new Hermes native integration.</p></div>
+    </div>
+    <div style="font-size:9.5pt;color:#c8d6ed">Historical guide · Safire 1.2.0 · Superseded by the current user guide</div>
+  </div><div class="watermark">S</div>
+</main>
+
+<main class="page"><section class="content">
+  <h2>Contents</h2>
+  <div class="toc">
+    <a href="#overview"><span>1. Safire at a glance</span><span>3</span></a>
+    <a href="#quick-start"><span>2. Quick start</span><span>4</span></a>
+    <a href="#workspace"><span>3. Workspace tour</span><span>5</span></a>
+    <a href="#writing"><span>4. Notes and Markdown</span><span>6</span></a>
+    <a href="#knowledge"><span>5. Connected knowledge</span><span>7</span></a>
+    <a href="#workflows"><span>6. Home, tasks, capture & templates</span><span>8</span></a>
+    <a href="#attachments"><span>7. Attachments, images & media</span><span>10</span></a>
+    <a href="#clipper"><span>8. Web Clipper</span><span>11</span></a>
+    <a href="#settings"><span>9. Settings, backups & safety</span><span>13</span></a>
+    <a href="#hermes"><span>10. Hermes native integration</span><span>15</span></a>
+    <a href="#shortcuts"><span>11. Keyboard shortcuts</span><span>17</span></a>
+    <a href="#troubleshooting"><span>12. Troubleshooting & reference</span><span>18</span></a>
+  </div>
+  <div class="rule"></div>
+  <h2 id="overview">1. Safire at a glance</h2>
+  <p class="lede"><strong>Safire</strong> is a desktop knowledge workspace that keeps your notes as normal <code>.md</code> files on your own computer. You get a polished writing environment without giving up file portability or control.</p>
+  <div class="grid">
+    <div class="card"><h3>Local-first</h3><p>Notes, preferences, backups, templates, and attachments stay inside your vault. You can copy or back up the vault like any other folder.</p></div>
+    <div class="card"><h3>Connected thinking</h3><p>Wikilinks, backlinks, tags, search, a graph view, and a note outline make related ideas easy to find.</p></div>
+    <div class="card"><h3>Practical workflows</h3><p>Use a Home dashboard, vault-wide tasks, quick capture, daily notes, templates, saved searches, pinned notes, and recent notes.</p></div>
+    <div class="card"><h3>Safety built in</h3><p>Safire backs up a note before replacing it, deleting it, toggling a task, or restoring a prior version.</p></div>
+  </div>
+  <div class="callout safe"><strong>Where the data lives:</strong> Safire uses the vault selected during desktop setup. A developer/browser run can set <code>SAFIRE_VAULT_PATH</code> explicitly. Notes remain ordinary Markdown files in that folder.</div>
+  <h3>What Safire is not</h3><p>Safire is not a cloud-sync service. Keep an independent backup of your vault using the backup system you trust. Safire is an original application and is not affiliated with, or a copy of, any proprietary notes app.</p>
+</section></main>
+
+<main class="page"><section class="content page-break">
+  <h2 id="quick-start">2. Quick start</h2>
+  <div class="steps">
+    <div class="card step"><h3>Choose your vault during setup</h3><p>On the first desktop launch, Safire asks where it should keep your Markdown notes. Choose the recommended <code>Documents/Safire Vault</code> location or select an existing or new folder. Safire remembers this choice.</p></div>
+    <div class="card step"><h3>Launch Safire</h3><p>Open the Safire desktop application. For a developer/browser run, use <code>npm start</code> in the Safire project folder, then open <code>http://127.0.0.1:5277</code>.</p></div>
+    <div class="card step"><h3>Open or create a note</h3><p>Select a note in the Files panel, or choose <strong>+ Note</strong>. You can enter a simple title or a path such as <code>Projects/Quarterly Plan</code>.</p></div>
+    <div class="card step"><h3>Write in Markdown</h3><p>Write normally in the editor or use the toolbar to insert headings, bold text, tasks, web links, wikilinks, code, quotes, lists, and attachments.</p></div>
+    <div class="card step"><h3>Connect ideas</h3><p>Type <code>[[A Related Note]]</code>. Safire displays outgoing links and backlinks, and graph view lets you explore the relationships visually.</p></div>
+    <div class="card step"><h3>Build a habit</h3><p>Use <strong>Today</strong> for a daily log, <strong>Quick capture</strong> for a fast Inbox note, and the Home dashboard to resume useful work.</p></div>
+  </div>
+  <h3>Saving</h3><p>Safire saves automatically when Autosave is enabled. Use <kbd>Ctrl</kbd> + <kbd>S</kbd> whenever you want an immediate save. Replacing an existing note creates a dated backup first.</p>
+  <div class="callout amber"><strong>Tip:</strong> Start with a short daily note, then use wikilinks instead of trying to organize everything perfectly up front. Links and search will keep the vault navigable as it grows.</div>
+  <h2 id="workspace">3. Workspace tour</h2>
+  <table class="feature-table"><thead><tr><th>Area</th><th>What it does</th></tr></thead><tbody>
+    <tr><td>Left ribbon</td><td>Fast entry points for Home, Tasks, Quick capture, Web Clipper, Files, search/quick switching, Graph, Backups, Settings, and Commands.</td></tr>
+    <tr><td>Sidebar</td><td>Contains the Safire identity card, <strong>+ Note</strong>, <strong>+ Folder</strong>, <strong>Today</strong>, search, your vault path, the file tree, and tags.</td></tr>
+    <tr><td>Tabs and top bar</td><td>Tabs keep multiple notes available. The top bar shows the current note, save status, view controls, pinning, attachments, backups, settings, rename, save, and delete controls.</td></tr>
+    <tr><td>Editor and preview</td><td>Split view shows Markdown source beside its rendered result. Edit-only and Preview-only views support focused writing or reading.</td></tr>
+    <tr><td>Inspector</td><td>Shows note word count, estimated reading time, a clickable heading outline, backlinks, outgoing links, tags, status, and vault health.</td></tr>
+  </tbody></table>
+</section></main>
+
+<main class="page"><section class="content page-break">
+  <h2 id="writing">4. Notes and Markdown</h2>
+  <h3>Create, rename, move, and delete</h3>
+  <ol><li>Select <strong>+ Note</strong> and enter a title or a vault-relative path. Safire adds <code>.md</code> as needed.</li><li>To move a note, choose <strong>Rename</strong> and enter a new path, for example <code>Projects/2026/Plan.md</code>.</li><li>To delete a note, choose <strong>Delete</strong> and confirm. Safire creates a backup before the deletion.</li></ol>
+  <div class="callout alert"><strong>Be deliberate with delete:</strong> Safire’s backups help with recovery, but they are not a replacement for your normal backup routine.</div>
+  <h3>Markdown toolbar</h3>
+  <table><thead><tr><th>Control</th><th>Example</th><th>Use it for</th></tr></thead><tbody>
+    <tr><td>H1 / H2</td><td><code># Title</code>, <code>## Section</code></td><td>Clear document hierarchy and outline navigation.</td></tr>
+    <tr><td>Bold / Italic</td><td><code>**important**</code>, <code>*emphasis*</code></td><td>Emphasis in notes.</td></tr>
+    <tr><td>Code / Block</td><td><code>`command`</code>, fenced code block</td><td>Commands, code samples, or technical details.</td></tr>
+    <tr><td>Quote / List / Task</td><td><code>&gt; quote</code>, <code>- item</code>, <code>- [ ] task</code></td><td>Notes, lists, and trackable checklist items.</td></tr>
+    <tr><td>Link / Wiki</td><td><code>[label](https://...)</code>, <code>[[Note Name]]</code></td><td>Web links and internal note relationships.</td></tr>
+  </tbody></table>
+  <h3>View modes</h3><p>Use <strong>Split</strong> to write and see formatting at once, <strong>Edit</strong> for uninterrupted Markdown, <strong>Preview</strong> for reading, and <strong>Graph</strong> to inspect vault connections.</p>
+  <h3>Note outline and reading stats</h3><p>Use Markdown headings to create an automatic outline in the Inspector. Select an outline entry to scroll the preview to that heading. Safire also reports word count and estimated reading time for the active note.</p>
+</section></main>
+
+<main class="page"><section class="content page-break">
+  <h2 id="knowledge">5. Connected knowledge</h2>
+  <h3>Folders and tags</h3><p>Create folders with <strong>+ Folder</strong> or by using a folder path when creating a note. Add tags directly in note text, such as <code>#projects</code>, <code>#home</code>, or <code>#research</code>. Selecting a tag in the sidebar searches for it.</p>
+  <h3>Search and saved searches</h3><p>The search field looks through note paths and note content. After entering a useful query, choose <strong>Save search</strong>; it will appear on Home until you remove it.</p>
+  <h3>Wikilinks and backlinks</h3>
+  <ul><li>Write <code>[[Project Plan]]</code> to link by note title.</li><li>In preview, select a linked note to open it. If the linked note does not exist, Safire can offer to create it.</li><li><strong>Outgoing links</strong> show notes named by the current note.</li><li><strong>Backlinks</strong> show notes that point back to the current note.</li></ul>
+  <h3>Graph view</h3><p>Graph view arranges notes by connection density. Solid connections are resolved links; dashed connections represent unresolved links. Select a graph node to open the corresponding note.</p>
+  <div class="callout"><strong>Useful pattern:</strong> Write first, link second. When you mention a person, project, place, or repeated idea, type a wikilink. Over time the graph becomes more useful without an elaborate folder scheme.</div>
+  <h2 id="workflows">6. Home, tasks, capture, daily notes, and templates</h2>
+  <div class="grid">
+    <div class="card"><h3>Home dashboard</h3><p>Home surfaces open tasks, pinned notes, recently opened notes, saved searches, and vault health. It is the fastest way to resume productive work.</p></div>
+    <div class="card"><h3>Pin a note</h3><p>Select <strong>Pin</strong> in the active note’s header. Pinned notes stay visible on Home until you unpin them.</p></div>
+    <div class="card"><h3>Vault-wide tasks</h3><p>Use <strong>Tasks</strong> to see open or completed Markdown checklist items across every note. Select the checkbox to toggle a task, or its title to open the note at its source.</p></div>
+    <div class="card"><h3>Quick capture</h3><p>Use <strong>Quick capture</strong> to save a thought into a new portable Markdown note in <code>Inbox/</code>. Add an optional simple tag.</p></div>
+  </div>
+</section></main>
+
+<main class="page"><section class="content page-break">
+  <h2>6. Continued: daily notes and templates</h2>
+  <h3>Daily notes</h3><p>Select <strong>Today</strong> to open or create <code>Daily Notes/YYYY-MM-DD.md</code>. The starter layout includes Notes, Tasks, and a <code>#daily</code> tag. Change the daily-note folder in Settings if you prefer another location.</p>
+  <h3>Templates</h3>
+  <ol><li>Create one or more Markdown files under <code>Templates/</code>.</li><li>Use Home or the Command Palette and select <strong>New from template</strong>.</li><li>Choose a template, set the destination path, optionally set a title, then create the note.</li></ol>
+  <p>Templates are ordinary Markdown. Safire substitutes <code>{{title}}</code>, <code>{{date}}</code>, and <code>{{time}}</code> when it creates the new note.</p>
+  <div class="card avoid-break"><h3>Example meeting template</h3><pre style="margin:0;white-space:pre-wrap;background:#101a2d;color:#e7efff;padding:13px;border-radius:10px"># {{title}}
+
+Date: {{date}} {{time}}
+
+## Agenda
+
+## Notes
+
+## Follow-up
+- [ ] </pre></div>
+  <h3>Command palette and quick switcher</h3><p>Use the Command Palette to run Safire actions from one searchable list. Use Quick Switcher to jump directly to a note. Both support filtering, arrow-key selection, <kbd>Enter</kbd> to choose, and <kbd>Esc</kbd> to close.</p>
+  <h2 id="attachments">7. Attachments, images, and media</h2>
+  <h3>Add an attachment</h3><p>Select <strong>Attach</strong> or <strong>Attach file</strong>, drag files into the editor, or paste a file into the editor. Safire stores the file under <code>Attachments/</code> and inserts Markdown automatically.</p>
+  <ul><li>Images are inserted with Markdown image syntax and display in Preview.</li><li>Other supported files are inserted as Markdown links.</li><li>Safire limits one uploaded attachment to 15 MB.</li></ul>
+  <h3>Attachment viewer</h3><p>Select an attachment in Preview to open it inside Safire. The viewer has prominent <strong>Back to Safire</strong> and close controls, and <kbd>Esc</kbd> also returns to the note. Use <strong>Download file</strong> when you need the original outside the app.</p>
+</section></main>
+
+<main class="page"><section class="content page-break">
+  <h2>7. Continued: image controls and rich links</h2>
+  <h3>Image sizing</h3><p>Select an image in Preview to open the Image size menu. Choose <strong>Small</strong>, <strong>Medium</strong>, <strong>Large</strong>, <strong>Full width</strong>, <strong>Original</strong>, or <strong>Use default</strong>. Per-image choices are stored in portable Markdown as a compact size marker; the global <em>Fit images to page</em> setting controls the default behavior.</p>
+  <h3>YouTube links</h3><p>When a normal YouTube URL appears in a note, Safire renders it as a rich preview card with a thumbnail. Other links remain standard Markdown links.</p>
+  <div class="callout safe"><strong>Attachment safety:</strong> Safire only accepts attachment paths under the vault’s <code>Attachments/</code> folder and keeps preview navigation inside the app whenever possible.</div>
+  <h2 id="clipper">8. Web Clipper</h2>
+  <p>The Web Clipper saves a public web page as durable, offline-readable Markdown in your vault. It is designed for research material, recipes, references, articles, and academic papers—not as a cloud service.</p>
+  <h3>Capture a page</h3>
+  <ol><li>Open <strong>Web Clipper</strong> from the ribbon or Command Palette.</li><li>Paste a public <code>http</code> or <code>https</code> URL.</li><li>Optionally enter a title override.</li><li>Choose a built-in or custom template, then select <strong>Capture page</strong>.</li></ol>
+  <table><thead><tr><th>Built-in layout</th><th>Best for</th><th>Destination</th></tr></thead><tbody>
+    <tr><td>Article</td><td>Readable articles with source, author/description, citations, and footnotes where available.</td><td><code>Web Clips/Articles/</code></td></tr>
+    <tr><td>Recipe</td><td>Recipe pages that expose schema.org recipe data, including ingredients, instructions, yield, timing, and nutrition.</td><td><code>Web Clips/Recipes/</code></td></tr>
+    <tr><td>Reference</td><td>Books, films, podcasts, and other cultural or factual references.</td><td><code>Web Clips/References/</code></td></tr>
+    <tr><td>Academic paper</td><td>Papers or research references where a structured abstract/source record is useful.</td><td><code>Web Clips/Academic Papers/</code></td></tr>
+  </tbody></table>
+</section></main>
+
+<main class="page"><section class="content page-break">
+  <h2>8. Continued: Web Clipper safety and custom templates</h2>
+  <h3>Web Clipper safeguards</h3>
+  <ul><li>Only public <code>http</code> and <code>https</code> pages are accepted.</li><li>Safire blocks localhost, private-network, and <code>.local</code> addresses.</li><li>Redirects are rejected.</li><li>Fetches have a 15-second limit and pages larger than 2 MB are rejected.</li><li>Only HTML responses are captured.</li></ul>
+  <h3>Custom templates</h3><p>Select <strong>+ Custom template</strong> in Web Clipper to save a reusable Markdown layout under the local <code>.safire/</code> settings folder. Each custom template specifies a name, ID, destination folder, description, and Markdown body.</p>
+  <table><thead><tr><th>Token</th><th>Replaced with</th></tr></thead><tbody>
+    <tr><td><code>{{title}}</code></td><td>The page or overridden title.</td></tr><tr><td><code>{{url}}</code></td><td>The original source URL.</td></tr><tr><td><code>{{author}}</code></td><td>Available author metadata.</td></tr><tr><td><code>{{description}}</code></td><td>Available page description.</td></tr><tr><td><code>{{captured_at}}</code></td><td>Safire’s capture timestamp.</td></tr><tr><td><code>{{content}}</code></td><td>Readable captured Markdown content.</td></tr><tr><td><code>{{citations}}</code></td><td>Collected citation links.</td></tr><tr><td><code>{{footnotes}}</code></td><td>Collected footnotes where available.</td></tr>
+  </tbody></table>
+  <div class="callout amber"><strong>Practical note:</strong> Capture public material that you are permitted to save and use. The quality of a clip depends on the page’s publicly available HTML and metadata.</div>
+  <h2 id="settings">9. Settings, backups, and privacy</h2>
+  <h3>Settings</h3><p>Open <strong>Settings</strong> from the header, ribbon, or Command Palette. Settings are local to the vault in <code>.safire/settings.json</code>.</p>
+  <table><thead><tr><th>Setting</th><th>Purpose</th></tr></thead><tbody>
+    <tr><td>Autosave and delay</td><td>Turn automatic saving on/off and set the delay between 250 and 10,000 milliseconds.</td></tr>
+    <tr><td>Startup note and default view</td><td>Choose what opens when Safire starts and whether it uses Split, Edit, Preview, or Graph view.</td></tr>
+    <tr><td>Daily notes folder</td><td>Choose the folder for notes created with Today.</td></tr>
+    <tr><td>Backup retention days</td><td>Stores the local retention preference for future backup management.</td></tr>
+    <tr><td>Confirm deletes</td><td>Controls whether deletion confirmation is requested.</td></tr>
+    <tr><td>Fit images to page and theme</td><td>Set default image fit behavior and select the Dark or Light visual theme.</td></tr>
+  </tbody></table>
+</section></main>
+
+<main class="page"><section class="content page-break">
+  <h2>9. Continued: backups, vault health, and privacy</h2>
+  <h3>Backups and restore</h3><p>Safire writes dated backups under <code>.safire-backups/</code> before it replaces a note, deletes a note, toggles a task, or restores a backup. To review history:</p>
+  <ol><li>Open the note and select <strong>Backups</strong>.</li><li>Choose an item to preview its contents.</li><li>Select <strong>Restore this backup</strong> only after checking the preview.</li><li>Safire creates a safety backup of the current note before the restore.</li></ol>
+  <h3>Vault health</h3><p>The Inspector summarizes note, tag, link, and backup counts. It also identifies unresolved wikilinks and orphan notes. Use it as a light-weight cleanup signal—not as a reason to remove useful standalone notes.</p>
+  <h3>Privacy and local access</h3>
+  <ul><li>The Safire local API binds to <code>127.0.0.1</code> by default rather than your network.</li><li>Paths are validated to prevent reads/writes outside the vault.</li><li>Attachments must live beneath <code>Attachments/</code>; backup IDs must stay beneath <code>.safire-backups/</code>.</li><li>Notes remain plain Markdown files. Copying the vault folder is a practical whole-vault backup.</li></ul>
+  <div class="callout safe"><strong>Recommended backup routine:</strong> Close Safire if needed, then copy your entire <code>Safire Vault</code> folder to a trusted external drive or backup service. Keep at least one backup separate from the computer.</div>
+  <h2 id="hermes">10. Hermes native integration</h2>
+  <p>Safire v1.2 adds a local <strong>MCP (Model Context Protocol)</strong> server. It lets Hermes work directly with the vault through narrow, explicit tools instead of attempting to operate the visual app interface.</p>
+  <div class="grid"><div class="card"><h3>More reliable</h3><p>Hermes communicates with a local Safire service and receives structured results. It does not depend on screen coordinates, windows, or visual menus.</p></div><div class="card"><h3>Scoped by design</h3><p>The integration only exposes practical note and task actions. High-risk or broad functions are intentionally absent.</p></div></div>
+</section></main>
+
+<main class="page"><section class="content page-break">
+  <h2>10. Continued: using Hermes with Safire</h2>
+  <p>The optional Safire MCP server can be registered with a compatible client. It reads the same saved vault choice made during desktop setup, so the app and client can work with one vault. Start a new client session after changing tool configuration so discovery can run again.</p>
+  <h3>Available Safire tools</h3>
+  <div class="tool-list">
+    <div class="tool"><b>List / search notes</b><span>Lists note metadata or searches paths and note contents.</span></div>
+    <div class="tool"><b>Read note</b><span>Reads one Markdown note by vault-relative path.</span></div>
+    <div class="tool"><b>Create note</b><span>Creates a new note and refuses to overwrite an existing file.</span></div>
+    <div class="tool"><b>Update note</b><span>Creates or replaces a note; replacing an existing note backs it up first.</span></div>
+    <div class="tool"><b>Quick capture</b><span>Saves a short thought into a new Inbox note, optionally tagged.</span></div>
+    <div class="tool"><b>List tasks</b><span>Lists open, completed, or all Markdown checklist tasks across the vault.</span></div>
+    <div class="tool"><b>Toggle task</b><span>Checks or unchecks a known task by note path and line; Safire backs up the note first.</span></div>
+    <div class="tool"><b>Vault health</b><span>Reports note, tag, link, missing-link, orphan-note, and backup information.</span></div>
+  </div>
+  <h3>What the integration does not expose</h3><p>For safety, it does not provide delete, rename/move, attachment access, backup restore, settings changes, or web-fetch/web-clipping tools. Use Safire’s normal interface for those actions.</p>
+  <h3>Example requests</h3>
+  <ul><li>“Search Safire for notes about the August training plan.”</li><li>“Read <code>Projects/Launch Plan.md</code> and summarize its open tasks.”</li><li>“Create a Safire note at <code>Inbox/Ideas.md</code> with these bullets…”</li><li>“Add this approved text to <code>Projects/Status.md</code>.”</li><li>“Show my open Safire tasks.”</li></ul>
+  <div class="callout amber"><strong>Writing is still an action:</strong> Be explicit when you want Hermes to create or change a note. Ask it to search or read when you only want information. Existing notes are backed up before an MCP update, but it is still best to state the intended file and change clearly.</div>
+</section></main>
+
+<main class="page"><section class="content page-break">
+  <h2>10. Continued: how the integration is configured</h2>
+  <p>Safire’s MCP server runs locally through <code>safire-mcp.mjs</code> and starts a loopback-only Safire service for the vault chosen during desktop setup. Change the selection later through <strong>Safire → Change Vault Location…</strong>; then start a new Hermes session so it reconnects to that shared choice.</p>
+  <p>In a standard Hermes configuration, the server is represented as a local stdio MCP entry similar to this:</p>
+  <pre style="white-space:pre-wrap;background:#101a2d;color:#e7efff;padding:13px;border-radius:10px">mcp_servers:
+  safire:
+    command: node
+    args:
+      - &lt;absolute-path-to-safire&gt;/safire-mcp.mjs
+    timeout: 30</pre>
+  <p class="small muted">Replace the placeholder with the local repository path. Configuration syntax and trust controls vary by MCP client.</p>
+  <h3>If Hermes cannot see Safire tools</h3>
+  <ol><li>Start a new Hermes session. Tool changes do not appear in the session that was already open.</li><li>Check the server with <code>hermes mcp test safire</code> from a terminal.</li><li>In Safire, use <strong>Safire → Open Vault Folder</strong> to confirm the chosen vault is the one you intend to use.</li><li>Run <code>hermes mcp list</code> to verify that <code>safire</code> is enabled.</li></ol>
+  <h2 id="shortcuts">11. Keyboard shortcuts</h2>
+  <table><thead><tr><th>Shortcut</th><th>Action</th></tr></thead><tbody>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>K</kbd></td><td>Open the Command Palette.</td></tr>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>O</kbd></td><td>Open Quick Switcher.</td></tr>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>S</kbd></td><td>Save the active note immediately.</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>Close overlays, dialogs, palettes, the image-size popover, or attachment viewer.</td></tr>
+    <tr><td><kbd>Arrow Up</kbd> / <kbd>Arrow Down</kbd></td><td>Move through Command Palette or Quick Switcher results.</td></tr>
+    <tr><td><kbd>Enter</kbd></td><td>Run the selected Command Palette or Quick Switcher item.</td></tr>
+  </tbody></table>
+</section></main>
+
+<main class="page"><section class="content page-break">
+  <h2 id="troubleshooting">12. Troubleshooting and reference</h2>
+  <table><thead><tr><th>Situation</th><th>What to do</th></tr></thead><tbody>
+    <tr><td>Safire does not open</td><td>Launch it again. In developer/browser mode, run <code>npm start</code> and check <code>http://127.0.0.1:5277</code>.</td></tr>
+    <tr><td>A note seems missing</td><td>Search by title or text, inspect the Files tree, then check the vault folder directly. Look in Backups before assuming the content is gone.</td></tr>
+    <tr><td>Preview looks stale</td><td>Save the note, refresh or restart the app, and switch views. In browser/developer mode, use a cache-busting reload if a service worker has an old asset cached.</td></tr>
+    <tr><td>An attachment does not open</td><td>Use the attachment viewer’s Download file control and confirm the file exists beneath <code>Attachments/</code>.</td></tr>
+    <tr><td>A task is not shown</td><td>Use the supported checklist form <code>- [ ] Task</code> or <code>- [x] Done</code>. Tasks inside fenced code blocks are intentionally ignored.</td></tr>
+    <tr><td>Web Clipper fails</td><td>Use a public HTML page. Safire rejects local/private addresses, redirects, non-HTML content, oversized pages, and slow fetches.</td></tr>
+    <tr><td>Hermes cannot use Safire</td><td>Start a new Hermes session, then run <code>hermes mcp test safire</code> if needed. Verify the enabled status and vault path.</td></tr>
+  </tbody></table>
+  <h3>Important vault folders</h3>
+  <table><thead><tr><th>Path within vault</th><th>Purpose</th></tr></thead><tbody>
+    <tr><td><code>Daily Notes/</code></td><td>Notes created through Today.</td></tr>
+    <tr><td><code>Inbox/</code></td><td>Quick captures.</td></tr>
+    <tr><td><code>Templates/</code></td><td>Reusable Markdown templates.</td></tr>
+    <tr><td><code>Attachments/</code></td><td>Files copied into the vault from the attachment flow.</td></tr>
+    <tr><td><code>Web Clips/</code></td><td>Structured web captures by template type.</td></tr>
+    <tr><td><code>.safire/</code></td><td>Local Safire settings, workspace state, and custom web-clip templates.</td></tr>
+    <tr><td><code>.safire-backups/</code></td><td>Dated automatic backup copies.</td></tr>
+  </tbody></table>
+  <h3>Credits and document scope</h3>
+  <p><strong>Application:</strong> Safire v1.2.0, a local-first Markdown knowledge forge. <strong>Status:</strong> Historical documentation retained for version reference. <strong>Core technologies:</strong> React, Vite, TypeScript, Express, Electron, electron-builder, marked, and the Model Context Protocol SDK.</p>
+  <p><strong>Manual:</strong> Safire Complete User Guide v1.2.0, prepared July 2026. This guide describes the application and its local Hermes integration as implemented at the date above. It does not grant an agent permission to change your notes without your instruction.</p>
+  <div class="footer">Safire stores your work as ordinary Markdown files. Keep backups of the entire vault, and use clear requests whenever you ask an agent to change it.</div>
+</section></main>
+</body>
+</html>

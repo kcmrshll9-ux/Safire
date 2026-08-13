@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+release/
+out/
+build/
+
+# Local vault data / user notes
+vault/
+.qa-*/
+*.bak
+*.backup
+
+# Generated archives and installers
+*.zip
+*.7z
+*.rar
+*.exe
+*.msi
+*.blockmap
+*.sha256
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+.vs/
+.hermes/
+*.slnx
+
+# Local convenience shortcut (the maintained script is Create Desktop Shortcut.vbs)
+Create Safire Browser Shortcut.vbs
+
+# Electron/Vite cache
+.cache/
+.vite/
+.parcel-cache/
+
+# Safire local backups
+.kc-vault-backups/
+.safire-backups/

@@ -1,0 +1,80 @@
+# Contributing to Safire
+
+Thank you for your interest in improving Safire. The project is proprietary; it is not open source. Repository access and participation do not grant a license to reuse Safire code or brand assets outside this project.
+
+Public issue reports and feature proposals are welcome. Code contributions are accepted only from contributors who have received written authorization from the repository owner to use and modify the source for that contribution. The development instructions below are for those authorized contributors; they do not expand the rights in [LICENSE](LICENSE).
+
+## Before you begin
+
+- Discuss substantial behavior, architecture, or interface changes in an issue before implementation.
+- Keep each pull request focused on one problem.
+- Use a temporary vault containing only synthetic notes for development and testing.
+- Report potential vulnerabilities through [SECURITY.md](SECURITY.md), not through a public issue.
+- Do not submit third-party code, media, or text unless you have the rights required for Safire to use it.
+
+## Development setup
+
+Safire requires Node.js 22.19 or later and npm. Windows is required to validate packaged desktop artifacts.
+
+```powershell
+npm ci
+npm run build
+$env:SAFIRE_VAULT_PATH = (Join-Path $PWD ".qa-dev-vault")
+npm start
+```
+
+Open `http://127.0.0.1:5277`. The `.qa-dev-vault` directory is ignored by Git and keeps development activity away from a saved personal vault.
+
+Useful commands:
+
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Run the Vite development server |
+| `npm run desktop` | Start the Electron development application |
+| `npm test` | Run the Node.js test suite |
+| `npm run typecheck` | Check TypeScript without emitting files |
+| `npm run build` | Produce the web application bundle |
+| `npm run check` | Run type checks, tests, and the production build |
+| `npm run dist:installer` | Build the local Windows installer |
+| `npm run dist:win` | Build the local portable executable |
+
+## Making a change
+
+1. Create a focused branch such as `fix/backup-retention` or `docs/setup-guide`.
+2. Make the smallest coherent change that solves the issue.
+3. Add or update tests for observable behavior.
+4. Run the required checks.
+5. Update README, user documentation, or the changelog when behavior changes.
+6. Open a pull request and complete its validation and privacy checklists.
+
+Use clear, imperative commit messages. Prefixes such as `feat:`, `fix:`, `docs:`, `test:`, and `chore:` are welcome.
+
+## Required checks
+
+Before requesting review, run:
+
+```powershell
+npm ci
+npm test
+npm run typecheck
+npm run build
+```
+
+For desktop-shell, installer, file-path, attachment, or launcher changes, also perform the relevant Windows acceptance check.
+
+## Data-safety expectations
+
+- Never commit a vault, note, backup, environment file, token, credential, or identifying local path.
+- Avoid logs and screenshots that reveal note content or usernames.
+- Keep the HTTP service bound to loopback unless a separately reviewed design requires otherwise.
+- Reject filesystem access outside the selected vault.
+- Preserve backup-before-write behavior around destructive or replacement operations.
+- Keep fixtures disposable, minimal, and clearly synthetic.
+
+## Contribution terms
+
+You must own the contribution or have authority to submit it. By submitting a pull request, you grant the Safire project owner a perpetual, worldwide, non-exclusive, royalty-free, irrevocable license to use, reproduce, modify, distribute, sublicense, and commercialize that contribution as part of Safire. This grant applies to your contribution only; it does not grant you rights to the rest of Safire.
+
+A maintainer may request a separate written contributor agreement before merging a material contribution. If you cannot agree to these terms, do not submit code; an issue describing the problem is still welcome.
+
+All contributions are subject to review and may be declined or rewritten to preserve the project’s product direction, privacy model, and proprietary status.

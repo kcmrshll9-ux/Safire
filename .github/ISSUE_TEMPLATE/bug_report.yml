@@ -1,0 +1,87 @@
+name: Bug report
+description: Report a reproducible Safire problem without sharing private vault content.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Safire. Reproduce the issue with a temporary vault containing invented notes. Never attach a real vault, private note, credential, token, or backup.
+
+  - type: input
+    id: version
+    attributes:
+      label: Safire version or commit
+      description: Use the version shown in the application or the commit hash for a source build.
+      placeholder: 1.3.4
+    validations:
+      required: true
+
+  - type: dropdown
+    id: run_mode
+    attributes:
+      label: Run mode
+      options:
+        - Installed Windows application
+        - Portable Windows application
+        - Developer/browser server
+        - Electron development mode
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11, version 24H2
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem and its effect in plain language.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Use a temporary vault containing synthetic test data.
+      placeholder: |
+        1. Create a temporary vault.
+        2. Create Example.md with invented content.
+        3. Select ...
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: Optional. Remove note text, usernames, file paths, tokens, and other private data before adding logs or screenshots.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I searched existing issues for this problem.
+          required: true
+        - label: I reproduced this with a temporary vault containing only invented data.
+          required: true
+        - label: I removed private notes, credentials, usernames, and identifying paths from this report.
+          required: true
+        - label: This is not a vulnerability report; security issues follow SECURITY.md.
+          required: true

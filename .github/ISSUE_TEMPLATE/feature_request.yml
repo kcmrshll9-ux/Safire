@@ -1,0 +1,51 @@
+name: Feature request
+description: Propose a focused improvement to Safire.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Explain the need before the solution. Examples must use invented content and generic paths so the request remains safe to share publicly.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: What workflow is difficult today, and who does it affect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed experience
+      description: Describe what the user should be able to do and what a successful result looks like.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe current workarounds or other designs you considered.
+
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Privacy and data impact
+      description: Would this read, write, transmit, index, delete, or back up vault data?
+      placeholder: No new data access, or explain the minimum access required.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues for a similar request.
+          required: true
+        - label: This request contains no private notes, credentials, or identifying vault paths.
+          required: true

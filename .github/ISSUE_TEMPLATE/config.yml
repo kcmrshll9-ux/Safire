@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Safire support guide
+    url: https://github.com/kcmrshll9-ux/Safire/blob/main/SUPPORT.md
+    about: Review safe troubleshooting and reporting guidance before opening an issue.
