@@ -21,7 +21,7 @@ const toolNames = [
   'memory_recall',
   'memory_status',
 ];
-const GITHUB_TOKEN_IDENTIFIER = `ghp_${'A'.repeat(36)}`;
+const GITHUB_TOKEN_IDENTIFIER = `github_pat_${'A'.repeat(82)}`;
 
 function syntheticProfile(overrides = {}) {
   return {
@@ -375,6 +375,14 @@ test('memory MCP rejects impersonation, caller-controlled trust, unsafe paths, a
 
   const sensitiveAttempts = [
     await callTool(client, 'memory_record_events', { events: [event({
+      content: GITHUB_TOKEN_IDENTIFIER,
+      source: { stream: 'conversation.synthetic', event_id: 'turn.sensitive-content' },
+    })] }),
+    await callTool(client, 'memory_record_events', { events: [event({
+      attributes: { visible_label: GITHUB_TOKEN_IDENTIFIER },
+      source: { stream: 'conversation.synthetic', event_id: 'turn.sensitive-attribute' },
+    })] }),
+    await callTool(client, 'memory_record_events', { events: [event({
       source: { stream: GITHUB_TOKEN_IDENTIFIER, event_id: 'turn.sensitive-stream' },
     })] }),
     await callTool(client, 'memory_record_events', { events: [event({
@@ -383,6 +391,11 @@ test('memory MCP rejects impersonation, caller-controlled trust, unsafe paths, a
     })] }),
     await callTool(client, 'memory_record_feedback', { feedback: [feedback(memoryId, {
       source: { stream: 'feedback.synthetic', event_id: GITHUB_TOKEN_IDENTIFIER },
+    })] }),
+    await callTool(client, 'memory_record_feedback', { feedback: [feedback(memoryId, {
+      signal: 'correction',
+      correction: GITHUB_TOKEN_IDENTIFIER,
+      source: { stream: 'feedback.synthetic', event_id: 'feedback.sensitive-correction' },
     })] }),
     await callTool(client, 'memory_search', { query: GITHUB_TOKEN_IDENTIFIER }),
     await callTool(client, 'memory_get', { id: GITHUB_TOKEN_IDENTIFIER }),

@@ -157,6 +157,7 @@ test('an interrupted two-event batch recovers every member rather than only a co
     'after_event_create',
     'after_memory_create',
     'after_idempotency_create',
+    'after_batch_receipt_create',
   ]) {
     await t.test(failureStage, async (t) => {
       const vault = await temporaryVault(t, `safire-event-batch-${failureStage}-`);
@@ -195,6 +196,7 @@ test('an interrupted two-feedback batch recovers every member rather than only a
     'after_journal_create',
     'after_feedback_create',
     'after_idempotency_create',
+    'after_batch_receipt_create',
   ]) {
     await t.test(failureStage, async (t) => {
       const vault = await temporaryVault(t, `safire-feedback-batch-${failureStage}-`);

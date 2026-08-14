@@ -115,23 +115,29 @@ The tools do not accept `ingested_by`, a source identity, profile trust, or ACL 
 
 ### Resource limits and quotas
 
-Every store uses conservative defaults. Trusted in-process hosts may lower them with the additive `resourceLimits` store option; the installed MCP launcher uses these defaults:
+Every store uses immutable hard ceilings. Trusted in-process hosts may lower them with the additive `resourceLimits` store option, but startup rejects any configured value above its hard ceiling. The installed MCP launcher uses these defaults:
 
-| Limit | Default |
-| --- | ---: |
-| Concurrent collection-record reads | 8 |
-| Records processed by one request | 25,000 |
-| JSON bytes processed by one request | 128 MiB |
-| Logical event/feedback records owned by one stable profile ID | 10,000 |
-| Logical event/feedback bytes owned by one stable profile ID | 64 MiB |
-| Logical event/feedback records in one exact namespace, across profiles | 5,000 |
-| Logical event/feedback bytes in one exact namespace, across profiles | 32 MiB |
-| Feedback records expanded by one request | 256 |
-| Relation/derivation references expanded or accepted by one request | 512 |
+| Limit | Default | Hard maximum |
+| --- | ---: | ---: |
+| Concurrent collection-record reads | 8 | 64 |
+| Directory entries examined by one operation | 25,000 | 25,000 |
+| Records processed by one request | 50,000 | 50,000 |
+| JSON bytes processed by one request | 128 MiB | 128 MiB |
+| Events considered by one search | 10,000 | 10,000 |
+| Results retained by one search | 100 | 100 |
+| Logical event/feedback records owned by one stable profile ID | 10,000 | 10,000 |
+| Logical event/feedback bytes owned by one stable profile ID | 64 MiB | 64 MiB |
+| Logical event/feedback records in one exact namespace, across profiles | 5,000 | 5,000 |
+| Logical event/feedback bytes in one exact namespace, across profiles | 32 MiB | 32 MiB |
+| Feedback records expanded by one request | 256 | 256 |
+| Relation/derivation references expanded or accepted by one request | 512 | 512 |
+| Event, feedback, or recall inputs in one batch | 100 | 100 |
+
+Independently of the request limits, every memory JSON file has an immutable 160 MiB pre-read and pre-write ceiling, and `vault.lock` metadata has a 4 KiB ceiling. Reads size the already opened, identity-checked handle, allocate only that bounded size, and probe one byte beyond it so concurrent growth fails closed. Truncation during a read also fails closed. These file ceilings cannot be raised through `resourceLimits`; a caller that has already reserved a smaller request-byte allowance applies that smaller bound to the read.
 
 Quota checks for new unique writes finish before a journal is created. Exceeding a quota returns generic `MEMORY_RESOURCE_LIMIT`; it never reports hidden counts, evicts records, or deletes history. Duplicate retries remain available when a quota is full. Existing version-1 sidecars need no rewrite: exact unexpanded retrieval remains available if old contents already exceed a new quota, while collection-scanning operations can fail at the per-request processing boundary.
 
-Exact `get` and `recall` do not scan event or feedback collections unless `include_feedback` or `include_relations` is true. Search, status, quotas, and requested expansions perform bounded scans. Version 1 uses opaque filenames and has no namespace secondary index, so a scan must validate a record before it can apply namespace ACLs; inaccessible records are never returned and generic limit errors reveal no inaccessible counts. These quotas reduce denial-of-service exposure. They are not retention, expiration, archival, or deletion policies.
+Exact `get` and unexpanded `recall` remain direct. Search, status, quotas, recovery, marker validation, and requested expansions perform bounded scans. Directory scans use incremental enumeration, share the operation's entry budget across collections, count valid and unexpected entries alike, and stop as soon as the entry ceiling is exceeded; they never sort an unbounded collection. Search keeps only a bounded top-K ranking set, and CPU-heavy scoring runs after the authorized consistent snapshot releases the vault lock. Version 1 uses opaque filenames and has no namespace secondary index, so a scan must validate a record before it can apply namespace ACLs; inaccessible records are never returned and generic limit errors reveal no inaccessible counts. Record-content byte limits combine with fixed schema field limits and the hard object-count ceilings above; they are not treated as a complete measurement of JavaScript object overhead. These quotas reduce denial-of-service exposure. They are not retention, expiration, archival, or deletion policies.
 
 ## Profile model
 

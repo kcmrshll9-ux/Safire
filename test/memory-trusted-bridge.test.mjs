@@ -59,7 +59,7 @@ const feedbackEnvelope = (overrides = {}) => ({
   ...overrides,
 });
 
-const GITHUB_TOKEN_IDENTIFIER = `ghp_${'A'.repeat(36)}`;
+const GITHUB_TOKEN_IDENTIFIER = `github_pat_${'A'.repeat(82)}`;
 
 test('trusted bridge requires a normalized trusted_bridge profile and injected callbacks', () => {
   const authenticate = async () => successfulAuthentication();
@@ -158,6 +158,8 @@ test('credential-like identifiers are rejected before event or feedback authenti
   });
 
   const attempts = [
+    () => bridge.ingest(envelope({ content: GITHUB_TOKEN_IDENTIFIER })),
+    () => bridge.ingest(envelope({ attributes: { visible_label: GITHUB_TOKEN_IDENTIFIER } })),
     () => bridge.ingest(envelope({
       source: { stream: GITHUB_TOKEN_IDENTIFIER, event_id: 'source_event_01' },
     })),
@@ -169,6 +171,10 @@ test('credential-like identifiers are rejected before event or feedback authenti
     })),
     () => bridge.ingestFeedback(feedbackEnvelope({
       source: { stream: 'hermes:feedback', event_id: GITHUB_TOKEN_IDENTIFIER },
+    })),
+    () => bridge.ingestFeedback(feedbackEnvelope({
+      signal: 'correction',
+      correction: GITHUB_TOKEN_IDENTIFIER,
     })),
   ];
   for (const attempt of attempts) {
@@ -183,18 +189,33 @@ test('credential-like identifiers are rejected before event or feedback authenti
   assert.equal(feedbackRecordingCalls, 0);
 });
 
-test('credential-like authenticated actor identifiers fail closed without recording or echo', async () => {
+test('credential-like authenticated attribution identifiers fail closed without recording or echo', async () => {
   let recordingCalls = 0;
-  const bridge = createTrustedBridge({
-    profile: profile(),
-    authenticate: async () => successfulAuthentication({ actor_id: GITHUB_TOKEN_IDENTIFIER }),
-    recordEvents: async () => { recordingCalls += 1; },
-  });
-  await assert.rejects(
-    () => bridge.ingest(envelope()),
-    error => error instanceof TrustedBridgeAuthenticationError
-      && !error.message.toLowerCase().includes(GITHUB_TOKEN_IDENTIFIER.toLowerCase()),
-  );
+  const authenticationResults = [
+    successfulAuthentication({ actor_id: GITHUB_TOKEN_IDENTIFIER }),
+    successfulAuthentication({
+      role: 'agent',
+      actor_id: 'agent:harry',
+      agent_instance_id: GITHUB_TOKEN_IDENTIFIER,
+    }),
+    successfulAuthentication({
+      role: 'automation',
+      actor_id: 'automation:moltbook',
+      delegated_by: GITHUB_TOKEN_IDENTIFIER,
+    }),
+  ];
+  for (const authentication of authenticationResults) {
+    const bridge = createTrustedBridge({
+      profile: profile(),
+      authenticate: async () => authentication,
+      recordEvents: async () => { recordingCalls += 1; },
+    });
+    await assert.rejects(
+      () => bridge.ingest(envelope()),
+      error => error instanceof TrustedBridgeAuthenticationError
+        && !error.message.toLowerCase().includes(GITHUB_TOKEN_IDENTIFIER.toLowerCase()),
+    );
+  }
   assert.equal(recordingCalls, 0);
 });
 

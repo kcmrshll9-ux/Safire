@@ -188,12 +188,16 @@ File handles are flushed before publication. Directory metadata flush is attempt
 An event batch transaction proceeds under the lock:
 
 1. validate every reference, idempotency key, generated ID, and destination before publication;
-2. write and flush one ingestion journal containing every new event, memory item, and child transaction;
-3. exclusively create each event and its memory item;
-4. exclusively create each idempotency marker;
-5. remove the verified journal entry and its empty journal directory.
+2. write and flush one canonically serialized ingestion journal containing every new event, memory item, and child transaction;
+3. write and flush an active-batch guard that binds the sealed transaction ID to the exact journal byte digest;
+4. exclusively create each event and its memory item;
+5. exclusively create each idempotency marker, including its protected batch membership;
+6. after every child marker exists, exclusively create a sealed completion receipt listing the expected members;
+7. remove the verified guard first, then remove the verified journal entry and their empty directories.
 
-Feedback batches use the same pattern for feedback plus its marker. Validation or idempotency failure occurs before the journal and commits none of the batch. Once the journal exists, recovery rolls the entire batch forward. On enabled initialization and each consistent store operation, Safire acquires the lock and replays any pending verified journals before exposing records. Each creation is idempotent and digest-checked, so callers observe the pre-batch state or the completed batch rather than a successful prefix. A successful `memory_status` therefore reports zero pending transactions; invalid or conflicting recovery state fails closed. Its record counts are scoped to the current profile's readable namespaces rather than exposing vault-wide private activity.
+Feedback batches use the same pattern for feedback plus its marker. Validation or idempotency failure occurs before the journal and commits none of the batch. Once the journal exists, recovery rolls the entire batch forward. A sealed journal without a guard is accepted so an interruption between those two creations, and older pending v1 journals, remain recoverable. A guard without its exact journal fails closed. Removing or renaming both transient files after a child was published also fails closed when that batch-linked marker cannot resolve a sealed matching completion receipt. Exact reads validate only the addressed marker and receipt; operations that already scan visible records validate those records without a vault-wide idempotency scan.
+
+Journal recovery rejects unexpected directory or entry names, noncanonical JSON bytes, malformed JSON, sealed identity/path mismatches, mixed child operations, and conflicting immutable records with a generic `MEMORY_TRANSACTION_INVALID` error. It does not discard or rewrite inconsistent artifacts. Replaying a batch whose receipt or children already exist is digest-checked and idempotent, including the cleanup window after the guard was removed but before the main journal was removed. Existing v1 records and idempotency markers without protected batch metadata remain readable and require no migration. A surviving verified journal remains the only authority that may recreate a missing idempotency marker. Without that journal, a missing, malformed, mismatched, or non-unique event/feedback marker fails reads and retries closed; Safire does not adopt, delete, or rewrite the orphaned immutable record. New writes perform a bounded source-key ownership scan under the same vault lock so two concurrent callers cannot both treat an orphan as a new source. A successful `memory_status` reports zero pending transactions; invalid or conflicting recovery state fails closed. Its record counts are scoped to the current profile's readable namespaces rather than exposing vault-wide private activity.
 
 ## Vault identity, copy, and clone semantics
 
@@ -208,9 +212,9 @@ Do not regenerate merely because a vault path changed. Do not hand-edit the mani
 
 ## Retrieval and ranking
 
-Search is local and lexical. It can filter by authorized namespaces, actor types, event kinds, and a limit of 1 through 100. Results retain actor, delegation, source, ingest adapter, instance, active and derived incoming relations, derivation, and timestamps. Stored event integrity digests are not part of retrieval projections.
+Search is local and lexical. It can filter by authorized namespaces, actor types, event kinds, and a limit of 1 through 100. Candidate processing and result retention have separate immutable caps; ranking maintains only the bounded top-K set and runs after the consistent authorized snapshot releases the vault lock. Results retain actor, delegation, source, ingest adapter, instance, active and derived incoming relations, derivation, and timestamps. Stored event integrity digests are not part of retrieval projections.
 
-Exact get and recall read the addressed event/memory pairs directly. They scan collections only when the caller explicitly requests bounded feedback or relation expansion. Search and status use a fixed-size read worker pool and share per-request record/byte budgets across their collection reads. Opaque version-1 filenames do not encode namespaces, so collection scans must validate records before filtering by namespace; a future secondary index would be needed to preselect namespaces without such reads.
+Exact get and recall read the addressed event/memory pairs directly. They scan collections only when the caller explicitly requests bounded feedback or relation expansion. Search and status use incremental capped enumeration plus a fixed-size read worker pool and share directory-entry, record, and byte budgets across their collection reads. Unexpected entries count toward the operation-wide enumeration cap before opaque-name filtering. Opaque version-1 filenames do not encode namespaces, so collection scans must validate records before filtering by namespace; a future secondary index would be needed to preselect namespaces without such reads.
 
 Ranking combines lexical matches with actor-aware feedback:
 
@@ -224,7 +228,9 @@ Activity and signals remain reported by actor-type bucket for compatibility and 
 
 ## Resource accounting
 
-The runtime has fixed conservative defaults for bounded read concurrency, records and bytes processed per request, logical event/feedback records and bytes owned by a stable profile ID, logical records and bytes in each exact namespace across profiles, and returned feedback/relation expansion. Hosts may lower these through the additive store `resourceLimits` option. Profile ownership comes from sealed `ingested_by.profile_id`; another profile writing a shared namespace consumes the namespace-wide quota but not this profile's quota.
+The runtime has immutable hard maximums and conservative defaults for directory entries, bounded read concurrency, records and bytes processed per request, search candidates and results, batch size, logical event/feedback records and bytes owned by a stable profile ID, logical records and bytes in each exact namespace across profiles, and returned feedback/relation expansion. Hosts may lower, but cannot raise, these through the additive store `resourceLimits` option. Profile ownership comes from sealed `ingested_by.profile_id`; another profile writing a shared namespace consumes the namespace-wide quota but not this profile's quota.
+
+Every memory JSON file also has a non-configurable 160 MiB hard ceiling, conservatively covering the 128 MiB maximum canonical request plus a fixed 32 MiB envelope for bounded batch-journal metadata and serialization overhead. Lock metadata has a separate 4 KiB ceiling. The filesystem reader validates identity and size on the opened handle, allocates only the validated size, performs an overflow-byte probe, and rejects observed growth or truncation. Serialized writes are rejected before a temporary or public file is created when they exceed the applicable ceiling. Where request accounting has already reserved a smaller file size, that reserved size is passed down as the read ceiling.
 
 New unique writes calculate projected namespace/profile usage under the vault lock and reject a limit violation before journal creation. Duplicate retries do not consume new quota. No quota path evicts, rewrites, or deletes data, and existing version-1 sidecars require no migration. A sidecar already above a configured quota remains available for direct unexpanded retrieval, but a scan that would exceed its request budget fails generically. Quotas bound denial-of-service exposure; they are not a retention or lifecycle mechanism.
 

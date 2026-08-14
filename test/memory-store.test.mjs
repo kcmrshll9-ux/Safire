@@ -337,9 +337,11 @@ test('ACL projections and replays disclose no hidden provenance, dependent feedb
 test('credential-like identifiers and echoed queries fail before persistence without value disclosure', async (t) => {
   const vault = await temporaryVault(t, 'safire-memory-sensitive-identifiers-');
   const store = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
-  const credential = `ghp_${'A'.repeat(36)}`;
+  const credential = `github_pat_${'A'.repeat(82)}`;
 
   for (const invalidEvent of [
+    event({ content: credential }),
+    event({ attributes: { visible_label: credential } }),
     event({ source: { stream: credential, event_id: 'turn.sensitive-stream' } }),
     event({ context: { conversation_id: 'conversation.alpha', session_id: credential } }),
   ]) {
@@ -351,6 +353,18 @@ test('credential-like identifiers and echoed queries fail before persistence wit
   }
 
   const seed = await store.recordEvents([event()]);
+  await assert.rejects(
+    () => store.recordFeedback([{
+      schema_version: 1,
+      target: { type: 'event', id: seed.results[0].event.event_id },
+      signal: 'correction',
+      correction: credential,
+      actor_id: 'agent:harry',
+      source: { stream: 'feedback.harry', event_id: 'feedback.sensitive-correction' },
+    }]),
+    error => error.code === 'MEMORY_SCHEMA_VALIDATION_FAILED'
+      && !error.message.toLowerCase().includes(credential.toLowerCase()),
+  );
   await assert.rejects(
     () => store.recordFeedback([{
       schema_version: 1,

@@ -3,7 +3,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { opaqueJsonFilename } from '../lib/memory/filesystem.mjs';
+import {
+  HARD_MAX_MEMORY_JSON_FILE_BYTES,
+  ensureMemoryLayout,
+  immutableCollectionDirectory,
+  immutableRecordPath,
+  journalDirectory,
+  listImmutableJson,
+  opaqueJsonFilename,
+} from '../lib/memory/filesystem.mjs';
 import { createPortableMcpProfile } from '../lib/memory/profile.mjs';
 import {
   canonicalJson,
@@ -11,6 +19,8 @@ import {
   sha256,
 } from '../lib/memory/records.mjs';
 import {
+  DEFAULT_MEMORY_RESOURCE_LIMITS,
+  HARD_MEMORY_RESOURCE_LIMITS,
   MemoryIdempotencyConflictError,
   MemoryResourceLimitError,
   createMemoryStore,
@@ -71,6 +81,261 @@ function reseal(record) {
     integrity: { algorithm: 'sha256', digest: digestRecord(unsigned) },
   };
 }
+
+test('resource configuration accepts exact immutable ceilings and only lower values', async (t) => {
+  const vault = await temporaryVault(t, 'safire-memory-limit-config-');
+  assert.equal(Object.isFrozen(HARD_MEMORY_RESOURCE_LIMITS), true);
+  assert.equal(Object.isFrozen(DEFAULT_MEMORY_RESOURCE_LIMITS), true);
+  assert.equal(
+    HARD_MAX_MEMORY_JSON_FILE_BYTES,
+    HARD_MEMORY_RESOURCE_LIMITS.maxBytesPerRequest + (32 * 1024 * 1024),
+    'the file cap reserves a fixed envelope above the maximum canonical request',
+  );
+
+  for (const [key, maximum] of Object.entries(HARD_MEMORY_RESOURCE_LIMITS)) {
+    const exact = createMemoryStore({
+      vaultDir: vault,
+      profile: profile('harry'),
+      resourceLimits: { [key]: maximum },
+    });
+    assert.equal(exact.resourceLimits[key], maximum, `${key} accepts its exact hard ceiling`);
+    assert.throws(
+      () => createMemoryStore({
+        vaultDir: vault,
+        profile: profile('harry'),
+        resourceLimits: { [key]: maximum + 1 },
+      }),
+      {
+        name: 'TypeError',
+        message: 'MemoryStore resource limits cannot exceed hard maximums',
+      },
+      `${key} rejects values above its hard ceiling`,
+    );
+  }
+
+  const lowered = {
+    readConcurrency: 1,
+    maxDirectoryEntriesPerOperation: 1,
+    maxRecordsPerRequest: 1,
+    maxBytesPerRequest: 1,
+    maxSearchCandidates: 1,
+    maxSearchResults: 1,
+    maxRecordsPerProfile: 1,
+    maxBytesPerProfile: 1,
+    maxRecordsPerNamespace: 1,
+    maxBytesPerNamespace: 1,
+    maxFeedbackExpansion: 0,
+    maxRelationExpansion: 0,
+    maxBatchSize: 1,
+  };
+  const store = createMemoryStore({
+    vaultDir: vault,
+    profile: profile('harry'),
+    resourceLimits: lowered,
+  });
+  assert.deepEqual(store.resourceLimits, lowered);
+  await assert.rejects(
+    () => store.recordEvents([event('lowered.1'), event('lowered.2')]),
+    assertGenericResourceError,
+  );
+  await assert.rejects(
+    () => store.recordFeedback([{}, {}]),
+    assertGenericResourceError,
+  );
+  await assert.rejects(
+    () => store.recall(['evt_synthetic_1', 'evt_synthetic_2']),
+    assertGenericResourceError,
+  );
+  await assert.rejects(() => fs.stat(path.join(vault, '.safire')), { code: 'ENOENT' });
+});
+
+test('incremental directory enumeration caps valid, unexpected, and mixed entries', async (t) => {
+  const vault = await temporaryVault(t, 'safire-memory-directory-cap-');
+  const layout = await ensureMemoryLayout(vault);
+  const actors = immutableCollectionDirectory(layout, 'actors');
+  for (const identity of ['valid.1', 'valid.2', 'valid.3']) {
+    await fs.writeFile(path.join(actors, opaqueJsonFilename(identity)), '{}\n', 'utf8');
+  }
+  await assert.rejects(
+    () => listImmutableJson(layout, 'actors', { maxEntries: 2 }),
+    { code: 'MEMORY_RESOURCE_LIMIT', message: 'Safire memory resource limit exceeded' },
+  );
+
+  const feedback = immutableCollectionDirectory(layout, 'feedback');
+  await fs.writeFile(path.join(feedback, 'foreign-a.txt'), 'synthetic', 'utf8');
+  await fs.writeFile(path.join(feedback, 'foreign-b.tmp'), 'synthetic', 'utf8');
+  await fs.mkdir(path.join(feedback, 'foreign-directory'));
+  await assert.rejects(
+    () => listImmutableJson(layout, 'feedback', { maxEntries: 2 }),
+    { code: 'MEMORY_RESOURCE_LIMIT', message: 'Safire memory resource limit exceeded' },
+  );
+
+  const events = immutableCollectionDirectory(layout, 'events');
+  await fs.writeFile(path.join(events, opaqueJsonFilename('mixed.valid')), '{}\n', 'utf8');
+  await fs.writeFile(path.join(events, 'mixed-foreign.txt'), 'synthetic', 'utf8');
+  await fs.writeFile(path.join(events, 'mixed-foreign.tmp'), 'synthetic', 'utf8');
+  await assert.rejects(
+    () => listImmutableJson(layout, 'events', { maxEntries: 2 }),
+    { code: 'MEMORY_RESOURCE_LIMIT', message: 'Safire memory resource limit exceeded' },
+  );
+  assert.equal((await fs.readdir(events)).length, 3, 'the bounded read does not mutate entries');
+});
+
+test('incremental enumeration stops and closes its iterator at the first excess entry', async (t) => {
+  const vault = await temporaryVault(t, 'safire-memory-directory-early-stop-');
+  const layout = await ensureMemoryLayout(vault);
+  const originalOpendir = fs.opendir;
+  let yielded = 0;
+  let closed = false;
+  fs.opendir = async () => ({
+    [Symbol.asyncIterator]() {
+      return {
+        async next() {
+          yielded += 1;
+          return {
+            done: false,
+            value: {
+              name: `synthetic-${yielded}.tmp`,
+              isFile: () => true,
+              isDirectory: () => false,
+              isSymbolicLink: () => false,
+            },
+          };
+        },
+        async return() {
+          closed = true;
+          return { done: true };
+        },
+      };
+    },
+  });
+  try {
+    await assert.rejects(
+      () => listImmutableJson(layout, 'events', { maxEntries: 2 }),
+      { code: 'MEMORY_RESOURCE_LIMIT' },
+    );
+  } finally {
+    fs.opendir = originalOpendir;
+  }
+  assert.equal(yielded, 3, 'the iterator stops at limit plus the first excess entry');
+  assert.equal(closed, true, 'the interrupted directory iterator is closed');
+});
+
+test('manifest initialization uses the configured directory-entry ceiling', async (t) => {
+  const acceptedVault = await temporaryVault(t, 'safire-memory-manifest-cap-accepted-');
+  const accepted = createMemoryStore({
+    vaultDir: acceptedVault,
+    profile: profile('harry'),
+    resourceLimits: { maxDirectoryEntriesPerOperation: 5 },
+  });
+  await accepted.initialize();
+  assert.equal((await accepted.status()).counts.events, 0);
+
+  const rejectedVault = await temporaryVault(t, 'safire-memory-manifest-cap-rejected-');
+  const rejected = createMemoryStore({
+    vaultDir: rejectedVault,
+    profile: profile('harry'),
+    resourceLimits: { maxDirectoryEntriesPerOperation: 4 },
+  });
+  await assert.rejects(() => rejected.initialize(), assertGenericResourceError);
+  await assert.rejects(
+    () => fs.stat(path.join(rejectedVault, '.safire', 'memory', 'v1', 'manifest.json')),
+    { code: 'ENOENT' },
+  );
+});
+
+test('oversized manifest and actor files fail closed before allocation without deletion', async (t) => {
+  const manifestVault = await temporaryVault(t, 'safire-memory-oversized-manifest-');
+  const manifestLayout = await ensureMemoryLayout(manifestVault);
+  const manifestPath = path.join(manifestLayout.rootDir, 'manifest.json');
+  await fs.writeFile(manifestPath, '{}\n', 'utf8');
+  await fs.truncate(manifestPath, HARD_MAX_MEMORY_JSON_FILE_BYTES + 1);
+  const manifestStore = createMemoryStore({ vaultDir: manifestVault, profile: profile('harry') });
+  await assert.rejects(() => manifestStore.initialize(), assertGenericResourceError);
+  assert.equal((await fs.stat(manifestPath)).size, HARD_MAX_MEMORY_JSON_FILE_BYTES + 1);
+
+  const actorVault = await temporaryVault(t, 'safire-memory-oversized-actor-');
+  const harryProfile = profile('harry');
+  const writer = createMemoryStore({ vaultDir: actorVault, profile: harryProfile });
+  await writer.initialize();
+  const actorPath = immutableRecordPath(writer.layout, 'actors', harryProfile.principal.id);
+  await fs.truncate(actorPath, HARD_MAX_MEMORY_JSON_FILE_BYTES + 1);
+  const reopened = createMemoryStore({ vaultDir: actorVault, profile: harryProfile });
+  await assert.rejects(() => reopened.initialize(), assertGenericResourceError);
+  assert.equal((await fs.stat(actorPath)).size, HARD_MAX_MEMORY_JSON_FILE_BYTES + 1);
+});
+
+test('direct and collection reads reject deterministic growth after caller pre-stat', async (t) => {
+  const vault = await temporaryVault(t, 'safire-memory-file-growth-');
+  const harryProfile = profile('harry');
+  const writer = createMemoryStore({ vaultDir: vault, profile: harryProfile });
+  const created = await writer.recordEvents([event('growth.target')]);
+  const eventId = created.results[0].event.event_id;
+  const eventPath = immutableRecordPath(writer.layout, 'events', eventId);
+  const originalBytes = (await fs.stat(eventPath)).size;
+
+  let directGrown = false;
+  const directReader = createMemoryStore({
+    vaultDir: vault,
+    profile: harryProfile,
+    faultInjector: async (stage, metadata) => {
+      if (!directGrown && stage === 'before_direct_record_read' && metadata.collection === 'events') {
+        directGrown = true;
+        await fs.appendFile(eventPath, ' ');
+      }
+    },
+  });
+  await assert.rejects(() => directReader.get(eventId), assertGenericResourceError);
+  assert.equal((await fs.stat(eventPath)).size, originalBytes + 1);
+
+  let collectionGrown = false;
+  const collectionReader = createMemoryStore({
+    vaultDir: vault,
+    profile: harryProfile,
+    faultInjector: async (stage, metadata) => {
+      if (!collectionGrown
+          && stage === 'before_collection_record_read'
+          && metadata.collection === 'events') {
+        collectionGrown = true;
+        await fs.appendFile(eventPath, ' ');
+      }
+    },
+  });
+  await assert.rejects(() => collectionReader.status(), assertGenericResourceError);
+  assert.equal((await fs.stat(eventPath)).size, originalBytes + 2);
+});
+
+test('oversized journal recovery fails closed without publishing or deleting state', async (t) => {
+  const vault = await temporaryVault(t, 'safire-memory-oversized-journal-');
+  const harryProfile = profile('harry');
+  let interrupted = false;
+  const writer = createMemoryStore({
+    vaultDir: vault,
+    profile: harryProfile,
+    faultInjector(stage) {
+      if (!interrupted && stage === 'after_journal_create') {
+        interrupted = true;
+        throw new Error('synthetic journal interruption');
+      }
+    },
+  });
+  await assert.rejects(
+    () => writer.recordEvents([event('journal.oversized')]),
+    /synthetic journal interruption/,
+  );
+  const ingestionDirectory = journalDirectory(writer.layout, 'ingestion');
+  const [journalName] = await fs.readdir(ingestionDirectory);
+  const journalPath = path.join(ingestionDirectory, journalName);
+  await fs.truncate(journalPath, HARD_MAX_MEMORY_JSON_FILE_BYTES + 1);
+
+  const reopened = createMemoryStore({ vaultDir: vault, profile: harryProfile });
+  await assert.rejects(() => reopened.status(), assertGenericResourceError);
+  assert.equal((await fs.stat(journalPath)).size, HARD_MAX_MEMORY_JSON_FILE_BYTES + 1);
+  assert.deepEqual(
+    await fs.readdir(immutableCollectionDirectory(writer.layout, 'events')),
+    [],
+  );
+});
 
 test('collection reads use bounded concurrency and default exact get performs no collection scan', async (t) => {
   const vault = await temporaryVault(t);
@@ -145,6 +410,83 @@ test('request record and byte limits fail generically before sidecar mutation', 
   await assert.rejects(() => fs.stat(path.join(byteVault, '.safire')), { code: 'ENOENT' });
 });
 
+test('store scans count unexpected entries and exact reads remain direct', async (t) => {
+  const vault = await temporaryVault(t, 'safire-memory-store-directory-cap-');
+  const harryProfile = profile('harry');
+  const writer = createMemoryStore({ vaultDir: vault, profile: harryProfile });
+  const created = await writer.recordEvents([event('directory.direct')]);
+  const eventId = created.results[0].event.event_id;
+  const eventDirectory = path.join(vault, '.safire', 'memory', 'v1', 'records', 'events');
+  await fs.writeFile(path.join(eventDirectory, 'foreign-a.txt'), 'synthetic', 'utf8');
+  await fs.writeFile(path.join(eventDirectory, 'foreign-b.tmp'), 'synthetic', 'utf8');
+
+  const reader = createMemoryStore({
+    vaultDir: vault,
+    profile: harryProfile,
+    resourceLimits: { maxDirectoryEntriesPerOperation: 2 },
+  });
+  await assert.rejects(() => reader.status(), assertGenericResourceError);
+  assert.equal((await reader.get(eventId)).event.event_id, eventId);
+  assert.deepEqual(
+    (await fs.readdir(eventDirectory)).sort(),
+    [opaqueJsonFilename(eventId), 'foreign-a.txt', 'foreign-b.tmp'].sort(),
+  );
+});
+
+test('directory-entry budget is shared across every collection in one request', async (t) => {
+  const vault = await temporaryVault(t, 'safire-memory-shared-directory-cap-');
+  const harryProfile = profile('harry');
+  const writer = createMemoryStore({ vaultDir: vault, profile: harryProfile });
+  const created = await writer.recordEvents([event('directory.shared')]);
+  const eventId = created.results[0].event.event_id;
+  await writer.recordFeedback([{
+    schema_version: 1,
+    target: { type: 'event', id: eventId },
+    signal: 'useful',
+    actor_id: 'agent:harry',
+    source: { stream: 'feedback.directory', event_id: 'shared' },
+  }]);
+  const reader = createMemoryStore({
+    vaultDir: vault,
+    profile: harryProfile,
+    resourceLimits: { maxDirectoryEntriesPerOperation: 1 },
+  });
+  await assert.rejects(() => reader.status(), assertGenericResourceError);
+  assert.equal((await reader.get(eventId)).event.event_id, eventId);
+});
+
+test('search candidate and result ceilings fail generically while bounded top-k remains correct', async (t) => {
+  const vault = await temporaryVault(t, 'safire-memory-search-cap-');
+  const harryProfile = profile('harry');
+  const writer = createMemoryStore({ vaultDir: vault, profile: harryProfile });
+  await writer.recordEvents([
+    event('candidate.1', { content: 'Bounded candidate alpha.' }),
+    event('candidate.2', { content: 'Bounded candidate beta.' }),
+    event('candidate.3', { content: 'Bounded candidate gamma.' }),
+  ]);
+
+  const candidateLimited = createMemoryStore({
+    vaultDir: vault,
+    profile: harryProfile,
+    resourceLimits: { maxSearchCandidates: 2 },
+  });
+  await assert.rejects(
+    () => candidateLimited.search({ query: 'bounded candidate', limit: 2 }),
+    assertGenericResourceError,
+  );
+
+  const resultLimited = createMemoryStore({
+    vaultDir: vault,
+    profile: harryProfile,
+    resourceLimits: { maxSearchResults: 2 },
+  });
+  await assert.rejects(
+    () => resultLimited.search({ query: 'bounded candidate', limit: 3 }),
+    assertGenericResourceError,
+  );
+  assert.equal((await resultLimited.search({ query: 'bounded candidate', limit: 2 })).count, 2);
+});
+
 test('namespace and stable-profile quotas reject only new unique writes without eviction', async (t) => {
   const vault = await temporaryVault(t);
   const harryProfile = profile('harry');
@@ -177,6 +519,32 @@ test('namespace and stable-profile quotas reject only new unique writes without 
     },
   });
   await assert.rejects(() => byteLimited.recordEvents([event('quota.bytes')]), assertGenericResourceError);
+
+  const existingOverQuota = createMemoryStore({
+    vaultDir: vault,
+    profile: harryProfile,
+    resourceLimits: { maxRecordsPerProfile: 1, maxRecordsPerNamespace: 1 },
+  });
+  assert.equal((await existingOverQuota.get(first.results[0].event.event_id)).event.event_id,
+    first.results[0].event.event_id);
+  assert.equal((await existingOverQuota.status()).counts.events, 2);
+});
+
+test('concurrent batches serialize quota checks and never overcommit', async (t) => {
+  const vault = await temporaryVault(t, 'safire-memory-concurrent-quota-');
+  const harryProfile = profile('harry');
+  const limits = { maxRecordsPerProfile: 3, maxRecordsPerNamespace: 3 };
+  const first = createMemoryStore({ vaultDir: vault, profile: harryProfile, resourceLimits: limits });
+  const second = createMemoryStore({ vaultDir: vault, profile: harryProfile, resourceLimits: limits });
+  await first.recordEvents([event('concurrent.base')]);
+  const outcomes = await Promise.allSettled([
+    first.recordEvents([event('concurrent.a1'), event('concurrent.a2')]),
+    second.recordEvents([event('concurrent.b1'), event('concurrent.b2')]),
+  ]);
+  assert.equal(outcomes.filter(({ status }) => status === 'fulfilled').length, 1);
+  const [rejected] = outcomes.filter(({ status }) => status === 'rejected');
+  assertGenericResourceError(rejected.reason);
+  assert.equal((await first.status()).counts.events, 3);
 });
 
 test('profile quota ownership is isolated in a shared namespace and metrics retain stable actors', async (t) => {
@@ -308,12 +676,21 @@ test('legacy display-name digests retry safely while stable actor changes confli
     opaqueJsonFilename(`event:${stored.idempotency.source_key_digest}`),
   );
   const marker = JSON.parse(await fs.readFile(markerPath, 'utf8'));
+  assert.equal(marker.batch?.protocol, 'guard-receipt/v1');
+  const { batch: _batch, ...preProtocolMarker } = marker;
   const legacyMarker = reseal({
-    ...marker,
+    ...preProtocolMarker,
     request_digest: legacyDigest,
     record_digest: legacyEvent.integrity.digest,
   });
   await fs.writeFile(markerPath, `${JSON.stringify(legacyMarker, null, 2)}\n`, 'utf8');
+  const receiptPath = path.join(
+    root,
+    'records',
+    'idempotency',
+    opaqueJsonFilename(`batch-receipt:${marker.batch.batch_id}`),
+  );
+  await fs.unlink(receiptPath);
 
   const renamedProfile = profile('harry', {
     principal: { id: 'agent:harry', type: 'agent', displayName: 'New display label' },

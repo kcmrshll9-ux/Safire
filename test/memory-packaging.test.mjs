@@ -81,10 +81,10 @@ test('built Windows launcher records through its packaged runtime and installed 
     'synthetic-portable-profile.json',
   );
   const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'safire-packaged-memory-'));
+  t.after(() => fs.rm(scratch, { recursive: true, force: true }));
   const profilePath = path.join(scratch, 'profile with spaces.json');
   const vault = path.join(scratch, 'vault with spaces');
   await fs.copyFile(installedProfilePath, profilePath);
-  t.after(() => fs.rm(scratch, { recursive: true, force: true }));
   const transport = new StdioClientTransport({
     command: launcher,
     args: ['--profile-config', profilePath, '--vault', vault],

@@ -256,24 +256,25 @@ test('validated profiles are canonical, immutable, and reject ambiguous ACLs', (
 });
 
 test('profile identifiers, namespaces, and display names reject credential-like text without echoing it', () => {
-  const credential = `ghp_${'A'.repeat(36)}`;
-  const attempts = [
-    () => harryPortableProfile({
-      principal: { id: 'agent:harry', type: 'agent', displayName: credential },
-    }),
-    () => harryPortableProfile({ profileId: credential }),
-    () => harryPortableProfile({ sourceIdentity: credential }),
-    () => harryPortableProfile({
-      namespaceGrants: [
-        { namespace: `shared/${credential}`, read: true, write: true, descendants: true },
-      ],
-    }),
-  ];
-  for (const attempt of attempts) {
-    let thrown;
-    try { attempt(); } catch (error) { thrown = error; }
-    assert.ok(thrown instanceof ProfileValidationError);
-    assert.doesNotMatch(thrown.message, new RegExp(credential, 'i'));
+  for (const credential of [`ghp_${'A'.repeat(36)}`, `github_pat_${'A'.repeat(82)}`]) {
+    const attempts = [
+      () => harryPortableProfile({
+        principal: { id: 'agent:harry', type: 'agent', displayName: credential },
+      }),
+      () => harryPortableProfile({ profileId: credential }),
+      () => harryPortableProfile({ sourceIdentity: credential }),
+      () => harryPortableProfile({
+        namespaceGrants: [
+          { namespace: `shared/${credential}`, read: true, write: true, descendants: true },
+        ],
+      }),
+    ];
+    for (const attempt of attempts) {
+      let thrown;
+      try { attempt(); } catch (error) { thrown = error; }
+      assert.ok(thrown instanceof ProfileValidationError);
+      assert.doesNotMatch(thrown.message, new RegExp(credential, 'i'));
+    }
   }
 });
 

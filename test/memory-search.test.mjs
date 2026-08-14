@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { rankMemoryEvents, scoreMemoryEvent, summarizeActivity } from '../lib/memory/search.mjs';
+import {
+  HARD_MAX_SEARCH_CANDIDATES,
+  rankMemoryEvents,
+  scoreMemoryEvent,
+  summarizeActivity,
+} from '../lib/memory/search.mjs';
 
 function event(overrides = {}) {
   return {
@@ -91,4 +96,27 @@ test('feedback for event and memory targets is both retained', () => {
   assert.equal(ranked[0].activity.agent, 2);
   assert.equal(ranked[0].signals_by_actor.user.useful, 1);
   assert.equal(ranked[0].signals_by_actor.agent.not_useful, 1);
+});
+
+test('ranking retains only bounded top-k candidates with deterministic ordering', () => {
+  const candidates = Array.from({ length: 1_000 }, (_, index) => event({
+    event_id: `evt_synthetic_${String(index).padStart(5, '0')}`,
+    memory_id: `mem_synthetic_${String(index).padStart(5, '0')}`,
+    content: 'Bounded top-k needle.',
+    ingested_at: new Date(Date.UTC(2026, 0, 1, 0, 0, 0, index)).toISOString(),
+  })).reverse();
+  const ranked = rankMemoryEvents(candidates, [], { query: 'needle', limit: 7 });
+  assert.deepEqual(
+    ranked.map(({ event: item }) => item.event_id),
+    Array.from({ length: 7 }, (_, offset) => `evt_synthetic_${String(999 - offset).padStart(5, '0')}`),
+  );
+  assert.equal(ranked.length, 7);
+});
+
+test('ranking rejects candidate collections above its immutable ceiling', () => {
+  const repeated = event();
+  assert.throws(
+    () => rankMemoryEvents(new Array(HARD_MAX_SEARCH_CANDIDATES + 1).fill(repeated)),
+    { name: 'RangeError', message: 'Memory search candidate limit exceeded' },
+  );
 });

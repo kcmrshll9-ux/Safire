@@ -11,6 +11,8 @@ import { createPortableMcpProfile } from '../lib/memory/profile.mjs';
 import { createMemoryStore } from '../lib/memory/store.mjs';
 
 import {
+  HARD_MAX_LOCK_METADATA_BYTES,
+  HARD_MAX_MEMORY_JSON_FILE_BYTES,
   IMMUTABLE_COLLECTIONS,
   MemoryConflictError,
   VaultLockTimeoutError,
@@ -32,6 +34,7 @@ import {
   listJournalEntries,
   opaqueJsonFilename,
   readImmutableJson,
+  readJsonWithDigest,
   readJournalEntry,
   readMutableJson,
   removeJournalDirectoryIfEmpty,
@@ -325,6 +328,51 @@ test('publishes immutable JSON exclusively and lists only opaque records', async
   assertPathContained(layout.collections.memories, memory.path);
 });
 
+test('opened-file JSON reads and writes enforce immutable byte ceilings before allocation', async t => {
+  const { vault } = await temporaryVault(t);
+  const layout = await ensureMemoryLayout(vault);
+  const identity = 'bounded-json';
+  const created = await createImmutableJson(layout, 'actors', identity, { value: 'synthetic' });
+  const exactBytes = (await fs.stat(created.path)).size;
+  assert.deepEqual(
+    (await readImmutableJson(layout, 'actors', identity, { maxBytes: exactBytes })).value,
+    { value: 'synthetic' },
+  );
+  await assert.rejects(
+    () => readImmutableJson(layout, 'actors', identity, { maxBytes: exactBytes - 1 }),
+    error => error.code === 'MEMORY_RESOURCE_LIMIT'
+      && error.message === 'Safire memory resource limit exceeded'
+      && !Object.hasOwn(error, 'details'),
+  );
+
+  const rejectedIdentity = 'bounded-json-write';
+  await assert.rejects(
+    () => createImmutableJson(
+      layout,
+      'actors',
+      rejectedIdentity,
+      { value: 'x'.repeat(128) },
+      { maxBytes: 64 },
+    ),
+    error => error.code === 'MEMORY_RESOURCE_LIMIT' && !Object.hasOwn(error, 'details'),
+  );
+  await assert.rejects(
+    () => fs.stat(immutableRecordPath(layout, 'actors', rejectedIdentity)),
+    { code: 'ENOENT' },
+  );
+
+  const sparsePath = immutableRecordPath(layout, 'actors', 'oversized-sparse-json');
+  await fs.writeFile(sparsePath, '{}\n', 'utf8');
+  await fs.truncate(sparsePath, HARD_MAX_MEMORY_JSON_FILE_BYTES + 1);
+  await assert.rejects(
+    () => readJsonWithDigest(layout.collections.actors, sparsePath),
+    error => error.code === 'MEMORY_RESOURCE_LIMIT'
+      && error.message === 'Safire memory resource limit exceeded'
+      && !Object.hasOwn(error, 'details'),
+  );
+  assert.equal((await fs.stat(sparsePath)).size, HARD_MAX_MEMORY_JSON_FILE_BYTES + 1);
+});
+
 test('serializes cross-process vault lock contention with bounded retry', async t => {
   const { vault } = await temporaryVault(t);
   const layout = await ensureMemoryLayout(vault);
@@ -356,6 +404,20 @@ test('serializes cross-process vault lock contention with bounded retry', async 
   assert.equal(await lock.isOwned(), true);
   assert.equal(await lock.release(), true);
   assert.equal(await lock.isOwned(), false);
+});
+
+test('oversized lock metadata fails closed without removing the lock', async t => {
+  const { vault } = await temporaryVault(t);
+  const layout = await ensureMemoryLayout(vault);
+  const lock = await acquireVaultLock(layout);
+  await fs.truncate(layout.lockPath, HARD_MAX_LOCK_METADATA_BYTES + 1);
+  await assert.rejects(
+    () => lock.release(),
+    error => error.code === 'MEMORY_RESOURCE_LIMIT'
+      && error.message === 'Safire memory resource limit exceeded'
+      && !Object.hasOwn(error, 'details'),
+  );
+  assert.equal((await fs.stat(layout.lockPath)).size, HARD_MAX_LOCK_METADATA_BYTES + 1);
 });
 
 test('keeps a killed owner lock until explicit operator recovery', async t => {
@@ -394,11 +456,11 @@ test('keeps a killed owner lock until explicit operator recovery', async t => {
   await recovered.release();
 });
 
-test('recovers a fully flushed journal after a writer process is hard-killed', async t => {
+test('recovers a fully flushed multi-item journal after its first child writer is hard-killed', async t => {
   const { vault } = await temporaryVault(t);
   const child = spawnHardKillWriter(vault);
   t.after(() => killChildIfRunning(child));
-  await waitForOutput(child, 'JOURNALED', 5_000);
+  await waitForOutput(child, 'FIRST_CHILD_COMMITTED', 5_000);
 
   const layout = await ensureMemoryLayout(vault);
   const lockBytes = await fs.readFile(layout.lockPath, 'utf8');
@@ -418,8 +480,8 @@ test('recovers a fully flushed journal after a writer process is hard-killed', a
   await fs.unlink(layout.lockPath);
   const recovered = createMemoryStore({ vaultDir: vault, profile: hardKillProfile() });
   const status = await recovered.status();
-  assert.equal(status.counts.events, 1);
-  assert.equal(status.counts.memories, 1);
+  assert.equal(status.counts.events, 2);
+  assert.equal(status.counts.memories, 2);
   assert.equal(status.pending_transactions, 0);
 });
 
@@ -478,8 +540,24 @@ test('a delayed contender cannot remove or release a newly acquired owner lock',
   const { vault } = await temporaryVault(t);
   const layout = await ensureMemoryLayout(vault);
   const first = await acquireVaultLock(layout, { timeoutMs: 500, retryDelayMs: 5 });
-  const contender = acquireVaultLock(layout, { timeoutMs: 250, retryDelayMs: 100 });
-  await new Promise(resolve => setTimeout(resolve, 20));
+  let reportFirstContention;
+  const firstContention = new Promise(resolve => { reportFirstContention = resolve; });
+  const contentionSignal = {
+    aborted: false,
+    addEventListener(type) {
+      assert.equal(type, 'abort');
+      reportFirstContention();
+    },
+    removeEventListener(type) {
+      assert.equal(type, 'abort');
+    },
+  };
+  const contender = acquireVaultLock(layout, {
+    timeoutMs: 250,
+    retryDelayMs: 100,
+    signal: contentionSignal,
+  });
+  await firstContention;
 
   await first.release();
   const second = await acquireVaultLock(layout, { timeoutMs: 50, retryDelayMs: 2 });

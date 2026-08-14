@@ -56,7 +56,12 @@ const validEvent = (overrides = {}) => ({
   ...overrides,
 });
 
-const GITHUB_TOKEN_IDENTIFIER = `ghp_${'A'.repeat(36)}`;
+const GITHUB_TOKEN_IDENTIFIERS = Object.freeze([
+  `ghp_${'A'.repeat(36)}`,
+  `github_pat_${'A'.repeat(82)}`,
+]);
+
+const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 test('Stage 1 vocabularies are fixed and exported', () => {
   assert.deepEqual([...ACTOR_TYPES], ['user', 'agent', 'agent_instance', 'automation', 'external_service', 'system', 'unknown']);
@@ -158,6 +163,7 @@ test('credential, token, and private-reasoning content is rejected without loggi
     'password=correct-horse-battery-staple',
     'Authorization: Bearer abcdefghijklmnopqrstuvwxyz',
     '-----BEGIN PRIVATE KEY-----',
+    GITHUB_TOKEN_IDENTIFIERS[1],
     'chain-of-thought: hidden intermediate reasoning',
   ];
   const logged = [];
@@ -178,64 +184,82 @@ test('credential, token, and private-reasoning content is rejected without loggi
 });
 
 test('credential-like material is rejected from every caller-controlled identifier without echoing it', () => {
-  assert.equal(containsDisallowedSensitiveMaterial(GITHUB_TOKEN_IDENTIFIER), true);
-  assert.equal(isOpaqueId(GITHUB_TOKEN_IDENTIFIER), false);
-
-  const eventInputs = [
-    validEvent({ namespace: `harry/${GITHUB_TOKEN_IDENTIFIER}` }),
-    validEvent({ actor_id: GITHUB_TOKEN_IDENTIFIER }),
-    validEvent({ delegated_by: GITHUB_TOKEN_IDENTIFIER }),
-    validEvent({ agent_instance_id: GITHUB_TOKEN_IDENTIFIER }),
-    validEvent({ source: { stream: GITHUB_TOKEN_IDENTIFIER, event_id: 'source_event_01' } }),
-    validEvent({ source: { stream: 'hermes:conversation', event_id: GITHUB_TOKEN_IDENTIFIER } }),
-    validEvent({ relations: [{ type: 'supports', target_event_id: GITHUB_TOKEN_IDENTIFIER }] }),
-    validEvent({
-      derived: { claim: 'A visible claim.', source_event_ids: [GITHUB_TOKEN_IDENTIFIER] },
-    }),
-    validEvent({ attributes: { [GITHUB_TOKEN_IDENTIFIER.toLowerCase()]: 'visible' } }),
-  ];
-  for (const contextKey of [
-    'conversation_id', 'session_id', 'thread_id', 'turn_id', 'message_id',
-    'tool_call_id', 'automation_run_id',
-  ]) {
-    eventInputs.push(validEvent({ context: { [contextKey]: GITHUB_TOKEN_IDENTIFIER } }));
-  }
-
-  const feedbackBase = {
-    schema_version: 1,
-    target: { type: 'event', id: 'event_01' },
-    signal: 'superseded',
-    related_target: { type: 'event', id: 'event_02' },
-    actor_id: 'actor_user',
-    source: { stream: 'hermes:feedback', event_id: 'feedback_source_01' },
-  };
-  const feedbackInputs = [
-    { ...feedbackBase, target: { type: 'event', id: GITHUB_TOKEN_IDENTIFIER } },
-    { ...feedbackBase, related_target: { type: 'memory', id: GITHUB_TOKEN_IDENTIFIER } },
-    { ...feedbackBase, actor_id: GITHUB_TOKEN_IDENTIFIER },
-    { ...feedbackBase, source: { stream: GITHUB_TOKEN_IDENTIFIER, event_id: 'feedback_source_01' } },
-    { ...feedbackBase, source: { stream: 'hermes:feedback', event_id: GITHUB_TOKEN_IDENTIFIER } },
-  ];
-
   const logged = [];
   const originalError = console.error;
   console.error = (...args) => logged.push(args);
   try {
-    for (const parse of [
-      ...eventInputs.map(input => () => parseEventInput(input)),
-      ...feedbackInputs.map(input => () => parseFeedbackInput(input)),
-      () => parseOpaqueId(GITHUB_TOKEN_IDENTIFIER),
-    ]) {
-      let thrown;
-      try { parse(); } catch (error) { thrown = error; }
-      assert.ok(thrown instanceof MemorySchemaValidationError);
-      assert.doesNotMatch(JSON.stringify(thrown), new RegExp(GITHUB_TOKEN_IDENTIFIER, 'i'));
-      assert.doesNotMatch(thrown.message, new RegExp(GITHUB_TOKEN_IDENTIFIER, 'i'));
+    for (const credential of GITHUB_TOKEN_IDENTIFIERS) {
+      assert.equal(containsDisallowedSensitiveMaterial(credential), true);
+      assert.equal(isOpaqueId(credential), false);
+
+      const eventInputs = [
+        validEvent({ namespace: `harry/${credential}` }),
+        validEvent({ actor_id: credential }),
+        validEvent({ delegated_by: credential }),
+        validEvent({ agent_instance_id: credential }),
+        validEvent({ source: { stream: credential, event_id: 'source_event_01' } }),
+        validEvent({ source: { stream: 'hermes:conversation', event_id: credential } }),
+        validEvent({ relations: [{ type: 'supports', target_event_id: credential }] }),
+        validEvent({ derived: { claim: 'A visible claim.', source_event_ids: [credential] } }),
+        validEvent({ attributes: { visible_label: credential } }),
+        validEvent({ attributes: { [credential.toLowerCase()]: 'visible' } }),
+      ];
+      for (const contextKey of [
+        'conversation_id', 'session_id', 'thread_id', 'turn_id', 'message_id',
+        'tool_call_id', 'automation_run_id',
+      ]) {
+        eventInputs.push(validEvent({ context: { [contextKey]: credential } }));
+      }
+
+      const feedbackBase = {
+        schema_version: 1,
+        target: { type: 'event', id: 'event_01' },
+        signal: 'superseded',
+        related_target: { type: 'event', id: 'event_02' },
+        actor_id: 'actor_user',
+        source: { stream: 'hermes:feedback', event_id: 'feedback_source_01' },
+      };
+      const feedbackInputs = [
+        { ...feedbackBase, target: { type: 'event', id: credential } },
+        { ...feedbackBase, related_target: { type: 'memory', id: credential } },
+        { ...feedbackBase, actor_id: credential },
+        { ...feedbackBase, source: { stream: credential, event_id: 'feedback_source_01' } },
+        { ...feedbackBase, source: { stream: 'hermes:feedback', event_id: credential } },
+        {
+          schema_version: 1,
+          target: { type: 'event', id: 'event_01' },
+          signal: 'correction',
+          correction: credential,
+          actor_id: 'actor_user',
+          source: { stream: 'hermes:feedback', event_id: 'feedback_source_01' },
+        },
+      ];
+
+      for (const parse of [
+        ...eventInputs.map(input => () => parseEventInput(input)),
+        ...feedbackInputs.map(input => () => parseFeedbackInput(input)),
+        () => parseOpaqueId(credential),
+      ]) {
+        let thrown;
+        try { parse(); } catch (error) { thrown = error; }
+        assert.ok(thrown instanceof MemorySchemaValidationError);
+        assert.doesNotMatch(JSON.stringify(thrown), new RegExp(escapeRegExp(credential), 'i'));
+        assert.doesNotMatch(thrown.message, new RegExp(escapeRegExp(credential), 'i'));
+      }
     }
   } finally {
     console.error = originalError;
   }
   assert.deepEqual(logged, []);
+});
+
+test('fine-grained GitHub token detection follows the exact documented prefix and length', () => {
+  const valid = `github_pat_${'Z'.repeat(82)}`;
+  assert.equal(containsDisallowedSensitiveMaterial(valid), true);
+  assert.equal(containsDisallowedSensitiveMaterial(`GITHUB_PAT_${'Z'.repeat(82)}`), false);
+  assert.equal(containsDisallowedSensitiveMaterial(`github_pat_${'Z'.repeat(81)}`), false);
+  assert.equal(containsDisallowedSensitiveMaterial(`github_pat_${'Z'.repeat(83)}`), false);
+  assert.equal(containsDisallowedSensitiveMaterial('A GitHub PAT should be stored outside memory.'), false);
 });
 
 test('strict feedback parsing covers targets, fixed signals, correction, actor, and source', () => {
