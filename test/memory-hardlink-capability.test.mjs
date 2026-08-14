@@ -154,6 +154,14 @@ function publicationDirectories(layout) {
   ];
 }
 
+function sameTestPath(left, right) {
+  const resolvedLeft = path.resolve(String(left));
+  const resolvedRight = path.resolve(String(right));
+  return process.platform === 'win32'
+    ? resolvedLeft.toLocaleLowerCase('en-US') === resolvedRight.toLocaleLowerCase('en-US')
+    : resolvedLeft === resolvedRight;
+}
+
 test('supported same-directory hard links validate by identity and leave no probe artifacts', async t => {
   const { vault } = await temporaryVault(t);
   const originalLink = fs.link;
@@ -442,19 +450,20 @@ test('post-link validation failures clean both identity-proven probe names', asy
   for (const stage of ['directory revalidation', 'source lstat', 'destination lstat']) {
     await t.test(stage, async subtest => {
       const { vault } = await temporaryVault(subtest);
-      const locks = path.join(vault, '.safire', 'memory', 'v1', 'locks');
       const originalLink = fs.link;
       const originalLstat = fs.lstat;
       let linked = false;
+      let linkedDirectory = null;
       let injected = false;
-      fs.link = async (...args) => {
-        await originalLink(...args);
+      fs.link = async (source, destination) => {
+        await originalLink(source, destination);
+        linkedDirectory = path.dirname(String(source));
         linked = true;
       };
       fs.lstat = async (target, options) => {
         const targetPath = String(target);
         const shouldFail = linked && !injected && (
-          (stage === 'directory revalidation' && path.resolve(targetPath) === path.resolve(locks))
+          (stage === 'directory revalidation' && sameTestPath(targetPath, linkedDirectory))
           || (stage === 'source lstat' && path.basename(targetPath).endsWith('.source'))
           || (stage === 'destination lstat' && path.basename(targetPath).endsWith('.link'))
         );
