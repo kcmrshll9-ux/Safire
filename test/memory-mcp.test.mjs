@@ -21,6 +21,7 @@ const toolNames = [
   'memory_recall',
   'memory_status',
 ];
+const GITHUB_TOKEN_IDENTIFIER = `ghp_${'A'.repeat(36)}`;
 
 function syntheticProfile(overrides = {}) {
   return {
@@ -305,6 +306,7 @@ test('memory MCP exposes exactly six strict tools and completes the synthetic ag
 
   const recalled = parseToolJson(await callTool(client, 'memory_recall', {
     ids: [storedEvent.event_id, storedMemory.memory_id],
+    include_feedback: true,
   }));
   assert.equal(recalled.results.length, 2);
   assert.ok(recalled.results.every(result => result.event.event_id === storedEvent.event_id));
@@ -371,9 +373,30 @@ test('memory MCP rejects impersonation, caller-controlled trust, unsafe paths, a
   })] });
   errorText(namespaceAttempt);
 
+  const sensitiveAttempts = [
+    await callTool(client, 'memory_record_events', { events: [event({
+      source: { stream: GITHUB_TOKEN_IDENTIFIER, event_id: 'turn.sensitive-stream' },
+    })] }),
+    await callTool(client, 'memory_record_events', { events: [event({
+      context: { conversation_id: 'conversation.synthetic', session_id: GITHUB_TOKEN_IDENTIFIER },
+      source: { stream: 'conversation.synthetic', event_id: 'turn.sensitive-context' },
+    })] }),
+    await callTool(client, 'memory_record_feedback', { feedback: [feedback(memoryId, {
+      source: { stream: 'feedback.synthetic', event_id: GITHUB_TOKEN_IDENTIFIER },
+    })] }),
+    await callTool(client, 'memory_search', { query: GITHUB_TOKEN_IDENTIFIER }),
+    await callTool(client, 'memory_get', { id: GITHUB_TOKEN_IDENTIFIER }),
+    await callTool(client, 'memory_recall', { ids: [GITHUB_TOKEN_IDENTIFIER] }),
+  ];
+  for (const attempt of sensitiveAttempts) {
+    const text = errorText(attempt);
+    assert.doesNotMatch(text, new RegExp(GITHUB_TOKEN_IDENTIFIER, 'i'));
+  }
+
   const status = parseToolJson(await callTool(client, 'memory_status'));
   assert.equal(status.counts.events, 1);
   assert.equal(status.counts.feedback, 0);
+  assert.doesNotMatch(client.diagnostics().stderr, new RegExp(GITHUB_TOKEN_IDENTIFIER, 'i'));
 });
 
 test('ordinary memory MCP rejects trusted bridges from profile files and injected stores', async (t) => {

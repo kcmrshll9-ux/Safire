@@ -164,7 +164,7 @@ The Windows installer additionally exposes `<Safire install>/resources/safire-me
 
 The fixed profile provides stable principal, agent-instance, ingest-adapter, source, actor, and namespace identities. Ordinary portable profiles cannot claim user activity. Authenticated user events require the separate trusted-bridge library seam and a host-supplied authenticator; that seam is not a listener or installed transport. Harry and Moltbook appear only in reference examples—Safire memory is agent-general, and Moltbook is modeled there only as automation delegated by the reference Harry profile.
 
-Memory records are local plaintext JSON. Use operating-system permissions and device encryption where confidentiality matters, and never submit credentials, tokens, private reasoning, chain-of-thought, or scratchpad content. See the [agent-memory guide](docs/memory/README.md), [security model](docs/memory/SECURITY.md), and [trusted-bridge contract](docs/memory/TRUSTED_BRIDGE.md) before enabling it.
+Memory records are local plaintext JSON. Use operating-system permissions and device encryption where confidentiality matters, and never submit credentials, tokens, private reasoning, chain-of-thought, or scratchpad material in content, identifiers, metadata, or search queries. See the [agent-memory guide](docs/memory/README.md), [security model](docs/memory/SECURITY.md), and [trusted-bridge contract](docs/memory/TRUSTED_BRIDGE.md) before enabling it.
 
 ## Keyboard shortcuts
 

@@ -13,6 +13,7 @@ import {
   MemoryIdempotencyConflictError,
   MemoryNotFoundError,
   createMemoryStore,
+  createTrustedMemoryBridge,
 } from '../lib/memory/store.mjs';
 
 function harryProfile(overrides = {}) {
@@ -83,10 +84,32 @@ function event(overrides = {}) {
   };
 }
 
+function trustedEventEnvelope(overrides = {}) {
+  const {
+    actor_type: _actorType,
+    actor_id: _actorId,
+    delegated_by: _delegatedBy,
+    agent_instance_id: _agentInstanceId,
+    ...envelope
+  } = event(overrides);
+  return envelope;
+}
+
 async function temporaryVault(t, prefix = 'safire-memory-store-') {
   const vault = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
   t.after(() => fs.rm(vault, { recursive: true, force: true }));
   return vault;
+}
+
+async function readTreeText(directory) {
+  const entries = await fs.readdir(directory, { withFileTypes: true });
+  const chunks = [];
+  for (const entry of entries) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) chunks.push(await readTreeText(entryPath));
+    else chunks.push(await fs.readFile(entryPath, 'utf8'));
+  }
+  return chunks.join('\n');
 }
 
 test('initializes a stable sidecar and records fully attributed event-backed memory', async (t) => {
@@ -213,11 +236,12 @@ test('namespace ACLs isolate a synthetic second agent and make sharing explicit'
   });
 });
 
-test('idempotent replays recheck referenced namespace access before returning records', async (t) => {
+test('ACL projections and replays disclose no hidden provenance, dependent feedback, digest, or shape oracle', async (t) => {
   const vault = await temporaryVault(t);
   const broad = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
   const privateTarget = await broad.recordEvents([event()]);
   const privateEventId = privateTarget.results[0].event.event_id;
+  const privateMemoryId = privateTarget.results[0].memory.memory_id;
   const sharedInput = event({
     namespace: 'shared/demo',
     content: 'A shared event that cites a private event.',
@@ -230,6 +254,12 @@ test('idempotent replays recheck referenced namespace access before returning re
   });
   const sharedRecord = await broad.recordEvents([sharedInput]);
   const sharedEventId = sharedRecord.results[0].event.event_id;
+  const controlRecord = await broad.recordEvents([event({
+    namespace: 'shared/demo',
+    content: 'A plain visible control record with no cross-namespace dependency.',
+    source: { stream: 'shared.demo', event_id: 'acl-replay.control' },
+  })]);
+  const controlEventId = controlRecord.results[0].event.event_id;
   const privateFeedback = {
     schema_version: 1,
     target: { type: 'event', id: privateEventId },
@@ -238,14 +268,19 @@ test('idempotent replays recheck referenced namespace access before returning re
     source: { stream: 'feedback.harry', event_id: 'acl-replay.1' },
   };
   await broad.recordFeedback([privateFeedback]);
-  await broad.recordFeedback([{
+  const relatedFeedback = await broad.recordFeedback([{
     schema_version: 1,
     target: { type: 'event', id: sharedEventId },
     signal: 'superseded',
-    related_target: { type: 'event', id: privateEventId },
+    related_target: { type: 'memory', id: privateMemoryId },
     actor_id: 'agent:harry',
     source: { stream: 'feedback.harry', event_id: 'acl-replay.shared-related' },
   }]);
+  const hiddenDigests = [
+    sharedRecord.results[0].event.integrity.digest,
+    sharedRecord.results[0].memory.integrity.digest,
+    relatedFeedback.results[0].feedback.integrity.digest,
+  ];
 
   const narrow = createMemoryStore({
     vaultDir: vault,
@@ -260,14 +295,83 @@ test('idempotent replays recheck referenced namespace access before returning re
   const visibleSearch = await narrow.search({ query: 'shared event' });
   assert.equal(visibleSearch.count, 1);
   assert.deepEqual(visibleSearch.results[0].relations, []);
-  assert.deepEqual(visibleSearch.results[0].derived.source_event_ids, []);
+  assert.equal(visibleSearch.results[0].derived, null);
+  assert.equal('integrity' in visibleSearch.results[0], false);
+  assert.equal(visibleSearch.results[0].activity.agent, 1);
+  assert.equal(visibleSearch.results[0].signals_by_actor.agent.superseded, 0);
   assert.doesNotMatch(JSON.stringify(visibleSearch), new RegExp(privateEventId));
-  const visibleExact = await narrow.get(sharedEventId);
+  assert.doesNotMatch(JSON.stringify(visibleSearch), new RegExp(privateMemoryId));
+  const visibleExact = await narrow.get(sharedEventId, {
+    includeFeedback: true,
+    includeRelations: true,
+  });
   assert.deepEqual(visibleExact.event.relations, []);
-  assert.deepEqual(visibleExact.event.derived.source_event_ids, []);
-  assert.deepEqual(visibleExact.memory.source_event_ids, []);
-  assert.equal(visibleExact.feedback[0].related_target, null);
+  assert.equal(visibleExact.event.derived, null);
+  assert.equal('integrity' in visibleExact.event, false);
+  assert.equal('source_event_ids' in visibleExact.memory, false);
+  assert.equal('integrity' in visibleExact.memory, false);
+  assert.deepEqual(visibleExact.feedback, []);
+  assert.equal(visibleExact.activity.agent, 1);
+  assert.equal(visibleExact.signals_by_actor.agent.superseded, 0);
   assert.doesNotMatch(JSON.stringify(visibleExact), new RegExp(privateEventId));
+  assert.doesNotMatch(JSON.stringify(visibleExact), new RegExp(privateMemoryId));
+  const visibleControl = await narrow.get(controlEventId, {
+    includeFeedback: true,
+    includeRelations: true,
+  });
+  assert.equal(visibleControl.event.derived, null);
+  assert.deepEqual(visibleControl.event.relations, []);
+  assert.equal('integrity' in visibleControl.event, false);
+  assert.equal('source_event_ids' in visibleControl.memory, false);
+  assert.equal('integrity' in visibleControl.memory, false);
+  assert.deepEqual(Object.keys(visibleExact.event).sort(), Object.keys(visibleControl.event).sort());
+  assert.deepEqual(Object.keys(visibleExact.memory).sort(), Object.keys(visibleControl.memory).sort());
+  const narrowStatus = await narrow.status();
+  assert.equal(narrowStatus.counts.feedback, 0);
+  for (const digest of hiddenDigests) {
+    assert.doesNotMatch(JSON.stringify(visibleSearch), new RegExp(digest));
+    assert.doesNotMatch(JSON.stringify(visibleExact), new RegExp(digest));
+  }
+});
+
+test('credential-like identifiers and echoed queries fail before persistence without value disclosure', async (t) => {
+  const vault = await temporaryVault(t, 'safire-memory-sensitive-identifiers-');
+  const store = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
+  const credential = `ghp_${'A'.repeat(36)}`;
+
+  for (const invalidEvent of [
+    event({ source: { stream: credential, event_id: 'turn.sensitive-stream' } }),
+    event({ context: { conversation_id: 'conversation.alpha', session_id: credential } }),
+  ]) {
+    await assert.rejects(
+      () => store.recordEvents([invalidEvent]),
+      error => error.code === 'MEMORY_SCHEMA_VALIDATION_FAILED'
+        && !error.message.toLowerCase().includes(credential.toLowerCase()),
+    );
+  }
+
+  const seed = await store.recordEvents([event()]);
+  await assert.rejects(
+    () => store.recordFeedback([{
+      schema_version: 1,
+      target: { type: 'event', id: seed.results[0].event.event_id },
+      signal: 'useful',
+      actor_id: 'agent:harry',
+      source: { stream: 'feedback.harry', event_id: credential },
+    }]),
+    error => error.code === 'MEMORY_SCHEMA_VALIDATION_FAILED'
+      && !error.message.toLowerCase().includes(credential.toLowerCase()),
+  );
+  await assert.rejects(
+    () => store.search({ query: credential }),
+    error => error.code === 'MEMORY_QUERY_INVALID'
+      && !error.message.toLowerCase().includes(credential.toLowerCase()),
+  );
+
+  const status = await store.status();
+  assert.equal(status.counts.events, 1);
+  assert.equal(status.counts.feedback, 0);
+  assert.doesNotMatch(await readTreeText(vault), new RegExp(credential, 'i'));
 });
 
 test('stable actor IDs reject conflicting automation delegation across profiles', async (t) => {
@@ -304,42 +408,37 @@ test('trusted user messages remain requests and Harry proposals never become use
     speech_act: 'request',
     content: 'Please use the crimson checklist.',
     source: { stream: 'conversation.alpha', event_id: 'user.unauthenticated' },
-  })]), /internal bridge-enabled store/i);
+  })]), /authenticated bridge ingestion/i);
 
-  const bridge = createMemoryStore({
+  const { bridge } = createTrustedMemoryBridge({
     vaultDir: vault,
     profile: trustedProfile(),
-    trustedIngress: true,
+    authenticate: async (_metadata, context) => (context?.role === 'user'
+      ? { authenticated: true, role: 'user', actor_id: 'user:owner' }
+      : { authenticated: true, role: 'agent', actor_id: 'agent:harry' }),
   });
-  const user = await bridge.recordEvents([event({
-    actor_type: 'user',
-    actor_id: 'user:owner',
-    agent_instance_id: 'agent_instance:harry:bridge',
+  const user = (await bridge.ingest(trustedEventEnvelope({
     kind: 'visible_user_message',
     speech_act: 'request',
     content: 'Please use the crimson checklist.',
     source: { stream: 'conversation.alpha', event_id: 'user.1' },
-  })]);
-  const harry = await bridge.recordEvents([event({
-    agent_instance_id: 'agent_instance:harry:bridge',
+  }), { role: 'user' })).record_result;
+  const harry = (await bridge.ingest(trustedEventEnvelope({
     speech_act: 'proposal',
     content: 'I propose using the crimson checklist.',
     source: { stream: 'conversation.alpha', event_id: 'agent.1' },
-  })]);
+  }), { role: 'agent' })).record_result;
   assert.equal(user.results[0].event.actor.type, 'user');
   assert.equal(user.results[0].event.speech_act, 'request');
   assert.equal(harry.results[0].event.actor.type, 'agent');
   assert.equal(harry.results[0].event.speech_act, 'proposal');
   assert.notEqual(harry.results[0].event.speech_act, 'preference');
-  await assert.rejects(() => bridge.recordEvents([event({
-    actor_type: 'user',
-    actor_id: 'user:owner',
-    agent_instance_id: 'agent_instance:harry:bridge',
+  await assert.rejects(() => bridge.ingest(trustedEventEnvelope({
     kind: 'explicit_conclusion',
     speech_act: 'conclusion',
     content: 'A user must not be attributed as an agent conclusion.',
     source: { stream: 'conversation.alpha', event_id: 'user.invalid-kind' },
-  })]), /not valid for the attributed actor type/i);
+  }), { role: 'user' }), /cannot record this event kind/i);
 });
 
 test('actor-specific feedback is append-only and search always returns attribution', async (t) => {
@@ -363,7 +462,7 @@ test('actor-specific feedback is append-only and search always returns attributi
     signal: 'user_confirmed',
     actor_id: 'user:owner',
     source: { stream: 'feedback.user', event_id: 'feedback.unauthenticated' },
-  }]), /internal bridge-enabled store/i);
+  }]), /authenticated bridge ingestion/i);
 
   await assert.rejects(() => harry.recordFeedback([{
     schema_version: 1,
@@ -373,29 +472,31 @@ test('actor-specific feedback is append-only and search always returns attributi
     source: { stream: 'feedback.harry', event_id: 'feedback.invalid-user-signal' },
   }]), /trusted user actor/i);
 
-  const bridge = createMemoryStore({
+  const { bridge } = createTrustedMemoryBridge({
     vaultDir: vault,
     profile: trustedProfile(),
-    trustedIngress: true,
+    authenticate: async () => ({
+      authenticated: true,
+      role: 'user',
+      actor_id: 'user:owner',
+    }),
   });
-  await bridge.recordFeedback([{
+  await bridge.ingestFeedback({
     schema_version: 1,
     target: { type: 'event', id: eventId },
     signal: 'user_confirmed',
-    actor_id: 'user:owner',
     source: { stream: 'feedback.user', event_id: 'feedback.1' },
-  }]);
-  const correction = await bridge.recordFeedback([{
+  });
+  const correction = (await bridge.ingestFeedback({
     schema_version: 1,
     target: { type: 'event', id: eventId },
     signal: 'correction',
     correction: 'Use the amber checklist instead.',
-    actor_id: 'user:owner',
     source: { stream: 'feedback.user', event_id: 'feedback.2' },
-  }]);
+  })).record_result;
   assert.equal(correction.created_count, 1);
 
-  const exact = await harry.get(memoryId);
+  const exact = await harry.get(memoryId, { includeFeedback: true });
   assert.equal(exact.event.event_id, eventId);
   assert.equal(exact.feedback.length, 3);
   assert.equal(exact.activity.user, 2);
@@ -428,8 +529,12 @@ test('derived memory retains every supporting event and corrections preserve ori
     derived: { claim: 'The launch plan has two visible supporting events.', source_event_ids: sourceIds },
     source: { stream: 'conversation.alpha', event_id: 'turn.3' },
   })]);
-  const recalled = await store.get(conclusion.results[0].memory.memory_id);
-  assert.deepEqual(recalled.memory.source_event_ids, sourceIds);
+  const recalled = await store.get(conclusion.results[0].memory.memory_id, {
+    includeRelations: true,
+  });
+  assert.deepEqual(recalled.event.derived.source_event_ids, sourceIds);
+  assert.equal('source_event_ids' in recalled.memory, false);
+  assert.equal('integrity' in recalled.memory, false);
   assert.equal((await store.status()).counts.events, 3);
   assert.equal((await store.get(first.results[0].event.event_id)).event.content, 'Use the crimson launch checklist.');
 });
@@ -443,10 +548,14 @@ test('corrections, approvals, rejections, contradictions, and supersession retai
     source: { stream: 'conversation.provenance', event_id: 'original.1' },
   })]);
   const originalId = original.results[0].event.event_id;
-  const bridge = createMemoryStore({
+  const { store: bridgeStore, bridge } = createTrustedMemoryBridge({
     vaultDir: vault,
     profile: trustedProfile(),
-    trustedIngress: true,
+    authenticate: async () => ({
+      authenticated: true,
+      role: 'user',
+      actor_id: 'user:owner',
+    }),
   });
   const userRecords = [];
   for (const [speechAct, relationType, sourceId, content] of [
@@ -454,16 +563,13 @@ test('corrections, approvals, rejections, contradictions, and supersession retai
     ['approval', 'approves', 'user.approval', 'I approve the corrected Thursday date.'],
     ['rejection', 'rejects', 'user.rejection', 'I reject the original Friday date.'],
   ]) {
-    userRecords.push((await bridge.recordEvents([event({
-      actor_type: 'user',
-      actor_id: 'user:owner',
-      agent_instance_id: 'agent_instance:harry:bridge',
+    userRecords.push((await bridge.ingest(trustedEventEnvelope({
       kind: 'visible_user_message',
       speech_act: speechAct,
       content,
       relations: [{ type: relationType, target_event_id: originalId }],
       source: { stream: 'conversation.provenance', event_id: sourceId },
-    })])).results[0].event);
+    }))).record_result.results[0].event);
   }
   const contradiction = (await harry.recordEvents([event({
     content: 'The visible correction contradicts the original Friday date.',
@@ -471,14 +577,13 @@ test('corrections, approvals, rejections, contradictions, and supersession retai
     relations: [{ type: 'contradicts', target_event_id: originalId }],
     source: { stream: 'conversation.provenance', event_id: 'agent.contradiction' },
   })])).results[0].event;
-  await bridge.recordFeedback([{
+  await bridge.ingestFeedback({
     schema_version: 1,
     target: { type: 'event', id: originalId },
     signal: 'superseded',
     related_target: { type: 'event', id: userRecords[0].event_id },
-    actor_id: 'user:owner',
     source: { stream: 'feedback.provenance', event_id: 'user.superseded' },
-  }]);
+  });
 
   assert.deepEqual(userRecords.map((record) => record.actor.type), ['user', 'user', 'user']);
   assert.deepEqual(
@@ -487,7 +592,10 @@ test('corrections, approvals, rejections, contradictions, and supersession retai
   );
   assert.equal(contradiction.relations[0].type, 'contradicts');
   assert.equal(contradiction.actor.type, 'agent');
-  const recalled = await bridge.get(originalId);
+  const recalled = await bridgeStore.get(originalId, {
+    includeFeedback: true,
+    includeRelations: true,
+  });
   assert.equal(recalled.event.content, 'The invented rollout date is Friday.');
   assert.equal(recalled.event.source.event_id, 'original.1');
   assert.deepEqual(
@@ -500,7 +608,7 @@ test('corrections, approvals, rejections, contradictions, and supersession retai
   assert.equal(recalled.feedback[0].related_target.id, userRecords[0].event_id);
 });
 
-test('journal recovery makes every interrupted event-ingestion stage crash-safe', async (t) => {
+test('journal recovery completes every event-ingestion stage after an injected operation failure', async (t) => {
   for (const failureStage of [
     'after_journal_create',
     'after_event_create',
@@ -540,7 +648,7 @@ test('journal recovery makes every interrupted event-ingestion stage crash-safe'
   }
 });
 
-test('journal recovery makes interrupted feedback append crash-safe', async (t) => {
+test('journal recovery completes feedback append after injected operation failures', async (t) => {
   for (const failureStage of ['after_journal_create', 'after_feedback_create', 'after_idempotency_create']) {
     await t.test(failureStage, async (t) => {
       const vault = await temporaryVault(t, `safire-feedback-${failureStage}-`);
@@ -664,23 +772,29 @@ test('concurrent duplicate delivery across store instances creates one event', a
 
 test('reads hold one vault snapshot while identity regeneration waits for the lock', async (t) => {
   const vault = await temporaryVault(t);
-  const reader = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
-  const writer = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
-  await reader.recordEvents([event()]);
-  await writer.status();
-
   let announceRead;
   const readEntered = new Promise((resolve) => { announceRead = resolve; });
   let releaseRead;
   const readGate = new Promise((resolve) => { releaseRead = resolve; });
   t.after(() => releaseRead());
-  const readAccessibleEvents = reader._readAccessibleEvents.bind(reader);
-  reader._readAccessibleEvents = async (manifest) => {
-    announceRead();
-    await readGate;
-    return readAccessibleEvents(manifest);
-  };
+  let gateNextEventRead = false;
+  const reader = createMemoryStore({
+    vaultDir: vault,
+    profile: harryProfile(),
+    async faultInjector(stage, metadata) {
+      if (!gateNextEventRead
+          || stage !== 'before_collection_record_read'
+          || metadata.collection !== 'events') return;
+      gateNextEventRead = false;
+      announceRead();
+      await readGate;
+    },
+  });
+  const writer = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
+  await reader.recordEvents([event()]);
+  await writer.status();
 
+  gateNextEventRead = true;
   const searchPromise = reader.search({ query: '' });
   await readEntered;
   let regenerationSettled = false;

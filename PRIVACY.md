@@ -36,8 +36,9 @@ information.
 The agent-memory sidecar records only explicit MCP calls or deliberate host
 library calls. It does not monitor conversations, modify Hermes or another
 agent host, or automatically capture transcripts. The trusted-bridge library
-is an in-process contract that records nothing unless host code invokes it
-with authentication and recording callbacks.
+records nothing unless host code creates a paired bridge with an authenticator
+and explicitly invokes `bridge.ingest` or `bridge.ingestFeedback`; privileged
+recording callbacks remain private to that pair.
 
 ## Local server
 

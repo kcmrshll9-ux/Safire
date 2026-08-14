@@ -55,7 +55,7 @@ Use these tools only when the operator has deliberately configured the memory si
 
 The memory server does not monitor conversations or auto-capture activity. The trusted bridge is a library contract, not an installed hook, listener, or Hermes modification. Harry and Moltbook are reference examples only; the feature is agent-general, and the example Moltbook identity is automation delegated by the example Harry profile.
 
-Memory records are plaintext JSON beneath `<vault>/.safire/memory/v1/`. Do not record credentials, tokens, private reasoning, chain-of-thought, or scratchpad content. Read the [agent-memory guide](memory/README.md) and [security model](memory/SECURITY.md) before using this separate server.
+Memory records are plaintext JSON beneath `<vault>/.safire/memory/v1/`. Do not submit credentials, tokens, private reasoning, chain-of-thought, or scratchpad material in content, identifiers, metadata, or search queries. Read the [agent-memory guide](memory/README.md) and [security model](memory/SECURITY.md) before using this separate server.
 
 From a source checkout, launch with `npm run mcp:memory`. A Windows installation also provides `<Safire install>/resources/safire-memory-mcp.cmd` for an external MCP host; it must still be registered manually with an operator-controlled profile and vault. The portable EXE does not provide a stable external launcher path.
 

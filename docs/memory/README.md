@@ -1,6 +1,6 @@
 # Safire agent memory (version 1)
 
-Safire agent memory is an opt-in, local sidecar for durable, attributed agent events. An operator chooses a Safire vault, supplies one fixed integration profile, and launches a separate Model Context Protocol (MCP) process for an agent. The milestone stores its data beneath the selected vault and does not change the vault's Markdown notes.
+Safire agent memory is an opt-in, local sidecar for persistent, attributed agent events. An operator chooses a Safire vault, supplies one fixed integration profile, and launches a separate Model Context Protocol (MCP) process for an agent. The milestone stores its data beneath the selected vault and does not change the vault's Markdown notes.
 
 This milestone is deliberately narrow:
 
@@ -106,12 +106,32 @@ The server exposes exactly six tools:
 | --- | --- | --- |
 | `memory_record_events` | `{ "events": EventInput[1..100] }` | Validate, authorize, and append visible or observable events. |
 | `memory_search` | `{ "query"?, "namespaces"?, "actor_types"?, "kinds"?, "limit"? }` | Search accessible event content. `limit` is 1 through 100. |
-| `memory_get` | `{ "id": "evt_..." | "mem_..." }` | Return one accessible event/memory pair, feedback, and actor activity. |
+| `memory_get` | `{ "id": "evt_..." | "mem_...", "include_feedback"?, "include_relations"? }` | Return one accessible event/memory pair. Feedback and relation expansion are bounded, explicit opt-ins. |
 | `memory_record_feedback` | `{ "feedback": FeedbackInput[1..100] }` | Append useful/not-useful, correction, supersession, or confirmation signals. |
-| `memory_recall` | `{ "ids": ["evt_..." | "mem_...", ...] }` | Fetch 1 through 100 unique accessible IDs. |
+| `memory_recall` | `{ "ids": ["evt_..." | "mem_...", ...], "include_feedback"?, "include_relations"? }` | Fetch 1 through 100 unique accessible IDs with the same optional bounded expansions. |
 | `memory_status` | `{}` | Report mode, schema version, vault identity, public profile, profile-visible counts, and pending transactions. |
 
 The tools do not accept `ingested_by`, a source identity, profile trust, or ACL configuration. Those values come only from the fixed profile. Every event and feedback input is strict schema version 1; unknown fields fail validation.
+
+### Resource limits and quotas
+
+Every store uses conservative defaults. Trusted in-process hosts may lower them with the additive `resourceLimits` store option; the installed MCP launcher uses these defaults:
+
+| Limit | Default |
+| --- | ---: |
+| Concurrent collection-record reads | 8 |
+| Records processed by one request | 25,000 |
+| JSON bytes processed by one request | 128 MiB |
+| Logical event/feedback records owned by one stable profile ID | 10,000 |
+| Logical event/feedback bytes owned by one stable profile ID | 64 MiB |
+| Logical event/feedback records in one exact namespace, across profiles | 5,000 |
+| Logical event/feedback bytes in one exact namespace, across profiles | 32 MiB |
+| Feedback records expanded by one request | 256 |
+| Relation/derivation references expanded or accepted by one request | 512 |
+
+Quota checks for new unique writes finish before a journal is created. Exceeding a quota returns generic `MEMORY_RESOURCE_LIMIT`; it never reports hidden counts, evicts records, or deletes history. Duplicate retries remain available when a quota is full. Existing version-1 sidecars need no rewrite: exact unexpanded retrieval remains available if old contents already exceed a new quota, while collection-scanning operations can fail at the per-request processing boundary.
+
+Exact `get` and `recall` do not scan event or feedback collections unless `include_feedback` or `include_relations` is true. Search, status, quotas, and requested expansions perform bounded scans. Version 1 uses opaque filenames and has no namespace secondary index, so a scan must validate a record before it can apply namespace ACLs; inaccessible records are never returned and generic limit errors reveal no inaccessible counts. These quotas reduce denial-of-service exposure. They are not retention, expiration, archival, or deletion policies.
 
 ## Profile model
 
@@ -151,7 +171,7 @@ Namespaces are logical, lowercase slash paths, not filesystem paths. For example
 
 `descendants: false` authorizes only `agents/example`. `descendants: true` also authorizes `agents/example/...`. There is no implicit global grant and no implicit sharing between profiles. Search, get, recall, event relations, derived provenance references, and feedback targets are checked against read/write access as applicable. Inaccessible records are reported as not found where revealing their existence would cross a namespace boundary.
 
-A broadly authorized writer may associate a shared record with a private source. The immutable local record retains that complete provenance, but retrieval for a narrower profile omits unreadable relation targets, derived/memory source IDs, and feedback related-target IDs. Grant the source namespace explicitly when a reader must inspect the full cross-namespace provenance chain.
+A broadly authorized writer may associate a shared record with a private source. The immutable local record retains that complete provenance, but retrieval for a narrower profile removes unreadable relation targets, omits the whole derived projection, and omits feedback that requires an unreadable related target. Retrieval event and memory projections uniformly omit stored digests, while memory projections uniformly omit provenance, so response shape cannot confirm that filtering or hidden sources exist; fully readable derived provenance remains on `event.derived`. Hidden-dependent feedback does not affect returned counts, activity, or ranking aggregates. Grant the source namespace explicitly when a reader must inspect the full cross-namespace provenance chain.
 
 ## Version-1 vocabularies
 
@@ -169,11 +189,11 @@ These labels preserve provenance. For example, an agent's `proposal` is not sile
 
 - Events and their event-backed memory items are immutable.
 - Each accepted event gets a distinct `evt_...` ID and a distinct `mem_...` ID.
-- A derived memory item retains its source event IDs.
+- A stored derived memory item retains its source event IDs; retrieval memory projections omit provenance uniformly, while a fully readable event exposes it through `event.derived`.
 - Corrections and supersessions are new feedback records. They never edit or delete the original event.
 - `correction` requires visible correction text.
 - `superseded` requires a `related_target`.
-- Reusing the same trusted source tuple with the same request returns the original result as a duplicate. Reusing it with different content is an idempotency conflict. A genuinely new source event ID creates a new event even if its text repeats earlier text.
+- Reusing the same trusted source tuple with the same stable request identity returns the original result as a duplicate. Mutable actor display labels are excluded, so a label change does not break a retry; stable actor ID/type, payload, or attribution changes remain conflicts. A genuinely new source event ID creates a new event even if its text repeats earlier text.
 
 The trusted source tuple is `(profile.source_identity, input.source.stream, input.source.event_id)`. Source event IDs therefore need to be stable and unique within their source stream.
 
@@ -192,6 +212,6 @@ All files below contain synthetic or requested reference identities and no secre
 
 Persistent milestone state lives under `<vault>/.safire/memory/v1/`; see [Architecture](ARCHITECTURE.md) for the layout and recovery protocol. Filenames are SHA-256-derived opaque names rather than record content or actor names.
 
-Local-first does not mean encrypted. Safire relies on the operating system, device encryption, backups, and vault permissions for confidentiality. Record digests detect accidental or unsanctioned modification but are not signatures or access-control credentials. Do not submit passwords, tokens, private keys, session cookies, hidden reasoning, chain-of-thought, or scratchpad content. The schema rejects common forms, but that validation is not a complete data-loss-prevention system.
+Local-first does not mean encrypted. Safire relies on the operating system, device encryption, backups, and vault permissions for confidentiality. Record digests detect accidental or unsanctioned modification but are not signatures or access-control credentials. Do not submit passwords, tokens, private keys, session cookies, hidden reasoning, chain-of-thought, or scratchpad content in content, identifiers, namespaces, attributes, display names, or search queries. The schema rejects common forms without echoing rejected values, but that validation is not a complete data-loss-prevention system.
 
 For the security model, read [Security](SECURITY.md). A host that needs authenticated user attribution must read [Trusted bridge](TRUSTED_BRIDGE.md); ordinary MCP cannot create user events.

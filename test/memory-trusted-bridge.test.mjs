@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   INVENTED_TRUSTED_BRIDGE_ENVELOPE,
+  TRUSTED_BRIDGE_ENVELOPE_SCHEMA_ID,
+  TRUSTED_BRIDGE_FEEDBACK_ENVELOPE_SCHEMA_ID,
   TRUSTED_BRIDGE_KIND_GRANTS,
   TrustedBridgeAuthenticationError,
   TrustedBridgeAuthorizationError,
@@ -49,12 +51,26 @@ const successfulAuthentication = (overrides = {}) => ({
   ...overrides,
 });
 
+const feedbackEnvelope = (overrides = {}) => ({
+  schema_version: 1,
+  target: { type: 'event', id: 'evt_11111111-1111-4111-8111-111111111111' },
+  signal: 'user_confirmed',
+  source: { stream: 'hermes:feedback', event_id: 'feedback_source_01' },
+  ...overrides,
+});
+
+const GITHUB_TOKEN_IDENTIFIER = `ghp_${'A'.repeat(36)}`;
+
 test('trusted bridge requires a normalized trusted_bridge profile and injected callbacks', () => {
   const authenticate = async () => successfulAuthentication();
   const recordEvents = async () => ({ ok: true });
   assert.throws(() => createTrustedBridge({ profile: { profile_type: 'portable_mcp' }, authenticate, recordEvents }), TrustedBridgeError);
   assert.throws(() => createTrustedBridge({ profile: profile(), recordEvents }), /authenticate callback/);
   assert.throws(() => createTrustedBridge({ profile: profile(), authenticate }), /recordEvents callback/);
+  assert.throws(
+    () => createTrustedBridge({ profile: profile(), authenticate, recordEvents, recordFeedback: true }),
+    /recordFeedback must be a function/,
+  );
 });
 
 test('authentication receives frozen metadata and auth context, never visible content', async () => {
@@ -72,6 +88,8 @@ test('authentication receives frozen metadata and auth context, never visible co
   });
   await bridge.ingest(envelope(), authContext);
   assert.equal(receivedContext, authContext);
+  assert.equal(receivedMetadata.operation, 'event');
+  assert.equal(receivedMetadata.envelope_schema, TRUSTED_BRIDGE_ENVELOPE_SCHEMA_ID);
   assert.equal(receivedMetadata.namespace, 'harry/projects');
   assert.equal(receivedMetadata.content_length > 0, true);
   assert.match(receivedMetadata.content_sha256, /^[a-f0-9]{64}$/);
@@ -125,6 +143,61 @@ test('strict envelopes reject actor claims, source identity, unknown fields, cre
   assert.equal(recordingCalls, 0);
 });
 
+test('credential-like identifiers are rejected before event or feedback authentication without echo', async () => {
+  let authenticationCalls = 0;
+  let eventRecordingCalls = 0;
+  let feedbackRecordingCalls = 0;
+  const bridge = createTrustedBridge({
+    profile: profile(),
+    authenticate: async () => {
+      authenticationCalls += 1;
+      return successfulAuthentication();
+    },
+    recordEvents: async () => { eventRecordingCalls += 1; },
+    recordFeedback: async () => { feedbackRecordingCalls += 1; },
+  });
+
+  const attempts = [
+    () => bridge.ingest(envelope({
+      source: { stream: GITHUB_TOKEN_IDENTIFIER, event_id: 'source_event_01' },
+    })),
+    () => bridge.ingest(envelope({
+      context: { conversation_id: 'conversation_01', session_id: GITHUB_TOKEN_IDENTIFIER },
+    })),
+    () => bridge.ingestFeedback(feedbackEnvelope({
+      target: { type: 'event', id: GITHUB_TOKEN_IDENTIFIER },
+    })),
+    () => bridge.ingestFeedback(feedbackEnvelope({
+      source: { stream: 'hermes:feedback', event_id: GITHUB_TOKEN_IDENTIFIER },
+    })),
+  ];
+  for (const attempt of attempts) {
+    let thrown;
+    try { await attempt(); } catch (error) { thrown = error; }
+    assert.ok(thrown instanceof MemorySchemaValidationError);
+    assert.doesNotMatch(thrown.message, new RegExp(GITHUB_TOKEN_IDENTIFIER, 'i'));
+    assert.doesNotMatch(JSON.stringify(thrown), new RegExp(GITHUB_TOKEN_IDENTIFIER, 'i'));
+  }
+  assert.equal(authenticationCalls, 0);
+  assert.equal(eventRecordingCalls, 0);
+  assert.equal(feedbackRecordingCalls, 0);
+});
+
+test('credential-like authenticated actor identifiers fail closed without recording or echo', async () => {
+  let recordingCalls = 0;
+  const bridge = createTrustedBridge({
+    profile: profile(),
+    authenticate: async () => successfulAuthentication({ actor_id: GITHUB_TOKEN_IDENTIFIER }),
+    recordEvents: async () => { recordingCalls += 1; },
+  });
+  await assert.rejects(
+    () => bridge.ingest(envelope()),
+    error => error instanceof TrustedBridgeAuthenticationError
+      && !error.message.toLowerCase().includes(GITHUB_TOKEN_IDENTIFIER.toLowerCase()),
+  );
+  assert.equal(recordingCalls, 0);
+});
+
 test('authentication failures and untrusted results never call recordEvents', async () => {
   let recordingCalls = 0;
   const recordEvents = async () => { recordingCalls += 1; };
@@ -144,6 +217,159 @@ test('authentication failures and untrusted results never call recordEvents', as
     recordEvents,
   });
   await assert.rejects(() => invalidResultBridge.ingest(envelope()), TrustedBridgeAuthenticationError);
+  assert.equal(recordingCalls, 0);
+});
+
+test('event-only bridge construction remains compatible and feedback fails closed when not configured', async () => {
+  let authenticationCalls = 0;
+  const bridge = createTrustedBridge({
+    profile: profile(),
+    authenticate: async () => {
+      authenticationCalls += 1;
+      return successfulAuthentication();
+    },
+    recordEvents: async () => ({ ok: true }),
+  });
+
+  assert.equal(typeof bridge.ingest, 'function');
+  assert.equal(typeof bridge.ingestFeedback, 'function');
+  await assert.rejects(
+    () => bridge.ingestFeedback(feedbackEnvelope()),
+    error => error instanceof TrustedBridgeError
+      && error.code === 'TRUSTED_BRIDGE_FEEDBACK_NOT_CONFIGURED',
+  );
+  assert.equal(authenticationCalls, 0);
+});
+
+test('feedback authentication receives frozen operation-bound metadata and supplies the only actor ID', async () => {
+  let receivedMetadata;
+  let receivedContext;
+  let recorded;
+  const authContext = { connection: 'invented-feedback-session' };
+  const correction = 'Use the amber checklist instead.';
+  const bridge = createTrustedBridge({
+    profile: profile(),
+    authenticate: async (metadata, context) => {
+      receivedMetadata = metadata;
+      receivedContext = context;
+      return successfulAuthentication({ actor_id: 'USER:EXAMPLE-OWNER' });
+    },
+    recordEvents: async () => ({ ok: true }),
+    recordFeedback: async feedback => {
+      recorded = feedback;
+      return { accepted: feedback.length };
+    },
+  });
+
+  const result = await bridge.ingestFeedback(feedbackEnvelope({
+    signal: 'correction',
+    correction,
+  }), authContext);
+
+  assert.equal(bridge.feedback_schema_id, TRUSTED_BRIDGE_FEEDBACK_ENVELOPE_SCHEMA_ID);
+  assert.equal(receivedContext, authContext);
+  assert.equal(receivedMetadata.operation, 'feedback');
+  assert.equal(receivedMetadata.envelope_schema, TRUSTED_BRIDGE_FEEDBACK_ENVELOPE_SCHEMA_ID);
+  assert.deepEqual(receivedMetadata.target, feedbackEnvelope().target);
+  assert.equal(receivedMetadata.signal, 'correction');
+  assert.equal(receivedMetadata.correction_length, Buffer.byteLength(correction, 'utf8'));
+  assert.match(receivedMetadata.correction_sha256, /^[a-f0-9]{64}$/);
+  assert.match(receivedMetadata.payload_sha256, /^[a-f0-9]{64}$/);
+  assert.equal('correction' in receivedMetadata, false);
+  assert.equal('actor_id' in receivedMetadata, false);
+  assert.equal(Object.isFrozen(receivedMetadata), true);
+  assert.equal(Object.isFrozen(receivedMetadata.target), true);
+  assert.equal(Object.isFrozen(receivedMetadata.source), true);
+  assert.equal(recorded.length, 1);
+  assert.equal(recorded[0].actor_id, 'user:example-owner');
+  assert.equal(recorded[0].correction, correction);
+  assert.deepEqual(result.feedback, recorded[0]);
+  assert.deepEqual(result.record_result, { accepted: 1 });
+});
+
+test('strict feedback envelopes reject actor claims and invalid content before authentication', async () => {
+  let authenticationCalls = 0;
+  let recordingCalls = 0;
+  const bridge = createTrustedBridge({
+    profile: profile(),
+    authenticate: async () => {
+      authenticationCalls += 1;
+      return successfulAuthentication();
+    },
+    recordEvents: async () => {},
+    recordFeedback: async () => { recordingCalls += 1; },
+  });
+  const invalid = [
+    { ...feedbackEnvelope(), actor_id: 'user:claimed' },
+    { ...feedbackEnvelope(), actor_type: 'user' },
+    feedbackEnvelope({ source: { stream: 'hermes', event_id: 'feedback_01', identity: 'user' } }),
+    { ...feedbackEnvelope(), lifecycle: 'active' },
+    feedbackEnvelope({ signal: 'correction' }),
+    feedbackEnvelope({ signal: 'superseded' }),
+    feedbackEnvelope({ signal: 'correction', correction: 'password=not-accepted-here' }),
+  ];
+
+  for (const candidate of invalid) {
+    await assert.rejects(() => bridge.ingestFeedback(candidate), MemorySchemaValidationError);
+  }
+  assert.equal(authenticationCalls, 0);
+  assert.equal(recordingCalls, 0);
+});
+
+test('feedback authentication failures and invalid results never call recordFeedback', async () => {
+  let recordingCalls = 0;
+  const recordFeedback = async () => { recordingCalls += 1; };
+  const throwingBridge = createTrustedBridge({
+    profile: profile(),
+    authenticate: async () => { throw new Error('provider details must not escape'); },
+    recordEvents: async () => {},
+    recordFeedback,
+  });
+  await assert.rejects(
+    () => throwingBridge.ingestFeedback(feedbackEnvelope()),
+    error => error instanceof TrustedBridgeAuthenticationError && !error.message.includes('provider details'),
+  );
+
+  const invalidResultBridge = createTrustedBridge({
+    profile: profile(),
+    authenticate: async () => ({ authenticated: false, role: 'user', actor_id: 'claimed_user' }),
+    recordEvents: async () => {},
+    recordFeedback,
+  });
+  await assert.rejects(
+    () => invalidResultBridge.ingestFeedback(feedbackEnvelope()),
+    TrustedBridgeAuthenticationError,
+  );
+  assert.equal(recordingCalls, 0);
+});
+
+test('feedback role, actor, and user-only signal authorization fail before recording', async () => {
+  let recordingCalls = 0;
+  const cases = [
+    successfulAuthentication({
+      role: 'agent',
+      actor_id: 'agent:harry',
+      agent_instance_id: 'agent_instance:harry:bridge',
+    }),
+    successfulAuthentication({
+      role: 'agent',
+      actor_id: 'user:example-owner',
+      agent_instance_id: 'agent_instance:harry:bridge',
+    }),
+  ];
+
+  for (const authentication of cases) {
+    const bridge = createTrustedBridge({
+      profile: profile(),
+      authenticate: async () => authentication,
+      recordEvents: async () => {},
+      recordFeedback: async () => { recordingCalls += 1; },
+    });
+    await assert.rejects(
+      () => bridge.ingestFeedback(feedbackEnvelope()),
+      TrustedBridgeAuthorizationError,
+    );
+  }
   assert.equal(recordingCalls, 0);
 });
 

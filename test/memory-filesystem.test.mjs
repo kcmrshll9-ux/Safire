@@ -7,6 +7,9 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { createPortableMcpProfile } from '../lib/memory/profile.mjs';
+import { createMemoryStore } from '../lib/memory/store.mjs';
+
 import {
   IMMUTABLE_COLLECTIONS,
   MemoryConflictError,
@@ -14,6 +17,7 @@ import {
   VaultLockOwnershipError,
   acquireVaultLock,
   assertPathContained,
+  assertSupportedMemoryVaultPath,
   createImmutableJson,
   createJournalEntry,
   createMutableJson,
@@ -41,6 +45,7 @@ import {
 
 const MODULE_URL = new URL('../lib/memory/filesystem.mjs', import.meta.url).href;
 const LOCK_HOLDER_FIXTURE = fileURLToPath(new URL('../test-support/memory-lock-holder.mjs', import.meta.url));
+const HARD_KILL_WRITER_FIXTURE = fileURLToPath(new URL('../test-support/memory-hard-kill-writer.mjs', import.meta.url));
 
 async function temporaryVault(t) {
   const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'safire-memory-filesystem-'));
@@ -90,8 +95,29 @@ function spawnLockHolder(vault) {
   });
 }
 
+function spawnHardKillWriter(vault) {
+  return spawn(process.execPath, [HARD_KILL_WRITER_FIXTURE, vault], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+}
+
 function killChildIfRunning(child) {
   if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+}
+
+function hardKillProfile() {
+  return createPortableMcpProfile({
+    profileId: 'profile:hard-kill-writer',
+    principal: { id: 'agent:hard-kill', type: 'agent', displayName: 'Hard-kill test agent' },
+    agentInstance: { id: 'agent_instance:hard-kill:test', type: 'agent_instance' },
+    ingestedBy: { id: 'adapter:safire-memory-mcp:hard-kill-test' },
+    sourceIdentity: 'mcp:hard-kill-test',
+    allowedActors: [],
+    namespaceGrants: [
+      { namespace: 'agents/hard-kill', read: true, write: true, descendants: true },
+    ],
+  });
 }
 
 test('creates a contained v1 memory layout only under an explicit vault', async t => {
@@ -132,6 +158,32 @@ test('creates a contained v1 memory layout only under an explicit vault', async 
   }
 });
 
+test('rejects UNC and Windows device namespace vault paths before filesystem access', {
+  skip: process.platform !== 'win32',
+}, async () => {
+  const unsupported = [
+    String.raw`\\server\share\vault`,
+    '//server/share/vault',
+    String.raw`\\?\UNC\server\share\vault`,
+    String.raw`\\?\C:\vault`,
+    String.raw`\\.\C:\vault`,
+  ];
+  for (const vaultPath of unsupported) {
+    assert.throws(
+      () => assertSupportedMemoryVaultPath(vaultPath),
+      error => error.code === 'MEMORY_VAULT_NETWORK_UNSUPPORTED',
+    );
+    assert.throws(
+      () => createMemoryStore({ vaultDir: vaultPath, enabled: false }),
+      error => error.code === 'MEMORY_VAULT_NETWORK_UNSUPPORTED',
+    );
+    await assert.rejects(
+      ensureMemoryLayout(vaultPath),
+      error => error.code === 'MEMORY_VAULT_NETWORK_UNSUPPORTED',
+    );
+  }
+});
+
 test('refuses a symlinked or non-directory Safire layout segment', async t => {
   const { vault } = await temporaryVault(t);
   await fs.writeFile(path.join(vault, '.safire'), 'not a directory', 'utf8');
@@ -139,6 +191,85 @@ test('refuses a symlinked or non-directory Safire layout segment', async t => {
     ensureMemoryLayout(vault),
     error => ['MEMORY_LAYOUT_UNSAFE', 'EEXIST'].includes(error.code),
   );
+});
+
+test('rejects a collection directory that is replaced after layout validation', async t => {
+  const { scratch, vault } = await temporaryVault(t);
+  const layout = await ensureMemoryLayout(vault);
+  const collection = layout.collections.actors;
+  const original = path.join(scratch, 'actors-original');
+  await fs.rename(collection, original);
+  await fs.mkdir(collection);
+  try {
+    await assert.rejects(
+      createImmutableJson(layout, 'actors', 'replacement-attempt', { id: 'must-not-write' }),
+      error => error.code === 'MEMORY_PATH_IDENTITY',
+    );
+    assert.deepEqual(await fs.readdir(collection), []);
+  } finally {
+    await fs.rmdir(collection);
+    await fs.rename(original, collection);
+  }
+});
+
+test('rejects reads and writes through a real NTFS junction', {
+  skip: process.platform !== 'win32',
+}, async t => {
+  const { scratch, vault } = await temporaryVault(t);
+  const layout = await ensureMemoryLayout(vault);
+  const collection = layout.collections.actors;
+  const original = path.join(scratch, 'actors-original');
+  const outside = path.join(scratch, 'outside');
+  const identity = 'junction-attempt';
+  const outsideTarget = path.join(outside, opaqueJsonFilename(identity));
+  await fs.mkdir(outside);
+  await fs.writeFile(outsideTarget, serializeJson({ id: 'outside' }), 'utf8');
+  await fs.rename(collection, original);
+  await fs.symlink(outside, collection, 'junction');
+  try {
+    for (const operation of [
+      () => readImmutableJson(layout, 'actors', identity),
+      () => createImmutableJson(layout, 'actors', identity, { id: 'must-not-write' }),
+    ]) {
+      await assert.rejects(
+        operation,
+        error => ['MEMORY_PATH_UNSAFE', 'MEMORY_PATH_IDENTITY'].includes(error.code),
+      );
+    }
+    assert.deepEqual(JSON.parse(await fs.readFile(outsideTarget, 'utf8')), { id: 'outside' });
+  } finally {
+    await fs.unlink(collection);
+    await fs.rename(original, collection);
+  }
+});
+
+test('revalidates directory identity immediately after the immutable publish step', {
+  skip: process.platform !== 'win32',
+}, async t => {
+  const { scratch, vault } = await temporaryVault(t);
+  const layout = await ensureMemoryLayout(vault);
+  const collection = layout.collections.actors;
+  const original = path.join(scratch, 'actors-original');
+  const outside = path.join(scratch, 'outside');
+  await fs.mkdir(outside);
+
+  const originalLink = fs.link;
+  fs.link = async () => {
+    await fs.rename(collection, original);
+    await fs.symlink(outside, collection, 'junction');
+  };
+  try {
+    await assert.rejects(
+      createImmutableJson(layout, 'actors', 'post-publish-swap', { id: 'must-not-escape' }),
+      error => ['MEMORY_PATH_UNSAFE', 'MEMORY_PATH_IDENTITY'].includes(error.code),
+    );
+    assert.deepEqual(await fs.readdir(outside), []);
+  } finally {
+    fs.link = originalLink;
+    const stat = await fs.lstat(collection).catch(() => null);
+    if (stat?.isSymbolicLink()) await fs.unlink(collection);
+    if (await fs.stat(original).then(() => true, () => false)) await fs.rename(original, collection);
+  }
 });
 
 test('uses deterministic canonical JSON, SHA-256 digests, and opaque filenames', () => {
@@ -200,7 +331,7 @@ test('serializes cross-process vault lock contention with bounded retry', async 
   const script = `
     import { ensureMemoryLayout, acquireVaultLock } from ${JSON.stringify(MODULE_URL)};
     const layout = await ensureMemoryLayout(${JSON.stringify(vault)});
-    const lock = await acquireVaultLock(layout, { timeoutMs: 1000, retryDelayMs: 5, staleMs: 5000 });
+    const lock = await acquireVaultLock(layout, { timeoutMs: 1000, retryDelayMs: 5 });
     process.stdout.write('LOCKED\\n');
     await new Promise(resolve => setTimeout(resolve, 300));
     await lock.release();
@@ -216,18 +347,18 @@ test('serializes cross-process vault lock contention with bounded retry', async 
 
   await waitForOutput(child, 'LOCKED');
   await assert.rejects(
-    acquireVaultLock(layout, { timeoutMs: 70, retryDelayMs: 8, staleMs: 5_000 }),
+    acquireVaultLock(layout, { timeoutMs: 70, retryDelayMs: 8 }),
     error => error instanceof VaultLockTimeoutError && error.code === 'MEMORY_LOCK_TIMEOUT',
   );
   await waitForOutput(child, 'RELEASED');
 
-  const lock = await acquireVaultLock(layout, { timeoutMs: 500, retryDelayMs: 5, staleMs: 5_000 });
+  const lock = await acquireVaultLock(layout, { timeoutMs: 500, retryDelayMs: 5 });
   assert.equal(await lock.isOwned(), true);
   assert.equal(await lock.release(), true);
   assert.equal(await lock.isOwned(), false);
 });
 
-test('immediately recovers a fresh lock after its owner process is killed', async t => {
+test('keeps a killed owner lock until explicit operator recovery', async t => {
   const { vault } = await temporaryVault(t);
   const layout = await ensureMemoryLayout(vault);
   const child = spawnLockHolder(vault);
@@ -237,8 +368,9 @@ test('immediately recovers a fresh lock after its owner process is killed', asyn
   const serialized = await fs.readFile(layout.lockPath, 'utf8');
   const abandoned = JSON.parse(serialized);
   assert.equal(serialized.endsWith('\n'), true);
-  assert.deepEqual(Object.keys(abandoned).sort(), ['createdAtMs', 'pid', 'token', 'version']);
-  assert.equal(abandoned.version, 1);
+  assert.deepEqual(Object.keys(abandoned).sort(), ['createdAtMs', 'pid', 'recovery', 'token', 'version']);
+  assert.equal(abandoned.version, 2);
+  assert.equal(abandoned.recovery, 'operator_only');
   assert.equal(abandoned.pid, child.pid);
   assert.match(abandoned.token, /^[a-f0-9]{64}$/);
   assert.equal(Number.isFinite(abandoned.createdAtMs), true);
@@ -247,64 +379,118 @@ test('immediately recovers a fresh lock after its owner process is killed', asyn
   assert.equal(child.kill('SIGKILL'), true);
   await exited;
 
-  const staleMs = 60_000;
-  assert.ok(Date.now() - abandoned.createdAtMs < staleMs);
-  const lock = await acquireVaultLock(layout, { timeoutMs: 2_000, retryDelayMs: 5, staleMs });
-  assert.notEqual(lock.token, abandoned.token);
-  assert.equal(await lock.isOwned(), true);
-  await lock.release();
-
-  const recoveryArtifacts = (await fs.readdir(layout.locksDir))
-    .filter(name => name.includes('.vault.lock.recovery.'));
-  assert.deepEqual(recoveryArtifacts, []);
-});
-
-test('does not steal a live owner lock after staleMs has elapsed', async t => {
-  const { vault } = await temporaryVault(t);
-  const layout = await ensureMemoryLayout(vault);
-  const child = spawnLockHolder(vault);
-  t.after(() => killChildIfRunning(child));
-
-  await waitForOutput(child, 'LOCKED');
-  const owner = JSON.parse(await fs.readFile(layout.lockPath, 'utf8'));
-  await new Promise(resolve => setTimeout(resolve, 80));
-
   await assert.rejects(
-    acquireVaultLock(layout, { timeoutMs: 120, retryDelayMs: 5, staleMs: 20 }),
+    acquireVaultLock(layout, { timeoutMs: 80, retryDelayMs: 5, staleMs: 0 }),
     error => error instanceof VaultLockTimeoutError && error.code === 'MEMORY_LOCK_TIMEOUT',
   );
-  const stillOwned = JSON.parse(await fs.readFile(layout.lockPath, 'utf8'));
-  assert.equal(stillOwned.token, owner.token);
-  assert.equal(stillOwned.pid, child.pid);
-  assert.equal(child.exitCode, null);
-  assert.equal(child.signalCode, null);
+  assert.equal(await fs.readFile(layout.lockPath, 'utf8'), serialized);
 
-  const released = waitForOutput(child, 'RELEASED');
-  const exited = once(child, 'exit');
-  child.stdin.write('RELEASE\n');
-  await released;
-  await exited;
-
-  const lock = await acquireVaultLock(layout, { timeoutMs: 500, retryDelayMs: 5, staleMs: 20 });
-  assert.equal(await lock.isOwned(), true);
-  await lock.release();
+  // This models the documented operator-only procedure in an isolated temp
+  // vault: the owner has exited before the exact lock file is removed.
+  assert.notEqual(child.signalCode, null);
+  await fs.unlink(layout.lockPath);
+  const recovered = await acquireVaultLock(layout, { timeoutMs: 500, retryDelayMs: 5 });
+  assert.notEqual(recovered.token, abandoned.token);
+  await recovered.release();
 });
 
-test('uses stale-time recovery only when lock-owner liveness is indeterminate', async t => {
+test('recovers a fully flushed journal after a writer process is hard-killed', async t => {
+  const { vault } = await temporaryVault(t);
+  const child = spawnHardKillWriter(vault);
+  t.after(() => killChildIfRunning(child));
+  await waitForOutput(child, 'JOURNALED', 5_000);
+
+  const layout = await ensureMemoryLayout(vault);
+  const lockBytes = await fs.readFile(layout.lockPath, 'utf8');
+  assert.ok((await listJournalEntries(layout, 'ingestion')).length > 0);
+
+  const exited = once(child, 'exit');
+  assert.equal(child.kill('SIGKILL'), true);
+  await exited;
+  await assert.rejects(
+    acquireVaultLock(layout, { timeoutMs: 80, retryDelayMs: 5 }),
+    error => error instanceof VaultLockTimeoutError,
+  );
+  assert.equal(await fs.readFile(layout.lockPath, 'utf8'), lockBytes);
+
+  // Operator recovery is modeled only after the child is confirmed stopped.
+  assert.notEqual(child.signalCode, null);
+  await fs.unlink(layout.lockPath);
+  const recovered = createMemoryStore({ vaultDir: vault, profile: hardKillProfile() });
+  const status = await recovered.status();
+  assert.equal(status.counts.events, 1);
+  assert.equal(status.counts.memories, 1);
+  assert.equal(status.pending_transactions, 0);
+});
+
+test('three contenders time out without changing a live owner lock', async t => {
+  const { vault } = await temporaryVault(t);
+  const layout = await ensureMemoryLayout(vault);
+  const owner = await acquireVaultLock(layout, { timeoutMs: 500, retryDelayMs: 5 });
+  const serialized = await fs.readFile(layout.lockPath, 'utf8');
+  const contenders = await Promise.allSettled(Array.from({ length: 3 }, () => (
+    acquireVaultLock(layout, { timeoutMs: 100, retryDelayMs: 7, staleMs: 1 })
+  )));
+  assert.equal(contenders.length, 3);
+  assert.equal(contenders.every(result => (
+    result.status === 'rejected'
+      && result.reason instanceof VaultLockTimeoutError
+      && result.reason.code === 'MEMORY_LOCK_TIMEOUT'
+  )), true);
+  assert.equal(await fs.readFile(layout.lockPath, 'utf8'), serialized);
+  assert.equal(await owner.isOwned(), true);
+  await owner.release();
+});
+
+test('lock age, a reused live PID, and invalid metadata never authorize automatic recovery', async t => {
   const { vault } = await temporaryVault(t);
   const layout = await ensureMemoryLayout(vault);
   const old = Date.now() - 60_000;
-  await fs.writeFile(layout.lockPath, JSON.stringify({ version: 1, token: 'legacy-incomplete' }), 'utf8');
+  const serialized = serializeJson({
+    version: 2,
+    token: 'e'.repeat(64),
+    pid: process.pid,
+    createdAtMs: old,
+    recovery: 'operator_only',
+  });
+  await fs.writeFile(layout.lockPath, serialized, 'utf8');
   await fs.utimes(layout.lockPath, new Date(old), new Date(old));
 
-  const lock = await acquireVaultLock(layout, { timeoutMs: 500, retryDelayMs: 5, staleMs: 25 });
-  assert.notEqual(lock.token, 'legacy-incomplete');
-  assert.equal(await lock.isOwned(), true);
-  await lock.release();
+  await assert.rejects(
+    acquireVaultLock(layout, { timeoutMs: 80, retryDelayMs: 5, staleMs: 1 }),
+    error => error instanceof VaultLockTimeoutError,
+  );
+  assert.equal(await fs.readFile(layout.lockPath, 'utf8'), serialized);
+  await fs.unlink(layout.lockPath);
 
-  const recoveryArtifacts = (await fs.readdir(layout.locksDir))
-    .filter(name => name.includes('.vault.lock.recovery.'));
-  assert.deepEqual(recoveryArtifacts, []);
+  const invalid = '{ invalid lock metadata\n';
+  await fs.writeFile(layout.lockPath, invalid, 'utf8');
+  await fs.utimes(layout.lockPath, new Date(old), new Date(old));
+  await assert.rejects(
+    acquireVaultLock(layout, { timeoutMs: 80, retryDelayMs: 5 }),
+    error => error instanceof VaultLockTimeoutError,
+  );
+  assert.equal(await fs.readFile(layout.lockPath, 'utf8'), invalid);
+  await fs.unlink(layout.lockPath);
+});
+
+test('a delayed contender cannot remove or release a newly acquired owner lock', async t => {
+  const { vault } = await temporaryVault(t);
+  const layout = await ensureMemoryLayout(vault);
+  const first = await acquireVaultLock(layout, { timeoutMs: 500, retryDelayMs: 5 });
+  const contender = acquireVaultLock(layout, { timeoutMs: 250, retryDelayMs: 100 });
+  await new Promise(resolve => setTimeout(resolve, 20));
+
+  await first.release();
+  const second = await acquireVaultLock(layout, { timeoutMs: 50, retryDelayMs: 2 });
+  const secondBytes = await fs.readFile(layout.lockPath, 'utf8');
+  await assert.rejects(
+    contender,
+    error => error instanceof VaultLockTimeoutError && error.code === 'MEMORY_LOCK_TIMEOUT',
+  );
+  assert.equal(await fs.readFile(layout.lockPath, 'utf8'), secondBytes);
+  assert.equal(await second.isOwned(), true);
+  await second.release();
 });
 
 test('withVaultLock releases the lock after an operation failure', async t => {
@@ -339,6 +525,52 @@ test('withVaultLock fails closed if callback lock ownership is replaced', async 
   );
   const replacement = JSON.parse(await fs.readFile(layout.lockPath, 'utf8'));
   assert.equal(replacement.token, 'f'.repeat(64));
+  await fs.unlink(layout.lockPath);
+});
+
+test('mutable publication rechecks lock ownership after preparing its temporary file', async t => {
+  const { vault } = await temporaryVault(t);
+  const layout = await ensureMemoryLayout(vault);
+  const created = await createMutableJson(layout, 'fenced-state', { items: [] });
+  const replacementToken = 'd'.repeat(64);
+  const originalOpen = fs.open;
+  let replaced = false;
+  fs.open = async (...args) => {
+    const handle = await originalOpen(...args);
+    const candidate = args[0];
+    if (!replaced
+        && typeof candidate === 'string'
+        && path.dirname(candidate) === layout.stateDir
+        && path.basename(candidate).endsWith('.tmp')) {
+      replaced = true;
+      await fs.unlink(layout.lockPath);
+      await fs.writeFile(layout.lockPath, serializeJson({
+        version: 2,
+        token: replacementToken,
+        pid: process.pid,
+        createdAtMs: Date.now(),
+        recovery: 'operator_only',
+      }), 'utf8');
+    }
+    return handle;
+  };
+  try {
+    await assert.rejects(
+      withVaultLock(layout, lock => replaceMutableJson(
+        layout,
+        'fenced-state',
+        { items: ['must-not-publish'] },
+        { expectedRevision: 0, expectedDigest: created.digest, lock },
+      )),
+      error => error instanceof VaultLockOwnershipError,
+    );
+  } finally {
+    fs.open = originalOpen;
+  }
+
+  assert.equal(replaced, true);
+  assert.deepEqual((await readMutableJson(layout, 'fenced-state')).value, { items: [], revision: 0 });
+  assert.equal(JSON.parse(await fs.readFile(layout.lockPath, 'utf8')).token, replacementToken);
   await fs.unlink(layout.lockPath);
 });
 
@@ -449,4 +681,5 @@ test('journal helpers hash all path segments and remove only scoped entries', as
   assert.equal(await removeJournalEntry(layout, journalId, entryId), false);
   assert.equal(await removeJournalDirectoryIfEmpty(layout, journalId), true);
   assert.equal(await removeJournalDirectoryIfEmpty(layout, journalId), false);
+  assert.deepEqual(await listJournalEntries(layout, journalId), []);
 });

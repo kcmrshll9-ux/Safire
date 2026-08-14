@@ -11,7 +11,7 @@ Its central invariants are:
 3. events, event-backed memory items, feedback, actors, and idempotency markers are immutable;
 4. corrections are append-only evidence;
 5. every record retains its source and vault provenance;
-6. crash recovery completes a journaled transaction rather than guessing which files to keep;
+6. restart recovery completes a fully written journaled transaction rather than guessing which files to keep;
 7. retrieval is actor-aware but has no age-based decay or lifecycle policy.
 
 ## Components and trust boundaries
@@ -29,7 +29,7 @@ local safire-memory-mcp sidecar
 selected Safire vault/.safire/memory/v1
 ```
 
-The ordinary sidecar receives explicit tool calls. It does not monitor a conversation or infer user identity. The separate trusted-bridge library is a host integration seam for authenticated, visible/observable events; it installs no listener or hook. See [Trusted bridge](TRUSTED_BRIDGE.md).
+The ordinary sidecar receives explicit tool calls. It does not monitor a conversation or infer user identity. The separate trusted-bridge library is a host integration seam for authenticated, visible/observable events and feedback; it installs no listener or hook. `createTrustedMemoryBridge` keeps the underlying store private and returns a restricted store facade plus a bridge whose closures hold the private persistence capability. Direct facade methods remain unprivileged. See [Trusted bridge](TRUSTED_BRIDGE.md).
 
 ## Profile and attribution
 
@@ -41,7 +41,7 @@ One process has one normalized profile. The profile fixes:
 - the stable source identity;
 - allowed delegated automations/external services;
 - namespace read/write grants;
-- whether a `trusted_bridge` may accept authenticated user events.
+- whether a `trusted_bridge` may accept authenticated user events and feedback.
 
 Callers provide an authorized `actor_id` when needed and a source reference `{stream, event_id}`. Safire resolves the actor against the profile and persists the full attribution:
 
@@ -51,7 +51,7 @@ Callers provide an authorized `actor_id` when needed and a source reference `{st
 - `delegated_by` for automation;
 - `source`, expanded with the profile's `source_identity`.
 
-A portable MCP profile cannot enable user attribution. It also cannot impersonate another agent. `visible_user_message` and `user_result_interaction` therefore require a trusted bridge whose host authenticated an allowlisted user.
+A portable MCP profile cannot enable user attribution. It also cannot impersonate another agent. User-attributed events and feedback therefore require a trusted bridge whose host authenticated an allowlisted user.
 
 ## Event input schema
 
@@ -74,7 +74,7 @@ Every event is a strict object with `schema_version: 1` and these fields:
 | `attributes` | Optional safe lowercase-snake-case scalar/string-array metadata. |
 | `source` | Required `{stream, event_id}` origin controlled by the caller's source adapter. |
 
-Unknown fields fail validation. Logical namespaces are NFKC-normalized and lowercased, permit at most 16 safe segments, and reject filesystem syntax such as backslashes, drive prefixes, `.`/`..`, leading/trailing slashes, and percent escapes.
+Unknown fields fail validation. Logical namespaces are NFKC-normalized and lowercased, permit at most 16 safe segments, and reject filesystem syntax such as backslashes, drive prefixes, `.`/`..`, leading/trailing slashes, and percent escapes. Known credential, token, and private-reasoning patterns are rejected before caller-controlled text, namespaces, opaque IDs, source/context/relation/provenance identifiers, attribute keys or values, display names, or search queries can be persisted, returned, logged, hashed for bridge authentication, or forwarded. Rejections use generic errors and do not include the rejected value. This is defense in depth rather than complete data-loss prevention.
 
 ### Actor types
 
@@ -102,9 +102,9 @@ Relations point from the new event to `target_event_id`. They do not mutate the 
 
 Use `replies_to` for a parent-event association and `tool_call_id` for the equivalent tool-invocation context. Storage keeps only the active edge. Search, get, and recall derive ACL-filtered `incoming_relations` entries with `{type, source_event_id}`, which provides the inverse traversal without writing a second edge or exposing an inaccessible source event.
 
-Stored provenance is never rewritten when readers have different grants. Retrieval projections omit unreadable outbound relation targets, derived and memory `source_event_ids`, and feedback `related_target` IDs. A reader with grants to the source namespace receives the complete fields; a narrower reader receives the shared record without private opaque IDs.
+Stored provenance is never rewritten when readers have different grants. Retrieval projections omit unreadable outbound relation targets. If any source of a derived event is unreadable, the whole dependent `derived` projection is omitted rather than returning a partial or empty required source list. Retrieval memory projections uniformly omit `source_event_ids`, whether their provenance is readable or not, so their shape cannot disclose that a hidden source exists. Fully readable derived provenance remains available on `event.derived`. Feedback whose semantics depend on an unreadable `related_target` is omitted entirely and does not contribute to returned counts, ranking, or activity aggregates.
 
-The returned integrity digest still commits the complete immutable stored record. It is not recalculated over an ACL-filtered projection, so a narrower reader cannot reproduce that digest from only the visible response fields.
+Retrieval event and memory projections uniformly omit their stored full-record integrity digests; memory projections also uniformly omit stored provenance. This makes digest/provenance presence independent of whether ACL filtering occurred. Version 1 does not return a projection digest. Write results and internal persistence verification still use the complete stored digests. Visible feedback records remain unmodified and retain their stored integrity data.
 
 ## Feedback input schema
 
@@ -119,7 +119,9 @@ Every feedback input is a strict version-1 object:
 | `actor_id` | Actor authorized by the fixed profile. |
 | `source` | Required `{stream, event_id}` source reference. |
 
-Signals are `useful`, `not_useful`, `correction`, `superseded`, `user_confirmed`, and `user_rejected`. Trusted user confirmation/rejection requires authenticated user attribution. Ordinary portable MCP cannot manufacture it.
+The ordinary store input includes `actor_id`. The strict trusted-bridge feedback envelope omits it; successful authentication supplies the actor before the bridge invokes its private persistence capability.
+
+Signals are `useful`, `not_useful`, `correction`, `superseded`, `user_confirmed`, and `user_rejected`. Every user-attributed feedback signal requires authenticated user attribution, and `user_confirmed`/`user_rejected` additionally reject every non-user actor. Ordinary portable MCP cannot manufacture trusted user feedback.
 
 ## Event-backed records and provenance
 
@@ -140,7 +142,7 @@ The trusted source key is the SHA-256 digest of:
 (profile.source_identity, input.source.stream, input.source.event_id)
 ```
 
-Event and feedback operations keep distinct idempotency markers. The request digest also covers the input and resolved attribution.
+Event and feedback operations keep distinct idempotency markers. The request digest covers a normalized input plus resolved stable attribution fields. Mutable actor display names are deliberately excluded. For a marker written by the earlier display-name-sensitive implementation, Safire compares the incoming stable identity with the sealed persisted record, so a label-only retry remains a duplicate without accepting an actor ID/type change or rewriting the old record.
 
 - Same operation + same source tuple + same request: return the original record with duplicate status.
 - Same operation + same source tuple + different request: fail with `MEMORY_IDEMPOTENCY_CONFLICT`.
@@ -171,23 +173,27 @@ The selected vault contains:
 
 Record, journal, and state filenames are SHA-256-derived opaque names. Content, actor names, source IDs, and namespaces are not exposed in filenames. The `state/` directory is reserved for controlled mutable version-1 state; current ingestion records remain immutable.
 
-The path implementation requires an explicit absolute, non-root vault path and creates the selected vault directory when needed. It checks lexical and real-path containment, treats Windows containment case-insensitively, rejects symlinked layout/target paths, and limits immutable collection names to a fixed allowlist.
+The path implementation requires an explicit absolute, non-root vault path and creates the selected vault directory when needed. It rejects Windows UNC paths (including extended UNC) and device namespace paths, checks lexical and real-path containment, treats Windows containment case-insensitively, rejects symlinked layout/target paths (including NTFS junctions reported by Node), and limits immutable collection names to a fixed allowlist. Persistent layout directories are pinned to their real paths and filesystem identities for the process, with revalidation immediately before and after identity-sensitive operations.
+
+A mapped network drive can look like an ordinary local drive-letter path to Node and cannot be rejected reliably by this bounded implementation. Mapped drives, network shares, and folders with concurrent multi-host synchronization are unsupported. Node's portable stat API also does not expose every Windows reparse tag. Unrecognized reparse behavior and the remaining final-component race against a malicious same-user process are not solved: pathname-based Node APIs do not provide the native reparse inspection and handle-relative/conditional operations needed to close the last interval between validation and use. That actor remains outside the version-1 threat boundary.
 
 ## Durability, locking, and recovery
 
-Immutable creation serializes canonical JSON to a same-directory temporary file, flushes the file, and atomically publishes it with an exclusive hard link. Publication fails rather than replacing an existing immutable record. Mutable manifest replacement requires the expected revision and digest while holding the vault lock, then uses a synced same-directory temporary and atomic replacement.
+Immutable creation serializes canonical JSON to a same-directory temporary file, flushes the file, and atomically publishes it with an exclusive hard link. Publication fails rather than replacing an existing immutable record. Mutable manifest replacement requires the expected revision and digest while holding the vault lock, then uses a flushed same-directory temporary and atomic replacement.
 
-Writes and identity-sensitive reads are serialized by a cross-process `vault.lock`, so a read uses one manifest/record snapshot while identity regeneration waits. Lock acquisition has bounded retry and timeout. Complete lock metadata is atomically published. A confirmed-live owner is never displaced merely because time elapsed; a confirmed-dead PID is recovered immediately, while stale-time fallback is reserved for legacy/invalid metadata whose owner liveness cannot be determined.
+Writes and identity-sensitive reads are serialized by a cross-process `vault.lock`, so a read uses one manifest/record snapshot while identity regeneration waits. Lock acquisition has bounded retry and timeout. Complete version-2 lock metadata is atomically published with a random ownership token. An existing lock is never automatically stolen or removed based on time, PID liveness, or metadata validity; PID is diagnostic only and reuse does not affect ownership. An abandoned lock requires the operator-only stop/verify/preserve/remove/restart procedure in the security guide. A delayed former contender cannot remove a newer owner's lock because release verifies the ownership token and stable lock-directory identity.
 
-An event transaction proceeds under the lock:
+File handles are flushed before publication. Directory metadata flush is attempted, but Windows may reject directory open/sync and those unsupported results are tolerated. Therefore the design claims recovery after a flushed journal and a clean restart (including a tested hard-killed writer process after explicit abandoned-lock recovery), not guaranteed survival of sudden power loss, kernel failure, or storage-device/controller failure. The hard-kill test leaves the operating system and storage stack running and is not a power-loss test.
 
-1. write and flush an ingestion journal containing the complete event, memory item, and transaction metadata;
-2. exclusively create the event;
-3. exclusively create its memory item;
-4. exclusively create the idempotency marker;
+An event batch transaction proceeds under the lock:
+
+1. validate every reference, idempotency key, generated ID, and destination before publication;
+2. write and flush one ingestion journal containing every new event, memory item, and child transaction;
+3. exclusively create each event and its memory item;
+4. exclusively create each idempotency marker;
 5. remove the verified journal entry and its empty journal directory.
 
-Feedback uses the same pattern for feedback plus its marker. On enabled initialization and each consistent store operation, Safire acquires the lock and replays any pending verified journals. Each creation is idempotent and digest-checked, so recovery completes a partially committed transaction or reports conflicting/corrupt state. A successful `memory_status` therefore reports zero pending transactions; invalid or conflicting recovery state fails closed. Its record counts are scoped to the current profile's readable namespaces rather than exposing vault-wide private activity.
+Feedback batches use the same pattern for feedback plus its marker. Validation or idempotency failure occurs before the journal and commits none of the batch. Once the journal exists, recovery rolls the entire batch forward. On enabled initialization and each consistent store operation, Safire acquires the lock and replays any pending verified journals before exposing records. Each creation is idempotent and digest-checked, so callers observe the pre-batch state or the completed batch rather than a successful prefix. A successful `memory_status` therefore reports zero pending transactions; invalid or conflicting recovery state fails closed. Its record counts are scoped to the current profile's readable namespaces rather than exposing vault-wide private activity.
 
 ## Vault identity, copy, and clone semantics
 
@@ -202,7 +208,9 @@ Do not regenerate merely because a vault path changed. Do not hand-edit the mani
 
 ## Retrieval and ranking
 
-Search is local and lexical. It can filter by authorized namespaces, actor types, event kinds, and a limit of 1 through 100. Results retain actor, delegation, source, ingest adapter, instance, active and derived incoming relations, derivation, timestamps, and integrity data.
+Search is local and lexical. It can filter by authorized namespaces, actor types, event kinds, and a limit of 1 through 100. Results retain actor, delegation, source, ingest adapter, instance, active and derived incoming relations, derivation, and timestamps. Stored event integrity digests are not part of retrieval projections.
+
+Exact get and recall read the addressed event/memory pairs directly. They scan collections only when the caller explicitly requests bounded feedback or relation expansion. Search and status use a fixed-size read worker pool and share per-request record/byte budgets across their collection reads. Opaque version-1 filenames do not encode namespaces, so collection scans must validate records before filtering by namespace; a future secondary index would be needed to preselect namespaces without such reads.
 
 Ranking combines lexical matches with actor-aware feedback:
 
@@ -212,7 +220,13 @@ Ranking combines lexical matches with actor-aware feedback:
 - external-service feedback has magnitude 0.1 and is capped to plus/minus 0.2;
 - system and unknown feedback add no relevance weight.
 
-Activity and signals remain reported by actor bucket. Corrections and supersessions are retained as evidence but do not themselves add a positive/negative ranking score. There is no temporal decay, fading, reinforcement-by-age, automatic deletion, lifecycle transition, or archive tier in version 1.
+Activity and signals remain reported by actor-type bucket for compatibility and additionally in `activity_by_stable_actor`, keyed by stable actor ID with separate event, feedback, and signal counts. This keeps another agent, the principal agent, and its agent-instance actor distinct. Corrections and supersessions are retained as evidence but do not themselves add a positive/negative ranking score. There is no temporal decay, fading, reinforcement-by-age, automatic deletion, lifecycle transition, or archive tier in version 1.
+
+## Resource accounting
+
+The runtime has fixed conservative defaults for bounded read concurrency, records and bytes processed per request, logical event/feedback records and bytes owned by a stable profile ID, logical records and bytes in each exact namespace across profiles, and returned feedback/relation expansion. Hosts may lower these through the additive store `resourceLimits` option. Profile ownership comes from sealed `ingested_by.profile_id`; another profile writing a shared namespace consumes the namespace-wide quota but not this profile's quota.
+
+New unique writes calculate projected namespace/profile usage under the vault lock and reject a limit violation before journal creation. Duplicate retries do not consume new quota. No quota path evicts, rewrites, or deletes data, and existing version-1 sidecars require no migration. A sidecar already above a configured quota remains available for direct unexpanded retrieval, but a scan that would exceed its request budget fails generically. Quotas bound denial-of-service exposure; they are not a retention or lifecycle mechanism.
 
 ## Explicit non-goals for this milestone
 

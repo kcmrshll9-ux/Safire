@@ -7,7 +7,6 @@ const layout = await ensureMemoryLayout(vault);
 const lock = await acquireVaultLock(layout, {
   timeoutMs: 2_000,
   retryDelayMs: 5,
-  staleMs: 60_000,
 });
 
 process.stdout.write('LOCKED\n');

@@ -20,6 +20,7 @@ This milestone is not a sandbox for a malicious local process. A process that ca
 - Give every agent integration a distinct profile, principal, instance, adapter ID, and source identity.
 - Grant the smallest necessary namespaces. Prefer a private root such as `agents/example` and enable descendants only when required.
 - Use an explicit absolute `--vault` path for managed configurations and verify `memory_status` before the first write.
+- Use a fixed local filesystem path. Windows UNC/device namespace paths, mapped network drives, and folders concurrently synchronized by another host are unsupported for the memory sidecar.
 - Protect the vault with operating-system permissions, device encryption, and an appropriate backup policy.
 - Treat complete vault copies as the same logical vault unless deliberately creating and confirming an independent clone.
 - Never put credentials, tokens, private keys, session cookies, or private reasoning in memory payloads.
@@ -37,7 +38,7 @@ It cannot allowlist a user, system, another agent, or another agent instance. Co
 
 Namespace grants are fail-closed. Exact grants do not imply descendant access. Read and write are checked separately for search, get/recall, new events, relation/derived references, feedback targets, and related targets. Where appropriate, an unauthorized record is reported as not found so the caller cannot probe its existence.
 
-Cross-namespace provenance stays complete in immutable storage, but retrieval is projected through the reader's grants. Unreadable outbound relation targets, derived/memory source IDs, feedback related-target IDs, and incoming edges are omitted rather than exposing a private opaque identifier through a shared record.
+Cross-namespace provenance stays complete in immutable storage, but retrieval is projected through the reader's grants. Unreadable outbound relation targets are removed. A derived projection is omitted if any required source is unreadable. Retrieval event and memory projections uniformly omit stored digests, and memory projections uniformly omit provenance, so their shape cannot confirm that filtering or a hidden source exists. Feedback that requires an unreadable related target is omitted entirely, including from returned counts and ranking/activity aggregates. Version 1 does not return a projection digest.
 
 The caller may supply an actor/source reference needed for a record, but persisted `ingested_by`, source identity, agent instance, and delegation are resolved from the profile. Caller-supplied attribution that disagrees with the profile fails.
 
@@ -54,31 +55,53 @@ Only visible or observable material belongs in memory:
 - explicit conclusions;
 - user-supplied file/link references and visible result interactions.
 
-Do not capture private chain-of-thought, hidden reasoning, reasoning traces, or scratchpads. The schema rejects those phrases and common credential/token patterns in content and derived text, and rejects sensitive attribute keys. This is defense in depth, not complete secret detection. A novel credential format or sensitive personal detail may pass; upstream adapters must minimize and review content before submission.
+Do not capture private chain-of-thought, hidden reasoning, reasoning traces, or scratchpads. The schema rejects those phrases and common credential/token patterns across caller-controlled visible text, namespaces, opaque identifiers, source/context/relation/provenance IDs, attribute keys and values, profile display names, and echoed search queries. Bridge envelopes are validated before their identifier-derived authentication metadata or canonical payload digest is constructed. Errors are generic and do not echo rejected values. This is defense in depth, not complete secret detection. A novel credential format or sensitive personal detail may pass; upstream adapters must minimize and review content before submission.
 
 Safire's memory filesystem and expected sidecar behavior do not log record content. Authentication and error logs should contain only bounded metadata and redacted error codes. Do not add raw payload logging in host adapters.
+
+## Resource-exhaustion controls
+
+Collection reads run through a bounded worker pool and a shared per-request record/byte budget. Exact get and recall read addressed pairs directly by default; feedback and relation expansion require explicit opt-in and have separate caps. Search, status, write-quota accounting, and requested expansions fail with generic `MEMORY_RESOURCE_LIMIT` when their processing boundary would be crossed. The error contains no record count, byte count, namespace, or inaccessible-record detail.
+
+New unique writes are checked under the vault lock before journal creation against both a stable-profile ownership quota and a namespace-wide quota. Profile ownership uses sealed `ingested_by.profile_id`, so another integration's record in a shared namespace does not consume this profile's quota; it does consume the shared namespace quota. Full quotas do not block an exact duplicate retry and never trigger eviction, compaction, rewriting, or deletion. Existing version-1 records remain readable without a format migration, although collection-scanning operations can be refused if an older sidecar already exceeds a configured request boundary.
+
+Opaque filenames prevent namespace preselection in version 1. A bounded scan therefore validates stored records before applying namespace filters. This is an internal processing limitation, not authorization to return inaccessible content. These controls reduce accidental or adversarial resource exhaustion; they do not provide retention, deletion, storage provisioning, or protection from a same-user process that can create arbitrary files in the sidecar.
 
 ## Filesystem protections
 
 The layout implementation:
 
 - requires an explicit absolute, non-filesystem-root vault path and creates only that selected path when needed;
+- rejects Windows UNC paths (including extended UNC) and device namespace paths before creating the vault;
 - resolves and verifies containment under that vault;
 - compares containment case-insensitively on Windows;
-- rejects symlinked layout directories and JSON targets;
+- rejects symlinked layout directories and JSON targets, including NTFS junctions that Node reports as symbolic links;
+- records the real path and filesystem identity of persistent layout directories and revalidates them immediately before and after identity-sensitive reads, publication, replacement, and removal;
 - uses only fixed immutable collection names;
 - derives on-disk filenames from SHA-256 rather than record content or raw IDs;
 - creates immutable JSON by flushed same-directory temporary plus exclusive atomic publication;
 - replaces mutable versioned JSON only under the vault lock and only when expected revision and digest both match;
 - verifies stored schema, vault membership, and integrity digests when records are read or recovered.
 
-These controls protect against traversal, accidental overwrite, torn publication, common races, and many unsafe-link substitutions. They do not protect against an administrator or same-user malicious process with unrestricted filesystem access.
+Mapped drives cannot be reliably distinguished from local drive-letter paths with the bounded Node filesystem API, so the implementation cannot automatically reject every mapped drive. Operators must not select one. Network shares and multi-host/synchronization-provider concurrency are outside the supported locking and durability model.
+
+These controls protect against traversal, accidental overwrite, torn publication, common races, and many unsafe-link substitutions. Node's portable stat API does not expose every Windows reparse tag, and the implementation cannot make the final pathname operation handle-relative or conditional. Unrecognized reparse behavior is unsupported, and a malicious same-user process can still replace a validated directory or final path in the last interval before a pathname-based operation. Full containment against that actor would require native Windows reparse inspection plus handle-relative filesystem primitives, or a stronger OS isolation boundary; it is a residual risk, not a solved property. Administrators and same-user malicious processes with unrestricted filesystem access remain outside this milestone's threat boundary.
 
 ## Lock and journal safety
 
-All ingestion, identity-sensitive reads, and manifest identity changes use a cross-process vault lock with bounded retry. Complete metadata is atomically published. A live PID is never age-stolen; a dead PID is recoverable immediately; stale-time fallback applies only when liveness is indeterminate. Recovery quarantines and rechecks the old lock rather than blindly deleting a path. Do not manually delete `locks/vault.lock` while any Safire memory process could be active.
+All ingestion, identity-sensitive reads, and manifest identity changes use a cross-process vault lock with bounded retry. Complete metadata is atomically published, and the random ownership token is checked before release. Safire never automatically steals, renames, quarantines, or removes an existing lock based on its age, PID, metadata validity, or an apparent dead process. The PID is diagnostic only: PID reuse never authorizes recovery. A crashed or hard-killed writer therefore leaves the vault fail-closed until an operator intervenes; no MCP tool performs that intervention.
 
-Before immutable records are published, Safire writes a complete ingestion journal. Enabled initialization replays verified journals under the lock. If status reports pending transactions or startup reports integrity/ownership conflicts:
+For an apparently abandoned `locks/vault.lock`:
+
+1. stop every memory writer that can access the vault;
+2. independently verify that the recorded process is no longer the owner, remembering that PIDs can be reused;
+3. preserve a complete copy of `.safire/memory/v1` for diagnosis;
+4. inspect the exact `locks/vault.lock` and remove only that file manually;
+5. start one correctly configured writer and run `memory_status` so verified journals are recovered before normal use resumes.
+
+Never remove the lock while any writer may still be active. Do not automate this procedure or infer safety from lock age alone.
+
+Before immutable records are published, Safire validates the complete request and writes one journal containing every new member of the batch. Enabled initialization and every consistent store operation replay verified journals under the lock, rolling an interrupted batch fully forward before exposing records. If status reports pending transactions or startup reports integrity/ownership conflicts after lock ownership is safely resolved:
 
 1. stop all writers for that vault;
 2. preserve a complete copy of `.safire/memory/v1` for diagnosis;
@@ -86,6 +109,12 @@ Before immutable records are published, Safire writes a complete ingestion journ
 4. do not edit records, markers, journals, digests, or the manifest by hand.
 
 Idempotency markers prevent retry duplication. Reusing `(source_identity, stream, event_id)` with different payload/attribution fails rather than silently overwriting history.
+
+## Durability boundary
+
+Safire flushes each temporary JSON file before atomic same-directory publication or replacement. It also attempts to flush directory metadata. On Windows, Node may reject opening or syncing a directory (for example with `EPERM`); that unsupported directory-sync result is tolerated. Consequently the implementation does not claim that a just-published rename or hard link survives sudden power loss, kernel failure, controller-cache loss, or storage-device failure on Windows.
+
+Automated recovery tests cover injected exceptions and an actual child process terminated after its journal file was flushed. After explicit operator recovery of the abandoned lock, a fresh process rolls that verified journal forward. A user-space hard kill with the operating system and storage stack still running is not a power-loss test and must not be represented as one.
 
 ## Integrity, confidentiality, and backups
 
@@ -97,11 +126,13 @@ Back up the entire vault, including `.safire/memory/v1`, so the manifest, record
 
 ## Trusted bridge requirements
 
-The trusted bridge is not a bypass around authentication. A host must provide an async authenticator that binds transport/session context to an allowlisted actor and returns a strict successful authentication result. Payload actor fields are forbidden; the bridge constructs attribution only after authentication. Hashes supplied in authentication metadata help bind a decision to an envelope but are not authentication by themselves.
+The trusted bridge is not a bypass around authentication. A host must provide an async authenticator that binds transport/session context to an allowlisted actor and returns a strict successful authentication result. Event actor fields and feedback `actor_id` are forbidden in bridge envelopes; the bridge constructs attribution only after authentication. Hashes supplied in authentication metadata help bind a decision to an envelope but are not authentication by themselves. Event content and feedback correction text are not included in authentication metadata.
 
-User events additionally require a `trusted_bridge` profile with `trust.accept_user_events: true` and the exact user in `allowed_actors`. Role, actor type, event kind, delegation, agent instance, and namespace write access are then checked. Failure is generic and must not record the event.
+User events and all user-attributed feedback additionally require a `trusted_bridge` profile with `trust.accept_user_events: true` and the exact user in `allowed_actors`. Role, actor type, event kind or feedback signal, delegation, agent instance, namespace access, and feedback target access are then checked. `user_confirmed` and `user_rejected` are restricted to an authenticated user. Failure is generic and must not record the event or feedback item.
 
-The ordinary six-tool MCP rejects `trusted_bridge` profiles entirely, including injected stores. Host integration code must keep its bridge-enabled `MemoryStore` private, construct it with `trustedIngress: true`, and invoke it only after the adapter has authenticated and authorized the visible event or feedback. This flag is an in-process capability boundary, not transport authentication; exposing that raw store to untrusted callers would violate the integration contract.
+Host integration code must use `createTrustedMemoryBridge({ vaultDir, profile, authenticate })`, which keeps the underlying `MemoryStore` private and returns a paired `{ store, bridge }` with a restricted store facade. The bridge owns a private persistence capability that is neither returned nor accepted from callers. Only `bridge.ingest` and `bridge.ingestFeedback` can use it, and only after successful authentication and authorization. Direct `store.recordEvents` and `store.recordFeedback` calls are unprivileged and reject user attribution, and transaction/publication internals are not exposed on the facade. There is no public trust-enabling flag: supplying `trustedIngress` is rejected.
+
+Keep the returned store and bridge inside the trusted host integration. Although the store cannot manufacture trusted user attribution, it still carries the profile's read and authorized non-user write access. The ordinary six-tool MCP rejects `trusted_bridge` profiles entirely, including injected stores, and must never expose either member of the pair.
 
 The current milestone installs no hook, listener, or external integration, performs no automatic capture, and makes no changes to Hermes or another agent product. See [Trusted bridge](TRUSTED_BRIDGE.md).
 
