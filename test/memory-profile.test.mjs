@@ -175,7 +175,7 @@ test('ordinary MCP profiles reject user impersonation and caller-controlled trus
       actor: 'agent:harry',
       source: { identity: 'mcp:forged', stream: 'harry.general', event_id: 'event-4' },
     }),
-    /unsupported field identity/,
+    /attribution source contains an unsupported field/,
   );
 });
 
@@ -255,8 +255,98 @@ test('validated profiles are canonical, immutable, and reject ambiguous ACLs', (
     () => canonicalizeNamespace('harry/../private'),
     ProfileValidationError,
   );
-  assert.throws(() => harryPortableProfile({ unexpected_policy: true }), /unsupported field unexpected_policy/);
+  assert.throws(
+    () => harryPortableProfile({ unexpected_policy: true }),
+    error => error instanceof ProfileValidationError
+      && error.code === 'INVALID_MEMORY_PROFILE'
+      && error.message === 'profile contains an unsupported field',
+  );
   assert.throws(() => harryPortableProfile({ version: 2 }), /profile version must be 1/);
+});
+
+test('unknown credential-shaped property names reject generically without error echo', () => {
+  const exactCandidates = [
+    `AKIA${'A'.repeat(16)}`,
+    `ASIA${'A'.repeat(16)}`,
+  ];
+  const candidates = [...new Set([
+    ...exactCandidates.flatMap(candidate => [
+      candidate,
+      `_${candidate}`,
+      `${candidate}_`,
+      `_${candidate}_`,
+    ]),
+    ...SYNTHETIC_SENSITIVE_FIXTURES.map(({ value }) => value),
+  ])];
+  const validProfile = harryPortableProfile();
+
+  for (const candidate of candidates) {
+    const attempts = [
+      () => harryPortableProfile({ [candidate]: true }),
+      () => harryPortableProfile({
+        principal: { id: 'agent:harry', type: 'agent', [candidate]: true },
+      }),
+      () => harryPortableProfile({
+        agentInstance: {
+          id: 'agent_instance:harry:desktop',
+          type: 'agent_instance',
+          [candidate]: true,
+        },
+      }),
+      () => harryPortableProfile({
+        ingestedBy: { id: 'adapter:safire-mcp:harry', [candidate]: true },
+      }),
+      () => harryPortableProfile({
+        trust: { [candidate]: true },
+      }),
+      () => harryPortableProfile({
+        allowedActors: [{
+          id: 'external_service:research-api',
+          type: 'external_service',
+          [candidate]: true,
+        }],
+      }),
+      () => harryPortableProfile({
+        namespaceGrants: [{
+          namespace: 'harry',
+          read: true,
+          write: true,
+          descendants: true,
+          [candidate]: true,
+        }],
+      }),
+      () => resolveAttribution(validProfile, {
+        actor: 'agent:harry',
+        source: { stream: 'harry.general', event_id: 'event-unknown-root' },
+        [candidate]: true,
+      }),
+      () => resolveAttribution(validProfile, {
+        actor: 'agent:harry',
+        source: {
+          stream: 'harry.general',
+          event_id: 'event-unknown-source',
+          [candidate]: true,
+        },
+      }),
+    ];
+
+    for (const attempt of attempts) {
+      let thrown;
+      try { attempt(); } catch (error) { thrown = error; }
+      assert.ok(thrown instanceof ProfileValidationError);
+      assert.equal(thrown.code, 'INVALID_MEMORY_PROFILE');
+      assert.match(thrown.message, /contains an unsupported field/);
+      const serialized = JSON.stringify({
+        name: thrown.name,
+        code: thrown.code,
+        message: thrown.message,
+      });
+      const pattern = new RegExp(escapeRegExp(candidate), 'i');
+      assert.doesNotMatch(String(thrown), pattern);
+      assert.doesNotMatch(JSON.stringify(thrown), pattern);
+      assert.doesNotMatch(serialized, pattern);
+    }
+  }
 });
 
 test('profile identifiers, namespaces, and display names reject credential-like text without echoing it', () => {

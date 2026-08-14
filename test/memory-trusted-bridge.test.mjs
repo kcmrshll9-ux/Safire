@@ -200,6 +200,87 @@ test('credential-like identifiers are rejected before event or feedback authenti
   assert.equal(feedbackRecordingCalls, 0);
 });
 
+test('credential-shaped property names reject before trusted callbacks without error echo', async () => {
+  let authenticationCalls = 0;
+  let eventRecordingCalls = 0;
+  let feedbackRecordingCalls = 0;
+  const bridge = createTrustedBridge({
+    profile: profile(),
+    authenticate: async () => {
+      authenticationCalls += 1;
+      return successfulAuthentication();
+    },
+    recordEvents: async () => { eventRecordingCalls += 1; },
+    recordFeedback: async () => { feedbackRecordingCalls += 1; },
+  });
+
+  const candidates = [...new Set([
+    `AKIA${'A'.repeat(16)}`,
+    `ASIA${'B'.repeat(16)}`,
+    ...SYNTHETIC_SENSITIVE_FIXTURES.map(({ value }) => value),
+  ])];
+  for (const candidate of candidates) {
+    const eventAttempts = [
+      envelope({ [candidate]: 'synthetic visible value' }),
+      envelope({
+        context: { ...envelope().context, [candidate]: 'synthetic visible value' },
+      }),
+      envelope({
+        source: { ...envelope().source, [candidate]: 'synthetic visible value' },
+      }),
+      envelope({ attributes: { [candidate]: 'synthetic visible value' } }),
+      envelope({
+        relations: [{
+          type: 'belongs_to',
+          target_event_id: 'evt_22222222-2222-4222-8222-222222222222',
+          [candidate]: 'synthetic visible value',
+        }],
+      }),
+      envelope({
+        derived: {
+          summary: 'Synthetic visible summary.',
+          source_event_ids: ['evt_33333333-3333-4333-8333-333333333333'],
+          [candidate]: 'synthetic visible value',
+        },
+      }),
+    ];
+    const feedbackAttempts = [
+      { ...feedbackEnvelope(), [candidate]: 'synthetic visible value' },
+      feedbackEnvelope({
+        target: { ...feedbackEnvelope().target, [candidate]: 'synthetic visible value' },
+      }),
+      feedbackEnvelope({
+        related_target: {
+          type: 'event',
+          id: 'evt_44444444-4444-4444-8444-444444444444',
+          [candidate]: 'synthetic visible value',
+        },
+      }),
+      feedbackEnvelope({
+        source: { ...feedbackEnvelope().source, [candidate]: 'synthetic visible value' },
+      }),
+    ];
+
+    for (const [subject, attempts, ingest] of [
+      ['trusted bridge envelope', eventAttempts, value => bridge.ingest(value)],
+      ['trusted bridge feedback envelope', feedbackAttempts, value => bridge.ingestFeedback(value)],
+    ]) {
+      for (const attempt of attempts) {
+        let thrown;
+        try { await ingest(attempt); } catch (error) { thrown = error; }
+        const pattern = new RegExp(escapeRegExp(candidate), 'i');
+        assert.ok(thrown instanceof MemorySchemaValidationError, subject);
+        assert.equal(String(thrown), `MemorySchemaValidationError: Invalid ${subject}`);
+        assert.doesNotMatch(String(thrown), pattern, subject);
+        assert.doesNotMatch(JSON.stringify(thrown), pattern, subject);
+        assert.equal(authenticationCalls, 0, subject);
+        assert.equal(eventRecordingCalls, 0, subject);
+        assert.equal(feedbackRecordingCalls, 0, subject);
+      }
+    }
+  }
+});
+
 test('credential-like authenticated attribution identifiers fail closed without recording or echo', async () => {
   let recordingCalls = 0;
   const authenticationResults = [
@@ -214,6 +295,18 @@ test('credential-like authenticated attribution identifiers fail closed without 
       actor_id: 'automation:moltbook',
       delegated_by: GITHUB_TOKEN_IDENTIFIER,
     }),
+    {
+      ...successfulAuthentication(),
+      [`AKIA${'C'.repeat(16)}`]: 'synthetic visible value',
+    },
+    {
+      ...successfulAuthentication(),
+      [`_ASIA${'D'.repeat(16)}_`]: 'synthetic visible value',
+    },
+    ...SYNTHETIC_SENSITIVE_FIXTURES.map(({ value }) => ({
+      ...successfulAuthentication(),
+      [value]: 'synthetic visible value',
+    })),
     ...SYNTHETIC_SENSITIVE_FIXTURES.map(({ value }) => successfulAuthentication({ actor_id: value })),
   ];
   for (const authentication of authenticationResults) {
@@ -226,7 +319,8 @@ test('credential-like authenticated attribution identifiers fail closed without 
       () => bridge.ingest(envelope()),
       error => error instanceof TrustedBridgeAuthenticationError
         && !Object.values(authentication).some(value => typeof value === 'string'
-          && error.message.toLowerCase().includes(value.toLowerCase())),
+          && error.message.toLowerCase().includes(value.toLowerCase()))
+        && !Object.keys(authentication).some(key => error.message.toLowerCase().includes(key.toLowerCase())),
     );
   }
   assert.equal(recordingCalls, 0);

@@ -5,9 +5,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
   MemoryMcpConfigurationError,
   createMemoryMcpServer,
+  memoryMcpToolSchemas,
+  registerMemoryMcpTools,
 } from '../lib/memory/mcp.mjs';
 import { createMemoryStore } from '../lib/memory/store.mjs';
 import {
@@ -247,6 +250,21 @@ async function temporaryRoot(t, prefix) {
   return root;
 }
 
+async function readTreeMaterial(root) {
+  const pending = [root];
+  const material = [];
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+      const entryPath = path.join(directory, entry.name);
+      material.push(path.relative(root, entryPath));
+      if (entry.isDirectory()) pending.push(entryPath);
+      else if (entry.isFile()) material.push(await fs.readFile(entryPath, 'utf8'));
+    }
+  }
+  return material.join('\n');
+}
+
 async function writeProfile(root, profile = syntheticProfile(), name = 'agent-memory-profile.json') {
   const profilePath = path.join(root, name);
   await fs.writeFile(profilePath, JSON.stringify(profile), 'utf8');
@@ -447,6 +465,278 @@ test('memory MCP rejects impersonation, caller-controlled trust, unsafe paths, a
   assert.equal(status.counts.events, 1);
   assert.equal(status.counts.feedback, 0);
   assert.doesNotMatch(client.diagnostics().stderr, new RegExp(GITHUB_TOKEN_IDENTIFIER, 'i'));
+});
+
+test('memory MCP rejects credential-shaped property names before validation can echo or persist them', async (t) => {
+  const root = await temporaryRoot(t, 'safire-memory-mcp-sensitive-property-');
+  const vault = path.join(root, 'vault');
+  const profilePath = await writeProfile(root);
+  const client = createClient({ vaultDir: vault, profilePath });
+  t.after(() => client.close());
+  await initialize(client, 'memory-mcp-sensitive-property-test');
+
+  const asia = `ASIA${'A'.repeat(16)}`;
+  const akia = `AKIA${'B'.repeat(16)}`;
+  const candidates = [...new Set([
+    asia,
+    akia,
+    ...SYNTHETIC_SENSITIVE_FIXTURES.map(({ value }) => value),
+  ])];
+  const rootArguments = {
+    memory_record_events: { events: [event()] },
+    memory_search: { query: 'synthetic query' },
+    memory_get: { id: 'memory:synthetic-target' },
+    memory_record_feedback: { feedback: [feedback('memory:synthetic-target')] },
+    memory_recall: { ids: ['memory:synthetic-target'] },
+    memory_status: {},
+  };
+  const attempts = [
+    ...toolNames.map((name, index) => [name, {
+      ...rootArguments[name],
+      [index % 2 === 0 ? `_${asia}_` : `_${akia}_`]: 'synthetic visible value',
+    }]),
+    ['memory_record_events', {
+      events: [event({ attributes: { [asia]: 'synthetic visible value' } })],
+    }],
+    ['memory_record_events', {
+      events: [event({
+        [`${asia}_`]: 'synthetic visible value',
+        source: { stream: 'conversation.synthetic', event_id: 'turn.sensitive-property-event' },
+      })],
+    }],
+    ['memory_record_events', {
+      events: [event({
+        source: {
+          stream: 'conversation.synthetic',
+          event_id: 'turn.sensitive-property-source',
+          [`_${akia}_`]: 'synthetic visible value',
+        },
+      })],
+    }],
+    ['memory_record_events', {
+      events: [event({
+        context: {
+          conversation_id: 'conversation.synthetic',
+          [`_${asia}`]: 'synthetic visible value',
+        },
+        source: { stream: 'conversation.synthetic', event_id: 'turn.sensitive-property-context' },
+      })],
+    }],
+    ['memory_record_events', {
+      events: [event({
+        relations: [{
+          type: 'belongs_to',
+          target_event_id: 'event:synthetic-target',
+          [`${akia}_`]: 'synthetic visible value',
+        }],
+        source: { stream: 'conversation.synthetic', event_id: 'turn.sensitive-property-relation' },
+      })],
+    }],
+    ['memory_record_events', {
+      events: [event({
+        derived: {
+          summary: 'Synthetic summary.',
+          source_event_ids: ['event:synthetic-source'],
+          [`_${asia}_`]: 'synthetic visible value',
+        },
+        source: { stream: 'conversation.synthetic', event_id: 'turn.sensitive-property-derived' },
+      })],
+    }],
+    ['memory_record_feedback', {
+      feedback: [{
+        ...feedback('memory:synthetic-target'),
+        target: { type: 'memory', id: 'memory:synthetic-target', [`_${asia}`]: 'synthetic visible value' },
+      }],
+    }],
+    ['memory_record_feedback', {
+      feedback: [{
+        ...feedback('memory:synthetic-target'),
+        related_target: {
+          type: 'memory',
+          id: 'memory:synthetic-related',
+          [`${akia}_`]: 'synthetic visible value',
+        },
+      }],
+    }],
+    ['memory_record_feedback', {
+      feedback: [{
+        ...feedback('memory:synthetic-target'),
+        source: {
+          stream: 'feedback.synthetic',
+          event_id: 'feedback.sensitive-property-source',
+          [`_${asia}_`]: 'synthetic visible value',
+        },
+      }],
+    }],
+    ['memory_record_feedback', {
+      feedback: [{
+        ...feedback('memory:synthetic-target'),
+        [`_${akia}`]: 'synthetic visible value',
+      }],
+    }],
+    ['memory_search', {
+      query: 42,
+      otherwise_invalid: { [`_${asia}_`]: 'synthetic visible value' },
+    }],
+    ...SYNTHETIC_SENSITIVE_FIXTURES.flatMap(({ value }) => [
+      ['memory_search', { query: 'synthetic query', [value]: 'synthetic visible value' }],
+      ['memory_record_events', {
+        events: [event({
+          attributes: { [value]: 'synthetic visible value' },
+          source: { stream: 'conversation.synthetic', event_id: 'turn.sensitive-property-family' },
+        })],
+      }],
+    ]),
+  ];
+
+  for (const [name, args] of attempts) {
+    const result = await callTool(client, name, args);
+    assert.equal(errorText(result), 'Invalid Safire memory input', name);
+  }
+
+  await assert.rejects(() => fs.access(vault));
+  const diagnostics = client.diagnostics();
+  assert.equal(diagnostics.stderr, '');
+  for (const candidate of candidates) {
+    const pattern = new RegExp(escapeRegExp(candidate), 'i');
+    assert.doesNotMatch(diagnostics.stderr, pattern);
+  }
+
+  const status = parseToolJson(await callTool(client, 'memory_status'));
+  assert.deepEqual(status.counts, { actors: 4, events: 0, memories: 0, feedback: 0 });
+  assert.equal(status.pending_transactions, 0);
+  const persistedMaterial = await readTreeMaterial(vault);
+  for (const candidate of candidates) {
+    assert.doesNotMatch(persistedMaterial, new RegExp(escapeRegExp(candidate), 'i'));
+  }
+  const memoryRoot = path.join(vault, '.safire', 'memory', 'v1');
+  assert.deepEqual(await fs.readdir(path.join(memoryRoot, 'journals')), []);
+  for (const collection of ['events', 'feedback', 'idempotency', 'memories']) {
+    assert.deepEqual(await fs.readdir(path.join(memoryRoot, 'records', collection)), [], collection);
+  }
+});
+
+test('external MCP servers receive the same credential-property preflight', async (t) => {
+  const root = await temporaryRoot(t, 'safire-memory-mcp-external-property-');
+  const vault = path.join(root, 'vault');
+  const store = createMemoryStore({ vaultDir: vault, profile: syntheticProfile() });
+  const server = new McpServer({ name: 'synthetic-external-memory-mcp', version: '1.0.0' });
+  const sdkValidateToolInput = server.validateToolInput;
+  let sdkValidationCalls = 0;
+  server.validateToolInput = function countSdkValidation(...args) {
+    sdkValidationCalls += 1;
+    return sdkValidateToolInput.call(this, ...args);
+  };
+  registerMemoryMcpTools(server, store);
+
+  const candidate = `ASIA${'C'.repeat(16)}`;
+  await assert.rejects(
+    server.validateToolInput(
+      { inputSchema: memoryMcpToolSchemas.memory_search },
+      { query: 'synthetic query', [`_${candidate}_`]: 'synthetic visible value' },
+      'memory_search',
+    ),
+    error => error instanceof Error
+      && error.message === 'Invalid Safire memory input'
+      && !error.message.includes(candidate),
+  );
+  assert.equal(sdkValidationCalls, 0);
+
+  await assert.rejects(
+    server.validateToolInput(
+      { inputSchema: memoryMcpToolSchemas.memory_search },
+      { query: 'synthetic query', ['x'.repeat(513)]: 'synthetic visible value' },
+      'memory_search',
+    ),
+    error => error instanceof Error && error.message === 'Invalid Safire memory input',
+  );
+  assert.equal(sdkValidationCalls, 0);
+
+  let nested = { leaf: 'synthetic visible value' };
+  for (let depth = 0; depth < 33; depth += 1) nested = { child: nested };
+  await assert.rejects(
+    server.validateToolInput(
+      { inputSchema: memoryMcpToolSchemas.memory_search },
+      { query: 'synthetic query', otherwise_invalid: nested },
+      'memory_search',
+    ),
+    error => error instanceof Error && error.message === 'Invalid Safire memory input',
+  );
+  assert.equal(sdkValidationCalls, 0);
+
+  const idsWithNamedProperty = ['memory:synthetic-target'];
+  idsWithNamedProperty[`_${candidate}_`] = 'synthetic visible value';
+  await assert.rejects(
+    server.validateToolInput(
+      { inputSchema: memoryMcpToolSchemas.memory_recall },
+      { ids: idsWithNamedProperty },
+      'memory_recall',
+    ),
+    error => error instanceof Error && error.message === 'Invalid Safire memory input',
+  );
+  assert.equal(sdkValidationCalls, 0);
+
+  const unreadableArray = new Proxy([], {
+    get(target, property, receiver) {
+      if (property === 'length') throw new Error('synthetic array length failure');
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  await assert.rejects(
+    server.validateToolInput(
+      { inputSchema: memoryMcpToolSchemas.memory_recall },
+      { ids: unreadableArray },
+      'memory_recall',
+    ),
+    error => error instanceof Error && error.message === 'Invalid Safire memory input',
+  );
+  assert.equal(sdkValidationCalls, 0);
+
+  assert.deepEqual(
+    await server.validateToolInput(
+      { inputSchema: memoryMcpToolSchemas.memory_search },
+      { query: 'synthetic query' },
+      'memory_search',
+    ),
+    { query: 'synthetic query' },
+  );
+  assert.equal(sdkValidationCalls, 1);
+
+  const maximumEvents = Array.from({ length: 100 }, (_, eventIndex) => event({
+    source: {
+      stream: 'conversation.synthetic',
+      event_id: `turn.maximum.${eventIndex}`,
+    },
+    relations: Array.from({ length: 128 }, (_, relationIndex) => ({
+      type: 'belongs_to',
+      target_event_id: `event:maximum:${eventIndex}:${relationIndex}`,
+    })),
+    derived: {
+      summary: `Synthetic maximum event ${eventIndex}.`,
+      source_event_ids: Array.from(
+        { length: 512 },
+        (_, sourceIndex) => `event:source:${eventIndex}:${sourceIndex}`,
+      ),
+    },
+    attributes: Object.fromEntries(Array.from(
+      { length: 64 },
+      (_, attributeIndex) => [
+        `field_${attributeIndex}`,
+        Array.from({ length: 32 }, (_, itemIndex) => `item-${eventIndex}-${attributeIndex}-${itemIndex}`),
+      ],
+    )),
+  }));
+  const maximumBatch = await server.validateToolInput(
+    { inputSchema: memoryMcpToolSchemas.memory_record_events },
+    { events: maximumEvents },
+    'memory_record_events',
+  );
+  assert.equal(maximumBatch.events.length, 100);
+  assert.equal(maximumBatch.events[99].relations.length, 128);
+  assert.equal(maximumBatch.events[99].derived.source_event_ids.length, 512);
+  assert.equal(Object.keys(maximumBatch.events[99].attributes).length, 64);
+  assert.equal(sdkValidationCalls, 2);
+  await assert.rejects(() => fs.access(vault));
 });
 
 test('ordinary memory MCP rejects trusted bridges from profile files and injected stores', async (t) => {
