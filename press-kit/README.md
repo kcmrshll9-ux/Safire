@@ -1,6 +1,6 @@
 # Safire Press Kit
 
-Official product information and brand assets for Safire 1.3.4.
+Official product information and brand assets for Safire 1.4.0.
 
 ## Media inquiries
 

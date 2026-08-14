@@ -4,6 +4,8 @@ Notable changes to Safire are recorded here. Application versions follow the ver
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-08-14
+
 ### Added
 
 - Added an opt-in, versioned general-agent memory sidecar that stores attributed events, append-only feedback, provenance, namespace grants, stable identities, idempotency markers, and recovery journals as local plaintext JSON beneath the selected vault.
@@ -16,6 +18,11 @@ Notable changes to Safire are recorded here. Application versions follow the ver
 
 - Fixed profiles now bind stable principal, agent-instance, ingest-adapter, source, actor, and namespace identities. Ordinary portable MCP profiles cannot claim user activity, while trusted user events require host authentication and explicit trusted-bridge configuration.
 - Agent-memory records remain local plaintext. Opaque filenames and integrity digests are not encryption, and schema filtering of credentials or private reasoning is defense in depth rather than a complete data-loss-prevention system.
+
+### Not included
+
+- Safire 1.4.0 does not include automatic Hermes capture or any other installed agent-host capture integration.
+- AWS archival, fading, compression, memory encryption, reactivation, automatic local eviction, archival lifecycle automation, and permanent memory deletion are not part of Safire 1.4.0.
 
 ## [1.3.4] - 2026-08-13
 

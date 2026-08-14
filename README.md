@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/kcmrshll9-ux/Safire/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/kcmrshll9-ux/Safire/actions/workflows/ci.yml/badge.svg" /></a>
-  <img alt="Version 1.3.4" src="https://img.shields.io/badge/version-1.3.4-f97316" />
+  <img alt="Version 1.4.0" src="https://img.shields.io/badge/version-1.4.0-f97316" />
   <img alt="Windows x64" src="https://img.shields.io/badge/platform-Windows%20x64-2563eb" />
   <img alt="Proprietary source" src="https://img.shields.io/badge/source-proprietary-7c3aed" />
 </p>
@@ -27,14 +27,14 @@ Safire keeps notes as ordinary Markdown files in a vault you choose. It adds a f
 
 | Item | Current state |
 | --- | --- |
-| Current version | 1.3.4 |
+| Current version | 1.4.0 |
 | Current source | Release candidate; see the changelog below |
 | Desktop target | Windows x64 |
 | Storage | Local Markdown vault selected by the user |
 | Public installer | Not yet published on GitHub |
 | License status | Proprietary; not open source |
 
-Safire is under active development. Version 1.3.4 includes the relationship-first graph and public-release hardening described in the [changelog](CHANGELOG.md#134---2026-08-13). Back up important vaults independently and review the [security policy](SECURITY.md) before using development builds with sensitive material.
+Safire is under active development. Version 1.4.0 adds the opt-in, agent-independent attributed-memory foundation described in the [changelog](CHANGELOG.md#140---2026-08-14) while preserving the relationship-first Markdown workflow. Back up important vaults independently and review the [security policy](SECURITY.md) before using development builds with sensitive material.
 
 ## Highlights
 
@@ -86,7 +86,7 @@ npm run dist:installer
 The installer is written to:
 
 ```text
-release/Safire Setup 1.3.4.exe
+release/Safire Setup 1.4.0.exe
 ```
 
 Build the portable executable with `npm run dist:win`. Locally produced builds are not code-signed by default, so Windows SmartScreen may display a warning. The selected vault remains outside the application installation directory and is not packaged into an update.
