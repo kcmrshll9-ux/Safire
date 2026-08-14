@@ -15,6 +15,15 @@ export const SYNTHETIC_PROVIDER_FIXTURES = Object.freeze([
   fixture('hugging_face', `hf_${'A'.repeat(34)}`),
 ]);
 
+export const SYNTHETIC_AWS_UNDERSCORE_FIXTURES = Object.freeze([
+  fixture('aws_iam_access_key_id_leading_underscore', `_AKIA${'A'.repeat(16)}`),
+  fixture('aws_iam_access_key_id_trailing_underscore', `AKIA${'A'.repeat(16)}_`),
+  fixture('aws_iam_access_key_id_both_underscores', `_AKIA${'A'.repeat(16)}_`),
+  fixture('aws_sts_access_key_id_leading_underscore', `_ASIA${'A'.repeat(16)}`),
+  fixture('aws_sts_access_key_id_trailing_underscore', `ASIA${'A'.repeat(16)}_`),
+  fixture('aws_sts_access_key_id_both_underscores', `_ASIA${'A'.repeat(16)}_`),
+]);
+
 export const SYNTHETIC_RAW_JWT = [
   jsonSegment({ alg: 'HS256' }),
   jsonSegment({}),
@@ -23,6 +32,7 @@ export const SYNTHETIC_RAW_JWT = [
 
 export const SYNTHETIC_SENSITIVE_FIXTURES = Object.freeze([
   ...SYNTHETIC_PROVIDER_FIXTURES,
+  ...SYNTHETIC_AWS_UNDERSCORE_FIXTURES,
   fixture('raw_jwt', SYNTHETIC_RAW_JWT),
 ]);
 

@@ -280,6 +280,48 @@ test('fine-grained GitHub token detection follows the exact documented prefix an
   assert.equal(containsDisallowedSensitiveMaterial('A GitHub PAT should be stored outside memory.'), false);
 });
 
+test('AWS access key IDs use ASCII-alphanumeric boundaries and exact case-sensitive shapes', () => {
+  const fullwidthAscii = value => [...value].map((character) => {
+    const code = character.codePointAt(0);
+    return code >= 0x21 && code <= 0x7e ? String.fromCodePoint(code + 0xfee0) : character;
+  }).join('');
+
+  for (const prefix of ['AKIA', 'ASIA']) {
+    const value = `${prefix}${'A'.repeat(16)}`;
+    for (const candidate of [
+      value,
+      `_${value}`,
+      `${value}_`,
+      `_${value}_`,
+      `(${value})`,
+      `[${value}]`,
+      ` ${value} `,
+      `visible: ${value}, retained`,
+      `Bearer ${value}`,
+      fullwidthAscii(value),
+      `${value.slice(0, 2)}\u200B${value.slice(2)}`,
+      `${value.slice(0, 2)}\u2060${value.slice(2)}`,
+    ]) {
+      assert.equal(containsDisallowedSensitiveMaterial(candidate), true, `${prefix}: ${candidate}`);
+    }
+
+    for (const candidate of [
+      `x${value}`,
+      `${value}x`,
+      `1${value}`,
+      `${value}1`,
+      `x${value}9`,
+      `${prefix}${'A'.repeat(15)}`,
+      `${prefix}${'A'.repeat(17)}`,
+      `${prefix.toLowerCase()}${'A'.repeat(16)}`,
+      `${prefix}${'A'.repeat(8)}/${'A'.repeat(7)}`,
+      `${prefix}${'A'.repeat(8)}a${'A'.repeat(7)}`,
+    ]) {
+      assert.equal(containsDisallowedSensitiveMaterial(candidate), false, `${prefix}: ${candidate}`);
+    }
+  }
+});
+
 test('provider token detection is boundary-aware, normalization-safe, and narrowly shaped', () => {
   const fullwidthAscii = value => [...value].map((character) => {
     const code = character.codePointAt(0);
@@ -297,7 +339,11 @@ test('provider token detection is boundary-aware, normalization-safe, and narrow
     ]) {
       assert.equal(containsDisallowedSensitiveMaterial(candidate), true, family);
     }
-    assert.equal(containsDisallowedSensitiveMaterial(`x${value}`), false, `${family} left boundary`);
+    assert.equal(
+      containsDisallowedSensitiveMaterial(`x${value}`),
+      value.startsWith('_'),
+      `${family} left boundary`,
+    );
     assert.equal(containsDisallowedSensitiveMaterial(fullwidthAscii(value)), true, `${family} NFKC`);
     assert.equal(
       containsDisallowedSensitiveMaterial(`${value.slice(0, 1)}\u200B${value.slice(1)}`),
@@ -312,12 +358,6 @@ test('provider token detection is boundary-aware, normalization-safe, and narrow
   }
 
   for (const candidate of [
-    `ASIA${'A'.repeat(15)}`,
-    `ASIA${'A'.repeat(17)}`,
-    `asia${'A'.repeat(16)}`,
-    `ASIB${'A'.repeat(16)}`,
-    `ASIA${'A'.repeat(8)}/${'A'.repeat(7)}`,
-    `ASIA${'A'.repeat(8)}a${'A'.repeat(7)}`,
     `npm_${'A'.repeat(35)}`,
     `npm_${'A'.repeat(37)}`,
     `NPM_${'A'.repeat(36)}`,
@@ -350,7 +390,6 @@ test('provider token detection is boundary-aware, normalization-safe, and narrow
   }
 
   for (const candidate of [
-    `AKIA${'A'.repeat(16)}`,
     `glpat-${'A'.repeat(300)}.${'a'.repeat(9)}`,
     `sk_test_${'A'.repeat(20)}`,
     `rk_live_${'A'.repeat(247)}`,
