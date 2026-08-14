@@ -369,16 +369,22 @@ test('memory MCP rejects impersonation, caller-controlled trust, unsafe paths, a
 
   const marker = 'caller-value-must-not-be-echoed';
   const unknownOuter = await callTool(client, 'memory_search', { query: '', source_identity: marker });
+  assert.equal(errorText(unknownOuter), 'Invalid Safire memory input');
+  assert.doesNotMatch(errorText(unknownOuter), /source_identity/);
   assert.doesNotMatch(errorText(unknownOuter), new RegExp(marker));
 
   const fixedAttributionAttempt = await callTool(client, 'memory_record_events', {
     events: [{ ...event({ source: { stream: 'conversation.synthetic', event_id: 'turn.fixed-fields' } }), ingested_by: marker }],
   });
+  assert.equal(errorText(fixedAttributionAttempt), 'Invalid Safire memory input');
+  assert.doesNotMatch(errorText(fixedAttributionAttempt), /ingested_by/);
   assert.doesNotMatch(errorText(fixedAttributionAttempt), new RegExp(marker));
 
   const nestedIdentityAttempt = await callTool(client, 'memory_record_events', { events: [event({
     source: { stream: 'conversation.synthetic', event_id: 'turn.source-identity', identity: marker },
   })] });
+  assert.equal(errorText(nestedIdentityAttempt), 'Invalid Safire memory input');
+  assert.doesNotMatch(errorText(nestedIdentityAttempt), /identity/);
   assert.doesNotMatch(errorText(nestedIdentityAttempt), new RegExp(marker));
 
   const trustAttempt = await callTool(client, 'memory_record_events', {
@@ -692,6 +698,19 @@ test('external MCP servers receive the same credential-property preflight', asyn
   );
   assert.equal(sdkValidationCalls, 0);
 
+  const ordinaryUnknownKey = 'ordinary_unknown_field';
+  await assert.rejects(
+    server.validateToolInput(
+      { inputSchema: memoryMcpToolSchemas.memory_search },
+      { query: 'synthetic query', [ordinaryUnknownKey]: 'synthetic visible value' },
+      'memory_search',
+    ),
+    error => error instanceof Error
+      && error.message === 'Invalid Safire memory input'
+      && !error.message.includes(ordinaryUnknownKey),
+  );
+  assert.equal(sdkValidationCalls, 1);
+
   assert.deepEqual(
     await server.validateToolInput(
       { inputSchema: memoryMcpToolSchemas.memory_search },
@@ -700,7 +719,7 @@ test('external MCP servers receive the same credential-property preflight', asyn
     ),
     { query: 'synthetic query' },
   );
-  assert.equal(sdkValidationCalls, 1);
+  assert.equal(sdkValidationCalls, 2);
 
   const maximumEvents = Array.from({ length: 100 }, (_, eventIndex) => event({
     source: {
@@ -735,7 +754,7 @@ test('external MCP servers receive the same credential-property preflight', asyn
   assert.equal(maximumBatch.events[99].relations.length, 128);
   assert.equal(maximumBatch.events[99].derived.source_event_ids.length, 512);
   assert.equal(Object.keys(maximumBatch.events[99].attributes).length, 64);
-  assert.equal(sdkValidationCalls, 2);
+  assert.equal(sdkValidationCalls, 3);
   await assert.rejects(() => fs.access(vault));
 });
 
