@@ -20,7 +20,10 @@ Source-checkout requirements:
 - Node.js 22.19 or newer;
 - a Safire checkout with dependencies installed (`npm ci` from the checkout);
 - an operator-selected absolute, non-filesystem-root Safire vault path (Safire creates the directory when needed);
+- one fixed local filesystem for the complete memory sidecar, with working same-directory hard links and no nested mount point beneath `.safire/memory/v1`;
 - an operator-controlled version-1 profile JSON file.
+
+Startup actively verifies hard-link semantics after creating the empty version-1 layout directories but before publishing a lock, manifest, journal, or record. It first requires the root, state, journals, locks, and immutable collection directories to report the same filesystem device, then creates random probe paths only in the non-data `locks/` directory so another process cannot observe probe names during a strict record or journal scan. Both names must identify the opened source inode, and cleanup removes only paths whose identity remains proven. `ENOTSUP`, `ENOSYS`, `EPERM`, and equivalent unsupported-operation results become the path-free `MEMORY_HARD_LINK_UNAVAILABLE` error; unrelated I/O or identity failures remain generic filesystem failures. Safire has no copy, rename, native-module, or unsafe locking fallback: choose another local vault filesystem. An ordinary unsupported result leaves only the empty layout directories, and probing an existing sidecar does not rewrite its stored files. A semantic mismatch, collision, or replacement whose ownership cannot be proved may leave its one bounded random `locks/` probe path for operator inspection rather than risk deleting another path.
 
 1. Start from one of the reference profiles in [`examples/`](examples/). Give every real integration its own stable `profile_id`, `principal.id`, `agent_instance.id`, `ingested_by.id`, and `source_identity`. Do not reuse an agent's profile file for a different agent.
 

@@ -312,6 +312,12 @@ test('provider token detection is boundary-aware, normalization-safe, and narrow
   }
 
   for (const candidate of [
+    `ASIA${'A'.repeat(15)}`,
+    `ASIA${'A'.repeat(17)}`,
+    `asia${'A'.repeat(16)}`,
+    `ASIB${'A'.repeat(16)}`,
+    `ASIA${'A'.repeat(8)}/${'A'.repeat(7)}`,
+    `ASIA${'A'.repeat(8)}a${'A'.repeat(7)}`,
     `npm_${'A'.repeat(35)}`,
     `npm_${'A'.repeat(37)}`,
     `NPM_${'A'.repeat(36)}`,
@@ -344,6 +350,7 @@ test('provider token detection is boundary-aware, normalization-safe, and narrow
   }
 
   for (const candidate of [
+    `AKIA${'A'.repeat(16)}`,
     `glpat-${'A'.repeat(300)}.${'a'.repeat(9)}`,
     `sk_test_${'A'.repeat(20)}`,
     `rk_live_${'A'.repeat(247)}`,
@@ -352,6 +359,10 @@ test('provider token detection is boundary-aware, normalization-safe, and narrow
   }
 
   for (const prose of [
+    'AWS STS issued temporary credentials',
+    'rotate the AWS access key',
+    'AWS STS issues temporary access key IDs with an ASIA prefix.',
+    'The ASIA prefix by itself is not an access key ID.',
     'npm access tokens belong in a credential manager.',
     'The npm_ prefix alone is not a token.',
     'GitLab personal access tokens commonly begin with glpat-.',

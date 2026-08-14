@@ -3,6 +3,7 @@ const jsonSegment = value => Buffer.from(JSON.stringify(value), 'utf8').toString
 const fixture = (family, value) => Object.freeze({ family, value });
 
 export const SYNTHETIC_PROVIDER_FIXTURES = Object.freeze([
+  fixture('aws_sts_access_key_id', `ASIA${'A'.repeat(16)}`),
   fixture('npm', `npm_${'A'.repeat(36)}`),
   fixture('gitlab_classic', `glpat-${'A'.repeat(20)}`),
   fixture('gitlab_routable', `glpat-${'A'.repeat(27)}.${'a'.repeat(9)}`),
