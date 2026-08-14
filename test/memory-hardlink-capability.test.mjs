@@ -43,6 +43,30 @@ function assertControlledCapabilityError(error) {
   return true;
 }
 
+function assertGenericProbeError(error) {
+  assert.equal(error instanceof MemoryHardLinkUnavailableError, false);
+  assert.equal(error.code, 'MEMORY_FILESYSTEM_ERROR');
+  assert.equal(error.message, 'Safire memory hard-link capability probe failed');
+  assert.equal(error.cause, undefined);
+  return true;
+}
+
+function assertProbeIdentityError(error) {
+  assert.equal(error instanceof MemoryHardLinkUnavailableError, false);
+  assert.equal(error.code, 'MEMORY_PATH_IDENTITY');
+  assert.equal(error.message, 'Safire memory hard-link capability probe identity changed');
+  assert.equal(error.cause, undefined);
+  return true;
+}
+
+function assertProbeDirectoryError(error) {
+  assert.equal(error instanceof MemoryHardLinkUnavailableError, false);
+  assert.equal(error.code, 'MEMORY_PATH_UNSAFE');
+  assert.equal(error.message, 'A Safire memory directory is unavailable');
+  assert.equal(Object.hasOwn(error, 'details'), false);
+  return true;
+}
+
 async function assertNoPublishedMemoryState(vault) {
   const root = path.join(vault, '.safire', 'memory', 'v1');
   assert.deepEqual(
@@ -51,6 +75,7 @@ async function assertNoPublishedMemoryState(vault) {
   );
   assert.deepEqual(await fs.readdir(path.join(root, 'journals')), []);
   assert.deepEqual(await fs.readdir(path.join(root, 'state')), []);
+  assert.equal((await fs.readdir(path.join(root, 'locks'))).includes('vault.lock'), false);
   const records = path.join(root, 'records');
   assert.deepEqual(
     (await fs.readdir(records)).sort(),
@@ -279,6 +304,234 @@ test('a post-open probe sync failure cleans the identity-pinned source', async t
   await assertOnlyEmptyLayout(vault);
 });
 
+test('a transient initial handle-stat failure recovers identity once and cleans the source', async t => {
+  const { vault } = await temporaryVault(t);
+  const originalOpen = fs.open;
+  const originalLink = fs.link;
+  let statCalls = 0;
+  let linkCalls = 0;
+  fs.open = async (...args) => {
+    const handle = await originalOpen(...args);
+    const target = String(args[0]);
+    if (path.basename(path.dirname(target)) !== 'locks'
+        || !path.basename(target).endsWith('.source')) {
+      return handle;
+    }
+    return new Proxy(handle, {
+      get(value, property) {
+        if (property === 'stat') return async (...statArgs) => {
+          statCalls += 1;
+          if (statCalls === 1) throw hardLinkError('EIO');
+          return value.stat(...statArgs);
+        };
+        const member = value[property];
+        return typeof member === 'function' ? member.bind(value) : member;
+      },
+    });
+  };
+  fs.link = (...args) => {
+    linkCalls += 1;
+    return originalLink(...args);
+  };
+  try {
+    await assert.rejects(() => ensureMemoryLayout(vault), assertGenericProbeError);
+  } finally {
+    fs.open = originalOpen;
+    fs.link = originalLink;
+  }
+  assert.equal(statCalls, 2);
+  assert.equal(linkCalls, 0);
+  await assertOnlyEmptyLayout(vault);
+});
+
+test('a source replaced after recovery stat is preserved before cleanup', async t => {
+  const { vault } = await temporaryVault(t);
+  const originalOpen = fs.open;
+  const originalLink = fs.link;
+  const replacement = Buffer.from('replacement after recovered handle identity\n');
+  let replacementPath;
+  let statCalls = 0;
+  let linkCalls = 0;
+  fs.open = async (...args) => {
+    const handle = await originalOpen(...args);
+    const target = String(args[0]);
+    if (path.basename(path.dirname(target)) !== 'locks'
+        || !path.basename(target).endsWith('.source')) {
+      return handle;
+    }
+    return new Proxy(handle, {
+      get(value, property) {
+        if (property === 'stat') return async (...statArgs) => {
+          statCalls += 1;
+          if (statCalls === 1) throw hardLinkError('EIO');
+          return value.stat(...statArgs);
+        };
+        if (property === 'close') return async () => {
+          await value.close();
+          await fs.unlink(target);
+          await fs.writeFile(target, replacement, { flag: 'wx', mode: 0o600 });
+          replacementPath = target;
+        };
+        const member = value[property];
+        return typeof member === 'function' ? member.bind(value) : member;
+      },
+    });
+  };
+  fs.link = (...args) => {
+    linkCalls += 1;
+    return originalLink(...args);
+  };
+  try {
+    await assert.rejects(() => ensureMemoryLayout(vault), assertProbeIdentityError);
+  } finally {
+    fs.open = originalOpen;
+    fs.link = originalLink;
+  }
+  assert.equal(statCalls, 2);
+  assert.equal(linkCalls, 0);
+  await assertNoPublishedMemoryState(vault);
+  assert.deepEqual(await fs.readdir(path.dirname(replacementPath)), [path.basename(replacementPath)]);
+  assert.deepEqual(await fs.readFile(replacementPath), replacement);
+});
+
+test('a permanent handle-stat failure makes one recovery attempt and preserves the unproven source', async t => {
+  const { vault } = await temporaryVault(t);
+  const originalOpen = fs.open;
+  const originalLink = fs.link;
+  let statCalls = 0;
+  let linkCalls = 0;
+  fs.open = async (...args) => {
+    const handle = await originalOpen(...args);
+    const target = String(args[0]);
+    if (path.basename(path.dirname(target)) !== 'locks'
+        || !path.basename(target).endsWith('.source')) {
+      return handle;
+    }
+    return new Proxy(handle, {
+      get(value, property) {
+        if (property === 'stat') return async () => {
+          statCalls += 1;
+          throw hardLinkError('EIO');
+        };
+        const member = value[property];
+        return typeof member === 'function' ? member.bind(value) : member;
+      },
+    });
+  };
+  fs.link = (...args) => {
+    linkCalls += 1;
+    return originalLink(...args);
+  };
+  try {
+    await assert.rejects(() => ensureMemoryLayout(vault), assertGenericProbeError);
+  } finally {
+    fs.open = originalOpen;
+    fs.link = originalLink;
+  }
+  assert.equal(statCalls, 2);
+  assert.equal(linkCalls, 0);
+  await assertNoPublishedMemoryState(vault);
+  const locks = path.join(vault, '.safire', 'memory', 'v1', 'locks');
+  const entries = await fs.readdir(locks);
+  assert.equal(entries.length, 1);
+  assert.match(entries[0], /^\.hard-link-capability-[a-f0-9]+\.source$/);
+  assert.equal((await fs.stat(path.join(locks, entries[0]))).size, 0);
+});
+
+test('post-link validation failures clean both identity-proven probe names', async t => {
+  for (const stage of ['directory revalidation', 'source lstat', 'destination lstat']) {
+    await t.test(stage, async subtest => {
+      const { vault } = await temporaryVault(subtest);
+      const locks = path.join(vault, '.safire', 'memory', 'v1', 'locks');
+      const originalLink = fs.link;
+      const originalLstat = fs.lstat;
+      let linked = false;
+      let injected = false;
+      fs.link = async (...args) => {
+        await originalLink(...args);
+        linked = true;
+      };
+      fs.lstat = async (target, options) => {
+        const targetPath = String(target);
+        const shouldFail = linked && !injected && (
+          (stage === 'directory revalidation' && path.resolve(targetPath) === path.resolve(locks))
+          || (stage === 'source lstat' && path.basename(targetPath).endsWith('.source'))
+          || (stage === 'destination lstat' && path.basename(targetPath).endsWith('.link'))
+        );
+        if (shouldFail) {
+          injected = true;
+          throw hardLinkError('EIO');
+        }
+        return originalLstat(target, options);
+      };
+      try {
+        await assert.rejects(
+          () => ensureMemoryLayout(vault),
+          stage === 'directory revalidation' ? assertProbeDirectoryError : assertGenericProbeError,
+        );
+      } finally {
+        fs.link = originalLink;
+        fs.lstat = originalLstat;
+      }
+      assert.equal(linked, true);
+      assert.equal(injected, true);
+      await assertOnlyEmptyLayout(vault);
+    });
+  }
+});
+
+test('persistent post-link parent failure preserves both exact probe names and unrelated bytes', async t => {
+  const { vault } = await temporaryVault(t);
+  const layout = await ensureMemoryLayout(vault);
+  const unrelatedPath = path.join(layout.locksDir, 'operator-owned.keep');
+  const unrelated = Buffer.from('unrelated bytes survive persistent parent failure\n');
+  await fs.writeFile(unrelatedPath, unrelated, { flag: 'wx', mode: 0o600 });
+  const originalLink = fs.link;
+  const originalLstat = fs.lstat;
+  let linked = false;
+  fs.link = async (...args) => {
+    await originalLink(...args);
+    linked = true;
+  };
+  fs.lstat = async (target, options) => {
+    if (linked && path.resolve(String(target)) === path.resolve(layout.locksDir)) {
+      throw hardLinkError('EIO');
+    }
+    return originalLstat(target, options);
+  };
+  try {
+    await assert.rejects(
+      () => assertHardLinkPublicationSupported(layout.locksDir),
+      assertProbeDirectoryError,
+    );
+  } finally {
+    fs.link = originalLink;
+    fs.lstat = originalLstat;
+  }
+  assert.equal(linked, true);
+  assert.deepEqual(await fs.readFile(unrelatedPath), unrelated);
+  const entries = await fs.readdir(layout.locksDir);
+  const probeEntries = entries.filter(name => name.startsWith('.hard-link-capability-'));
+  assert.equal(probeEntries.length, 2);
+  assert.equal(probeEntries.some(name => name.endsWith('.source')), true);
+  assert.equal(probeEntries.some(name => name.endsWith('.link')), true);
+  const probeStats = await Promise.all(
+    probeEntries.map(name => fs.lstat(path.join(layout.locksDir, name), { bigint: true })),
+  );
+  assert.equal(probeStats.every(stat => stat.isFile() && !stat.isSymbolicLink()), true);
+  assert.equal(probeStats[0].dev, probeStats[1].dev);
+  assert.equal(probeStats[0].ino, probeStats[1].ino);
+  assert.equal(probeStats[0].nlink, 2n);
+  assert.equal(probeStats[1].nlink, 2n);
+  for (const name of probeEntries) {
+    assert.equal(
+      await fs.readFile(path.join(layout.locksDir, name), 'utf8'),
+      'safire-memory-hard-link-capability-v1\n',
+    );
+  }
+  await assertNoPublishedMemoryState(vault);
+});
+
 test('copy-like link emulation fails identity validation without deleting the unproven destination', async t => {
   const { vault } = await temporaryVault(t);
   const originalLink = fs.link;
@@ -293,7 +546,7 @@ test('copy-like link emulation fails identity validation without deleting the un
     return fs.copyFile(source, destination, fsConstants.COPYFILE_EXCL);
   };
   try {
-    await assert.rejects(() => ensureMemoryLayout(vault), assertControlledCapabilityError);
+    await assert.rejects(() => ensureMemoryLayout(vault), assertProbeIdentityError);
   } finally {
     fs.link = originalLink;
   }
@@ -325,6 +578,32 @@ test('a link published before an injected error is proven and cleaned exactly', 
   await assertOnlyEmptyLayout(vault);
 });
 
+test('an unproven source replacement after a resolved link is preserved fail closed', async t => {
+  const { vault } = await temporaryVault(t);
+  const originalLink = fs.link;
+  const replacement = Buffer.from('operator-owned source replacement\n');
+  let replacementPath;
+  let injected = false;
+  fs.link = async (source, destination) => {
+    if (injected || path.basename(path.dirname(source)) !== 'locks') {
+      return originalLink(source, destination);
+    }
+    injected = true;
+    await originalLink(source, destination);
+    await fs.unlink(source);
+    await fs.writeFile(source, replacement, { flag: 'wx', mode: 0o600 });
+    replacementPath = source;
+  };
+  try {
+    await assert.rejects(() => ensureMemoryLayout(vault), assertProbeIdentityError);
+  } finally {
+    fs.link = originalLink;
+  }
+  await assertNoPublishedMemoryState(vault);
+  assert.deepEqual(await fs.readdir(path.dirname(replacementPath)), [path.basename(replacementPath)]);
+  assert.deepEqual(await fs.readFile(replacementPath), replacement);
+});
+
 test('an unproven replacement at the probe destination is preserved fail closed', async t => {
   const { vault } = await temporaryVault(t);
   const originalLink = fs.link;
@@ -342,13 +621,80 @@ test('an unproven replacement at the probe destination is preserved fail closed'
     replacementPath = destination;
   };
   try {
-    await assert.rejects(() => ensureMemoryLayout(vault), assertControlledCapabilityError);
+    await assert.rejects(() => ensureMemoryLayout(vault), assertProbeIdentityError);
   } finally {
     fs.link = originalLink;
   }
   await assertNoPublishedMemoryState(vault);
   assert.deepEqual(await fs.readdir(path.dirname(replacementPath)), [path.basename(replacementPath)]);
   assert.deepEqual(await fs.readFile(replacementPath), replacement);
+});
+
+test('repeated unproven failures preserve prior replacement and unrelated bytes', async t => {
+  const { vault } = await temporaryVault(t);
+  const layout = await ensureMemoryLayout(vault);
+  const unrelatedPath = path.join(layout.locksDir, 'operator-owned.keep');
+  const unrelated = Buffer.from('unrelated operator bytes\n');
+  const replacement = Buffer.from('prior replacement bytes\n');
+  await fs.writeFile(unrelatedPath, unrelated, { flag: 'wx', mode: 0o600 });
+
+  const originalLink = fs.link;
+  let replacementPath;
+  fs.link = async (source, destination) => {
+    await originalLink(source, destination);
+    await fs.unlink(destination);
+    await fs.writeFile(destination, replacement, { flag: 'wx', mode: 0o600 });
+    replacementPath = destination;
+  };
+  try {
+    await assert.rejects(
+      () => assertHardLinkPublicationSupported(layout.locksDir),
+      assertProbeIdentityError,
+    );
+  } finally {
+    fs.link = originalLink;
+  }
+
+  const originalOpen = fs.open;
+  let statCalls = 0;
+  fs.open = async (...args) => {
+    const handle = await originalOpen(...args);
+    const target = String(args[0]);
+    if (!path.basename(target).endsWith('.source')) return handle;
+    return new Proxy(handle, {
+      get(value, property) {
+        if (property === 'stat') return async () => {
+          statCalls += 1;
+          throw hardLinkError('EIO');
+        };
+        const member = value[property];
+        return typeof member === 'function' ? member.bind(value) : member;
+      },
+    });
+  };
+  try {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await assert.rejects(
+        () => assertHardLinkPublicationSupported(layout.locksDir),
+        assertGenericProbeError,
+      );
+    }
+  } finally {
+    fs.open = originalOpen;
+  }
+
+  assert.equal(statCalls, 4);
+  assert.deepEqual(await fs.readFile(unrelatedPath), unrelated);
+  assert.deepEqual(await fs.readFile(replacementPath), replacement);
+  const entries = await fs.readdir(layout.locksDir);
+  const sources = entries.filter(name => name.endsWith('.source'));
+  assert.equal(sources.length, 2);
+  for (const source of sources) {
+    assert.equal((await fs.stat(path.join(layout.locksDir, source))).size, 0);
+  }
+  assert.equal(entries.includes(path.basename(unrelatedPath)), true);
+  assert.equal(entries.includes(path.basename(replacementPath)), true);
+  await assertNoPublishedMemoryState(vault);
 });
 
 test('a later hard-link failure is controlled and publishes no target or temporary file', async t => {
@@ -410,5 +756,51 @@ test('MCP maps an injected store initialization failure without path or cause de
     },
   });
   assert.doesNotMatch(result.content[0].text, /[A-Z]:\\|cause|EPERM|ENOTSUP|synthetic/i);
+  await assertOnlyEmptyLayout(vault);
+});
+
+test('MCP redacts a generic initial handle-stat failure after proven cleanup', async t => {
+  const { vault } = await temporaryVault(t);
+  const handlers = new Map();
+  const server = {
+    registerTool(name, _definition, handler) {
+      handlers.set(name, handler);
+    },
+  };
+  const store = createMemoryStore({ vaultDir: vault, profile: portableProfile() });
+  registerMemoryMcpTools(server, store);
+  const originalOpen = fs.open;
+  let statCalls = 0;
+  fs.open = async (...args) => {
+    const handle = await originalOpen(...args);
+    const target = String(args[0]);
+    if (!path.basename(target).endsWith('.source')) return handle;
+    return new Proxy(handle, {
+      get(value, property) {
+        if (property === 'stat') return async (...statArgs) => {
+          statCalls += 1;
+          if (statCalls === 1) throw hardLinkError('EIO');
+          return value.stat(...statArgs);
+        };
+        const member = value[property];
+        return typeof member === 'function' ? member.bind(value) : member;
+      },
+    });
+  };
+  let result;
+  try {
+    result = await handlers.get('memory_status')({});
+  } finally {
+    fs.open = originalOpen;
+  }
+  assert.equal(statCalls, 2);
+  assert.equal(result.isError, true);
+  assert.deepEqual(JSON.parse(result.content[0].text), {
+    error: {
+      code: 'MEMORY_REQUEST_FAILED',
+      message: 'Safire memory request failed',
+    },
+  });
+  assert.doesNotMatch(result.content[0].text, /[A-Z]:\\|cause|EIO|synthetic|hard-link-capability/i);
   await assertOnlyEmptyLayout(vault);
 });
