@@ -50,7 +50,8 @@ Safire is under active development. Version 1.3.4 includes the relationship-firs
 - Backup-before-write behavior with preview and restore tools
 - Web Clipper and private evidence receipts for local research workflows
 - Vault health summaries and configurable local-first settings
-- Vault-scoped MCP server with a deliberately narrow tool surface
+- Legacy vault-scoped MCP server with a deliberately narrow eight-tool surface
+- Optional, additive six-tool MCP sidecar for attributed general-agent memory
 
 ## Privacy model
 
@@ -60,6 +61,8 @@ Safire is local-first, but “local-first” does not mean the application never
 - The local HTTP API binds to `127.0.0.1` by default.
 - File APIs reject paths outside the selected vault.
 - Safire has no built-in cloud synchronization or account service.
+- Opt-in agent memory is stored as plaintext JSON beneath the selected vault; opaque filenames do not encrypt it.
+- The memory sidecar records only explicit tool or host calls. It does not monitor transcripts or auto-capture agent activity.
 - The Web Clipper makes an outbound request only when the user asks it to capture a public URL.
 - YouTube link cards may load a thumbnail from `img.youtube.com`.
 - Opening an external link hands that URL to the system browser.
@@ -122,11 +125,13 @@ On first desktop launch, Safire asks the user to choose a vault folder. A typica
 Documents/Safire Vault
 ```
 
-Without `SAFIRE_VAULT_PATH`, the source server follows the saved desktop selection or uses `Documents/Safire Vault`. In the desktop app, use **Safire → Change Vault Location…** to switch later. The desktop application and MCP server share that saved selection.
+Without `SAFIRE_VAULT_PATH`, the source server follows the saved desktop selection or uses `Documents/Safire Vault`. In the desktop app, use **Safire → Change Vault Location…** to switch later. The desktop application and MCP servers can share that saved selection.
 
-## Hermes MCP integration
+## MCP integrations
 
-Safire includes a local stdio MCP server so a compatible Hermes setup can work with the selected vault without driving the visual interface. Its tools can list, search, read, create, and update notes; perform quick captures; list and toggle tasks; and report vault health. It does not expose delete, rename, attachment, backup-restore, or web-fetch tools.
+Safire provides two separate, additive local stdio MCP servers. Neither server modifies Hermes or another agent host, and installing Safire does not add a transcript listener, background capture hook, or automatic memory collector.
+
+The legacy vault server, `safire-mcp.mjs`, retains its exact eight-tool surface: `list_notes`, `read_note`, `create_note`, `update_note`, `quick_capture`, `list_tasks`, `toggle_task`, and `vault_health`. It works with Markdown notes and does not expose delete, rename, attachment, backup-restore, or web-fetch tools.
 
 Run the MCP server against a one-off test vault with:
 
@@ -146,6 +151,20 @@ mcp_servers:
 ```
 
 Restart the agent session after registering the server or changing the selected vault so its tool connection is refreshed.
+
+The separate agent-memory server, `safire-memory-mcp.mjs`, exposes exactly six tools: `memory_record_events`, `memory_search`, `memory_get`, `memory_record_feedback`, `memory_recall`, and `memory_status`. It stores append-only, attributed event-backed memory beneath `<vault>/.safire/memory/v1/` without changing Markdown notes or the legacy MCP surface.
+
+Run it with an operator-controlled version-1 profile and an explicit vault:
+
+```powershell
+npm run mcp:memory -- --profile-config "C:/path/to/agent-memory-profile.json" --vault "C:/path/to/Safire Test Vault"
+```
+
+The Windows installer additionally exposes `<Safire install>/resources/safire-memory-mcp.cmd`. An MCP host can use that launcher with the same arguments without a separate Node.js/source installation. Connection is still manual and opt-in; see the agent-memory guide for the exact installed-host configuration. The standalone portable EXE does not expose a stable launcher path.
+
+The fixed profile provides stable principal, agent-instance, ingest-adapter, source, actor, and namespace identities. Ordinary portable profiles cannot claim user activity. Authenticated user events require the separate trusted-bridge library seam and a host-supplied authenticator; that seam is not a listener or installed transport. Harry and Moltbook appear only in reference examples—Safire memory is agent-general, and Moltbook is modeled there only as automation delegated by the reference Harry profile.
+
+Memory records are local plaintext JSON. Use operating-system permissions and device encryption where confidentiality matters, and never submit credentials, tokens, private reasoning, chain-of-thought, or scratchpad content. See the [agent-memory guide](docs/memory/README.md), [security model](docs/memory/SECURITY.md), and [trusted-bridge contract](docs/memory/TRUSTED_BRIDGE.md) before enabling it.
 
 ## Keyboard shortcuts
 
@@ -168,7 +187,9 @@ See the [documentation index](docs/README.md) for the current documentation stat
 | `src/GraphView.tsx` | Interactive 2D relationship graph |
 | `server.mjs` | Loopback HTTP API and vault operations |
 | `electron/` | Windows desktop application entry point |
-| `safire-mcp.mjs` | Vault-scoped MCP server |
+| `safire-mcp.mjs` | Legacy eight-tool Markdown-vault MCP server |
+| `safire-memory-mcp.mjs` | Separate six-tool general-agent memory MCP server |
+| `lib/memory/` | Versioned local memory schemas, profiles, persistence, search, and trust seam |
 | `test/` | Automated tests using disposable data |
 | `docs/` | User and agent documentation |
 | `press-kit/` | Brand and media materials |

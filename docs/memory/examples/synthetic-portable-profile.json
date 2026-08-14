@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "profile_id": "profile:synthetic-local",
+  "profile_type": "portable_mcp",
+  "principal": {
+    "id": "agent:synthetic",
+    "type": "agent",
+    "display_name": "Synthetic Agent"
+  },
+  "agent_instance": {
+    "id": "agent_instance:synthetic:desktop",
+    "type": "agent_instance",
+    "display_name": "Synthetic desktop instance"
+  },
+  "ingested_by": {
+    "id": "adapter:safire-memory-mcp:synthetic",
+    "adapter_type": "portable_mcp",
+    "profile_id": "profile:synthetic-local"
+  },
+  "source_identity": "mcp:synthetic-local",
+  "allowed_actors": [],
+  "namespace_grants": [
+    {
+      "namespace": "agents/synthetic",
+      "read": true,
+      "write": true,
+      "descendants": true
+    },
+    {
+      "namespace": "shared/demo",
+      "read": true,
+      "write": false,
+      "descendants": true
+    }
+  ],
+  "trust": {
+    "accept_user_events": false
+  }
+}

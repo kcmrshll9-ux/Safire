@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "profile_id": "profile:reference-bridge",
+  "profile_type": "trusted_bridge",
+  "principal": {
+    "id": "agent:reference",
+    "type": "agent",
+    "display_name": "Reference Agent"
+  },
+  "agent_instance": {
+    "id": "agent_instance:reference:bridge",
+    "type": "agent_instance",
+    "display_name": "Reference bridge instance"
+  },
+  "ingested_by": {
+    "id": "adapter:trusted-bridge:reference",
+    "adapter_type": "trusted_bridge",
+    "profile_id": "profile:reference-bridge"
+  },
+  "source_identity": "bridge:reference-local",
+  "allowed_actors": [
+    {
+      "id": "user:example-owner",
+      "type": "user",
+      "display_name": "Example Owner"
+    },
+    {
+      "id": "automation:reference-daily",
+      "type": "automation",
+      "display_name": "Reference daily automation",
+      "delegated_by": "agent:reference"
+    },
+    {
+      "id": "external_service:example-api",
+      "type": "external_service",
+      "display_name": "Example API"
+    }
+  ],
+  "namespace_grants": [
+    {
+      "namespace": "examples/invented",
+      "read": true,
+      "write": true,
+      "descendants": true
+    }
+  ],
+  "trust": {
+    "accept_user_events": true
+  }
+}

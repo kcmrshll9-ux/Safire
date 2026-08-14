@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "namespace": "agents/harry/conversations/reference",
+  "actor_type": "agent",
+  "actor_id": "agent:harry",
+  "agent_instance_id": "agent_instance:harry:desktop",
+  "kind": "visible_agent_response",
+  "speech_act": "proposal",
+  "content": "I propose reviewing the synthetic rollout checklist on Friday.",
+  "occurred_at": "2026-08-14T12:05:00.000Z",
+  "context": {
+    "conversation_id": "reference_conversation_01",
+    "thread_id": "reference_thread_01",
+    "message_id": "reference_agent_message_01"
+  },
+  "attributes": {
+    "reference_example": true
+  },
+  "source": {
+    "stream": "conversation:reference",
+    "event_id": "reference_agent_source_event_01"
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "authenticated": true,
+  "role": "user",
+  "actor_id": "user:example-owner"
+}

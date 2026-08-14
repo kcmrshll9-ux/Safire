@@ -1,6 +1,6 @@
 # Safire documentation
 
-This directory contains bundled Safire user and agent documentation. Safire is currently version 1.3.4; the unversioned visual guide covers current core workflows, while the versioned manuals are retained as clearly labeled historical references.
+This directory contains bundled Safire user and agent documentation. Safire is currently version 1.3.4; the unversioned visual guide covers current core workflows, while the versioned manuals are retained as clearly labeled historical references. The current source tree also contains an additive, opt-in general-agent memory milestone without changing the application version.
 
 ## Current references
 
@@ -10,6 +10,8 @@ This directory contains bundled Safire user and agent documentation. Safire is c
 - [Security policy](../SECURITY.md) — private vulnerability-reporting process
 - [Safire User Guide](Safire%20User%20Guide.html) — current visual overview for Safire 1.3.4 and the guide opened from the desktop Help menu
 - [Agent Instruction Manual](Safire%20Agent%20Instruction%20Manual.md) — MCP operating guidance prepared for the v1.2 tool surface, which remains applicable to the current eight-tool integration
+- [Agent Memory](memory/README.md) — current guide for the separate exact six-tool memory MCP, versioned profiles, local sidecar, and invented examples
+- [Agent-memory security](memory/SECURITY.md) and [trusted bridge](memory/TRUSTED_BRIDGE.md) — plaintext-storage, trust-boundary, authentication, and no-auto-capture guidance
 
 ## Bundled legacy manuals
 
@@ -27,6 +29,8 @@ Where a bundled legacy manual conflicts with the application or the root README,
 - the current Graph is a two-dimensional force-directed relationship graph, not the earlier three-dimensional workspace;
 - source-server vault selection follows the saved desktop selection or `SAFIRE_VAULT_PATH`, not a project-local `./vault` default;
 - machine-specific paths in legacy MCP examples must be replaced with paths for the local installation; and
-- Safire is local-first but can make user-initiated Web Clipper requests and load external YouTube thumbnails.
+- Safire is local-first but can make user-initiated Web Clipper requests and load external YouTube thumbnails;
+- the legacy eight-tool Markdown-vault MCP and additive six-tool agent-memory MCP are separate servers; and
+- agent memory is explicit, local plaintext sidecar data—not automatic transcript capture or a modification to Hermes or another host.
 
 Future public releases should publish one version-matched user guide and archive prior manuals under a dedicated `docs/archive/` directory.

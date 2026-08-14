@@ -36,6 +36,7 @@
     "check": "npm run typecheck && npm test && npm run build",
     "start": "node server.mjs",
     "mcp": "node safire-mcp.mjs",
+    "mcp:memory": "node safire-memory-mcp.mjs",
     "desktop": "electron .",
     "dist:win": "npm run build && electron-builder --win portable --x64",
     "preview": "node server.mjs",
@@ -65,16 +66,36 @@
     "appId": "com.safire.notes",
     "productName": "Safire",
     "asar": true,
+    "asarUnpack": [
+      "safire-memory-mcp.mjs",
+      "lib/memory/**/*",
+      "vault-config.cjs",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "safire-memory-mcp.cmd",
+        "to": "safire-memory-mcp.cmd"
+      },
+      {
+        "from": "docs/memory",
+        "to": "memory-docs"
+      }
+    ],
     "files": [
       "dist/**/*",
       "electron/**/*",
       "server.mjs",
       "safire-mcp.mjs",
+      "safire-memory-mcp.mjs",
+      "safire-memory-mcp.cmd",
+      "lib/memory/**/*",
       "vault-config.cjs",
       "package.json",
       "public/app-icon.ico",
       "public/icon.svg",
       "docs/Safire User Guide.html",
+      "docs/memory/**/*",
       "LICENSE",
       "PRIVACY.md",
       "THIRD_PARTY_NOTICES.md",
