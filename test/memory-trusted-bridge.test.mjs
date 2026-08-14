@@ -13,6 +13,10 @@ import {
 } from '../lib/memory/trusted-bridge.mjs';
 import { MemorySchemaValidationError } from '../lib/memory/schema.mjs';
 import { createTrustedBridgeProfile } from '../lib/memory/profile.mjs';
+import {
+  SYNTHETIC_SENSITIVE_FIXTURES,
+  escapeRegExp,
+} from '../test-support/memory-sensitive-fixtures.mjs';
 
 const profile = ({ acceptUserEvents = true, allowedActors, namespaceGrants } = {}) => createTrustedBridgeProfile({
   profile_id: 'profile:trusted-bridge-test',
@@ -157,32 +161,39 @@ test('credential-like identifiers are rejected before event or feedback authenti
     recordFeedback: async () => { feedbackRecordingCalls += 1; },
   });
 
-  const attempts = [
-    () => bridge.ingest(envelope({ content: GITHUB_TOKEN_IDENTIFIER })),
-    () => bridge.ingest(envelope({ attributes: { visible_label: GITHUB_TOKEN_IDENTIFIER } })),
-    () => bridge.ingest(envelope({
-      source: { stream: GITHUB_TOKEN_IDENTIFIER, event_id: 'source_event_01' },
-    })),
-    () => bridge.ingest(envelope({
-      context: { conversation_id: 'conversation_01', session_id: GITHUB_TOKEN_IDENTIFIER },
-    })),
-    () => bridge.ingestFeedback(feedbackEnvelope({
-      target: { type: 'event', id: GITHUB_TOKEN_IDENTIFIER },
-    })),
-    () => bridge.ingestFeedback(feedbackEnvelope({
-      source: { stream: 'hermes:feedback', event_id: GITHUB_TOKEN_IDENTIFIER },
-    })),
-    () => bridge.ingestFeedback(feedbackEnvelope({
-      signal: 'correction',
-      correction: GITHUB_TOKEN_IDENTIFIER,
-    })),
+  const credentials = [
+    { family: 'github_fine_grained', value: GITHUB_TOKEN_IDENTIFIER },
+    ...SYNTHETIC_SENSITIVE_FIXTURES,
   ];
-  for (const attempt of attempts) {
-    let thrown;
-    try { await attempt(); } catch (error) { thrown = error; }
-    assert.ok(thrown instanceof MemorySchemaValidationError);
-    assert.doesNotMatch(thrown.message, new RegExp(GITHUB_TOKEN_IDENTIFIER, 'i'));
-    assert.doesNotMatch(JSON.stringify(thrown), new RegExp(GITHUB_TOKEN_IDENTIFIER, 'i'));
+  for (const { family, value } of credentials) {
+    const attempts = [
+      () => bridge.ingest(envelope({ content: value })),
+      () => bridge.ingest(envelope({ attributes: { visible_label: value } })),
+      () => bridge.ingest(envelope({
+        source: { stream: value, event_id: 'source_event_01' },
+      })),
+      () => bridge.ingest(envelope({
+        context: { conversation_id: 'conversation_01', session_id: value },
+      })),
+      () => bridge.ingestFeedback(feedbackEnvelope({
+        target: { type: 'event', id: value },
+      })),
+      () => bridge.ingestFeedback(feedbackEnvelope({
+        source: { stream: 'hermes:feedback', event_id: value },
+      })),
+      () => bridge.ingestFeedback(feedbackEnvelope({
+        signal: 'correction',
+        correction: value,
+      })),
+    ];
+    for (const attempt of attempts) {
+      let thrown;
+      try { await attempt(); } catch (error) { thrown = error; }
+      const pattern = new RegExp(escapeRegExp(value), 'i');
+      assert.ok(thrown instanceof MemorySchemaValidationError, family);
+      assert.doesNotMatch(thrown.message, pattern, family);
+      assert.doesNotMatch(JSON.stringify(thrown), pattern, family);
+    }
   }
   assert.equal(authenticationCalls, 0);
   assert.equal(eventRecordingCalls, 0);
@@ -203,6 +214,7 @@ test('credential-like authenticated attribution identifiers fail closed without 
       actor_id: 'automation:moltbook',
       delegated_by: GITHUB_TOKEN_IDENTIFIER,
     }),
+    ...SYNTHETIC_SENSITIVE_FIXTURES.map(({ value }) => successfulAuthentication({ actor_id: value })),
   ];
   for (const authentication of authenticationResults) {
     const bridge = createTrustedBridge({
@@ -213,7 +225,8 @@ test('credential-like authenticated attribution identifiers fail closed without 
     await assert.rejects(
       () => bridge.ingest(envelope()),
       error => error instanceof TrustedBridgeAuthenticationError
-        && !error.message.toLowerCase().includes(GITHUB_TOKEN_IDENTIFIER.toLowerCase()),
+        && !Object.values(authentication).some(value => typeof value === 'string'
+          && error.message.toLowerCase().includes(value.toLowerCase())),
     );
   }
   assert.equal(recordingCalls, 0);

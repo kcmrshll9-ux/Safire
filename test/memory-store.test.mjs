@@ -15,6 +15,10 @@ import {
   createMemoryStore,
   createTrustedMemoryBridge,
 } from '../lib/memory/store.mjs';
+import {
+  SYNTHETIC_SENSITIVE_FIXTURES,
+  escapeRegExp,
+} from '../test-support/memory-sensitive-fixtures.mjs';
 
 function harryProfile(overrides = {}) {
   return createPortableMcpProfile({
@@ -110,6 +114,27 @@ async function readTreeText(directory) {
     else chunks.push(await fs.readFile(entryPath, 'utf8'));
   }
   return chunks.join('\n');
+}
+
+async function snapshotTree(directory, relative = '') {
+  const entries = await fs.readdir(directory, { withFileTypes: true });
+  entries.sort((left, right) => left.name.localeCompare(right.name));
+  const snapshot = [];
+  for (const entry of entries) {
+    const relativePath = path.posix.join(relative, entry.name);
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      snapshot.push({ path: relativePath, type: 'directory' });
+      snapshot.push(...await snapshotTree(entryPath, relativePath));
+    } else {
+      snapshot.push({
+        path: relativePath,
+        type: 'file',
+        bytes: (await fs.readFile(entryPath)).toString('base64'),
+      });
+    }
+  }
+  return snapshot;
 }
 
 test('initializes a stable sidecar and records fully attributed event-backed memory', async (t) => {
@@ -337,55 +362,88 @@ test('ACL projections and replays disclose no hidden provenance, dependent feedb
 test('credential-like identifiers and echoed queries fail before persistence without value disclosure', async (t) => {
   const vault = await temporaryVault(t, 'safire-memory-sensitive-identifiers-');
   const store = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
-  const credential = `github_pat_${'A'.repeat(82)}`;
+  const credentials = [
+    { family: 'github_fine_grained', value: `github_pat_${'A'.repeat(82)}` },
+    ...SYNTHETIC_SENSITIVE_FIXTURES,
+  ];
+  const seed = await store.recordEvents([event()]);
+  const beforeRejectedCalls = await snapshotTree(vault);
 
-  for (const invalidEvent of [
-    event({ content: credential }),
-    event({ attributes: { visible_label: credential } }),
-    event({ source: { stream: credential, event_id: 'turn.sensitive-stream' } }),
-    event({ context: { conversation_id: 'conversation.alpha', session_id: credential } }),
-  ]) {
-    await assert.rejects(
-      () => store.recordEvents([invalidEvent]),
-      error => error.code === 'MEMORY_SCHEMA_VALIDATION_FAILED'
-        && !error.message.toLowerCase().includes(credential.toLowerCase()),
-    );
+  for (const { family, value } of credentials) {
+    const pattern = new RegExp(escapeRegExp(value), 'i');
+    for (const [surface, invalidEvent] of [
+      ['content', event({
+        content: value,
+        source: { stream: 'conversation.alpha', event_id: `sensitive-${family}-content` },
+      })],
+      ['attribute', event({
+        attributes: { visible_label: value },
+        source: { stream: 'conversation.alpha', event_id: `sensitive-${family}-attribute` },
+      })],
+      ['stream', event({
+        source: { stream: value, event_id: `sensitive-${family}-stream` },
+      })],
+      ['context', event({
+        context: { conversation_id: 'conversation.alpha', session_id: value },
+        source: { stream: 'conversation.alpha', event_id: `sensitive-${family}-context` },
+      })],
+    ]) {
+      await assert.rejects(
+        () => store.recordEvents([invalidEvent]),
+        error => error.code === 'MEMORY_SCHEMA_VALIDATION_FAILED'
+          && !pattern.test(error.message)
+          && !pattern.test(JSON.stringify(error)),
+        `${family} ${surface}`,
+      );
+    }
   }
 
-  const seed = await store.recordEvents([event()]);
-  await assert.rejects(
-    () => store.recordFeedback([{
-      schema_version: 1,
-      target: { type: 'event', id: seed.results[0].event.event_id },
-      signal: 'correction',
-      correction: credential,
-      actor_id: 'agent:harry',
-      source: { stream: 'feedback.harry', event_id: 'feedback.sensitive-correction' },
-    }]),
-    error => error.code === 'MEMORY_SCHEMA_VALIDATION_FAILED'
-      && !error.message.toLowerCase().includes(credential.toLowerCase()),
-  );
-  await assert.rejects(
-    () => store.recordFeedback([{
-      schema_version: 1,
-      target: { type: 'event', id: seed.results[0].event.event_id },
-      signal: 'useful',
-      actor_id: 'agent:harry',
-      source: { stream: 'feedback.harry', event_id: credential },
-    }]),
-    error => error.code === 'MEMORY_SCHEMA_VALIDATION_FAILED'
-      && !error.message.toLowerCase().includes(credential.toLowerCase()),
-  );
-  await assert.rejects(
-    () => store.search({ query: credential }),
-    error => error.code === 'MEMORY_QUERY_INVALID'
-      && !error.message.toLowerCase().includes(credential.toLowerCase()),
-  );
+  for (const { family, value } of credentials) {
+    const pattern = new RegExp(escapeRegExp(value), 'i');
+    await assert.rejects(
+      () => store.recordFeedback([{
+        schema_version: 1,
+        target: { type: 'event', id: seed.results[0].event.event_id },
+        signal: 'correction',
+        correction: value,
+        actor_id: 'agent:harry',
+        source: { stream: 'feedback.harry', event_id: `feedback-${family}-correction` },
+      }]),
+      error => error.code === 'MEMORY_SCHEMA_VALIDATION_FAILED'
+        && !pattern.test(error.message)
+        && !pattern.test(JSON.stringify(error)),
+      `${family} feedback correction`,
+    );
+    await assert.rejects(
+      () => store.recordFeedback([{
+        schema_version: 1,
+        target: { type: 'event', id: seed.results[0].event.event_id },
+        signal: 'useful',
+        actor_id: 'agent:harry',
+        source: { stream: 'feedback.harry', event_id: value },
+      }]),
+      error => error.code === 'MEMORY_SCHEMA_VALIDATION_FAILED'
+        && !pattern.test(error.message)
+        && !pattern.test(JSON.stringify(error)),
+      `${family} feedback source`,
+    );
+    await assert.rejects(
+      () => store.search({ query: value }),
+      error => error.code === 'MEMORY_QUERY_INVALID'
+        && !pattern.test(error.message)
+        && !pattern.test(JSON.stringify(error)),
+      `${family} direct search`,
+    );
+  }
 
   const status = await store.status();
   assert.equal(status.counts.events, 1);
   assert.equal(status.counts.feedback, 0);
-  assert.doesNotMatch(await readTreeText(vault), new RegExp(credential, 'i'));
+  const persistedText = await readTreeText(vault);
+  for (const { family, value } of credentials) {
+    assert.doesNotMatch(persistedText, new RegExp(escapeRegExp(value), 'i'), family);
+  }
+  assert.deepEqual(await snapshotTree(vault), beforeRejectedCalls);
 });
 
 test('stable actor IDs reject conflicting automation delegation across profiles', async (t) => {

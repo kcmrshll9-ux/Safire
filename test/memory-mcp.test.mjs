@@ -10,6 +10,10 @@ import {
   createMemoryMcpServer,
 } from '../lib/memory/mcp.mjs';
 import { createMemoryStore } from '../lib/memory/store.mjs';
+import {
+  SYNTHETIC_SENSITIVE_FIXTURES,
+  escapeRegExp,
+} from '../test-support/memory-sensitive-fixtures.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const mcpEntry = path.join(projectRoot, 'safire-memory-mcp.mjs');
@@ -405,6 +409,39 @@ test('memory MCP rejects impersonation, caller-controlled trust, unsafe paths, a
     const text = errorText(attempt);
     assert.doesNotMatch(text, new RegExp(GITHUB_TOKEN_IDENTIFIER, 'i'));
   }
+
+  for (const { family, value } of SYNTHETIC_SENSITIVE_FIXTURES) {
+    const pattern = new RegExp(escapeRegExp(value), 'i');
+    const familyAttempts = [
+      await callTool(client, 'memory_record_events', { events: [event({
+        content: value,
+        source: { stream: 'conversation.synthetic', event_id: `sensitive-${family}-content` },
+      })] }),
+      await callTool(client, 'memory_record_feedback', { feedback: [feedback(memoryId, {
+        signal: 'correction',
+        correction: value,
+        source: { stream: 'feedback.synthetic', event_id: `sensitive-${family}-correction` },
+      })] }),
+      await callTool(client, 'memory_search', { query: value }),
+      await callTool(client, 'memory_get', { id: value }),
+      await callTool(client, 'memory_recall', { ids: [value] }),
+    ];
+    for (const attempt of familyAttempts) {
+      assert.doesNotMatch(errorText(attempt), pattern, family);
+    }
+    assert.doesNotMatch(client.diagnostics().stderr, pattern, `${family} stderr`);
+  }
+
+  const oversizedSensitiveQuery = `${SYNTHETIC_SENSITIVE_FIXTURES[0].value} ${'x'.repeat(2_001)}`;
+  const oversizedQueryAttempt = await callTool(client, 'memory_search', { query: oversizedSensitiveQuery });
+  assert.doesNotMatch(
+    errorText(oversizedQueryAttempt),
+    new RegExp(escapeRegExp(SYNTHETIC_SENSITIVE_FIXTURES[0].value), 'i'),
+  );
+  assert.doesNotMatch(
+    client.diagnostics().stderr,
+    new RegExp(escapeRegExp(SYNTHETIC_SENSITIVE_FIXTURES[0].value), 'i'),
+  );
 
   const status = parseToolJson(await callTool(client, 'memory_status'));
   assert.equal(status.counts.events, 1);

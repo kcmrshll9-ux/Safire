@@ -46,9 +46,9 @@ import {
   withVaultLock,
 } from '../lib/memory/filesystem.mjs';
 
-const MODULE_URL = new URL('../lib/memory/filesystem.mjs', import.meta.url).href;
 const LOCK_HOLDER_FIXTURE = fileURLToPath(new URL('../test-support/memory-lock-holder.mjs', import.meta.url));
 const HARD_KILL_WRITER_FIXTURE = fileURLToPath(new URL('../test-support/memory-hard-kill-writer.mjs', import.meta.url));
+const LOCK_OWNER_NAME = /^owner-([a-f0-9]{64})\.json$/;
 
 async function temporaryVault(t) {
   const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'safire-memory-filesystem-'));
@@ -91,8 +91,10 @@ async function waitForOutput(child, expected, timeoutMs = 2_000) {
   });
 }
 
-function spawnLockHolder(vault) {
-  return spawn(process.execPath, [LOCK_HOLDER_FIXTURE, vault], {
+function spawnLockHolder(vault, releasePauseStage = null) {
+  const args = [LOCK_HOLDER_FIXTURE, vault];
+  if (releasePauseStage !== null) args.push(releasePauseStage);
+  return spawn(process.execPath, args, {
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });
@@ -107,6 +109,59 @@ function spawnHardKillWriter(vault) {
 
 function killChildIfRunning(child) {
   if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+}
+
+async function onlyLockOwnerPath(layout) {
+  const entries = await fs.readdir(layout.lockPath, { withFileTypes: true });
+  assert.equal(entries.length, 1, 'a completed lock has one owner metadata file');
+  assert.equal(entries[0].isFile() && !entries[0].isSymbolicLink(), true);
+  assert.match(entries[0].name, LOCK_OWNER_NAME);
+  return path.join(layout.lockPath, entries[0].name);
+}
+
+async function readLockForTest(layout) {
+  const ownerPath = await onlyLockOwnerPath(layout);
+  const serialized = await fs.readFile(ownerPath, 'utf8');
+  return { ownerPath, serialized, metadata: JSON.parse(serialized) };
+}
+
+async function removeLockForOperatorRecovery(layout) {
+  const stat = await fs.lstat(layout.lockPath);
+  if (stat.isFile() && !stat.isSymbolicLink()) {
+    await fs.unlink(layout.lockPath);
+    return;
+  }
+  assert.equal(stat.isDirectory() && !stat.isSymbolicLink(), true);
+  const entries = await fs.readdir(layout.lockPath, { withFileTypes: true });
+  assert.ok(entries.length <= 1, 'operator recovery never recursively removes unexpected lock contents');
+  if (entries.length === 1) {
+    assert.equal(entries[0].isFile() && !entries[0].isSymbolicLink(), true);
+    assert.match(entries[0].name, LOCK_OWNER_NAME);
+    await fs.unlink(path.join(layout.lockPath, entries[0].name));
+  }
+  await fs.rmdir(layout.lockPath);
+}
+
+async function publishSyntheticDirectoryLock(layout, token, overrides = {}) {
+  assert.match(token, /^[a-f0-9]{64}$/);
+  await fs.mkdir(layout.lockPath);
+  const metadata = {
+    version: 3,
+    protocol: 'owner-directory/v1',
+    token,
+    pid: process.pid,
+    createdAtMs: Date.now(),
+    recovery: 'operator_only',
+    ...overrides,
+  };
+  const ownerPath = path.join(layout.lockPath, `owner-${token}.json`);
+  await fs.writeFile(ownerPath, serializeJson(metadata), 'utf8');
+  return { ownerPath, metadata };
+}
+
+async function replaceWithSyntheticDirectoryLock(layout, token, overrides = {}) {
+  await removeLockForOperatorRecovery(layout);
+  return publishSyntheticDirectoryLock(layout, token, overrides);
 }
 
 function hardKillProfile() {
@@ -376,28 +431,15 @@ test('opened-file JSON reads and writes enforce immutable byte ceilings before a
 test('serializes cross-process vault lock contention with bounded retry', async t => {
   const { vault } = await temporaryVault(t);
   const layout = await ensureMemoryLayout(vault);
-  const script = `
-    import { ensureMemoryLayout, acquireVaultLock } from ${JSON.stringify(MODULE_URL)};
-    const layout = await ensureMemoryLayout(${JSON.stringify(vault)});
-    const lock = await acquireVaultLock(layout, { timeoutMs: 1000, retryDelayMs: 5 });
-    process.stdout.write('LOCKED\\n');
-    await new Promise(resolve => setTimeout(resolve, 300));
-    await lock.release();
-    process.stdout.write('RELEASED\\n');
-  `;
-  const child = spawn(process.execPath, ['--input-type=module', '--eval', script], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true,
-  });
-  t.after(() => {
-    if (child.exitCode === null) child.kill();
-  });
+  const child = spawnLockHolder(vault);
+  t.after(() => killChildIfRunning(child));
 
   await waitForOutput(child, 'LOCKED');
   await assert.rejects(
     acquireVaultLock(layout, { timeoutMs: 70, retryDelayMs: 8 }),
     error => error instanceof VaultLockTimeoutError && error.code === 'MEMORY_LOCK_TIMEOUT',
   );
+  child.stdin.write('RELEASE\n');
   await waitForOutput(child, 'RELEASED');
 
   const lock = await acquireVaultLock(layout, { timeoutMs: 500, retryDelayMs: 5 });
@@ -410,14 +452,51 @@ test('oversized lock metadata fails closed without removing the lock', async t =
   const { vault } = await temporaryVault(t);
   const layout = await ensureMemoryLayout(vault);
   const lock = await acquireVaultLock(layout);
-  await fs.truncate(layout.lockPath, HARD_MAX_LOCK_METADATA_BYTES + 1);
+  const ownerPath = await onlyLockOwnerPath(layout);
+  await fs.truncate(ownerPath, HARD_MAX_LOCK_METADATA_BYTES + 1);
   await assert.rejects(
     () => lock.release(),
     error => error.code === 'MEMORY_RESOURCE_LIMIT'
       && error.message === 'Safire memory resource limit exceeded'
       && !Object.hasOwn(error, 'details'),
   );
-  assert.equal((await fs.stat(layout.lockPath)).size, HARD_MAX_LOCK_METADATA_BYTES + 1);
+  assert.equal((await fs.stat(ownerPath)).size, HARD_MAX_LOCK_METADATA_BYTES + 1);
+  assert.equal((await fs.lstat(layout.lockPath)).isDirectory(), true);
+});
+
+test('concurrent release calls share one owner-child removal', async t => {
+  const { vault } = await temporaryVault(t);
+  const layout = await ensureMemoryLayout(vault);
+  const lock = await acquireVaultLock(layout);
+  const ownerPath = await onlyLockOwnerPath(layout);
+  const originalUnlink = fs.unlink;
+  let unlinkCalls = 0;
+  let reportUnlink;
+  const unlinkStarted = new Promise(resolve => { reportUnlink = resolve; });
+  let resumeUnlink;
+  const unlinkMayContinue = new Promise(resolve => { resumeUnlink = resolve; });
+  fs.unlink = async (target, ...args) => {
+    if (path.resolve(String(target)) === path.resolve(ownerPath)) {
+      unlinkCalls += 1;
+      reportUnlink();
+      await unlinkMayContinue;
+    }
+    return originalUnlink(target, ...args);
+  };
+  try {
+    const first = lock.release();
+    await unlinkStarted;
+    const second = lock.release();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(unlinkCalls, 1);
+    assert.equal(await lock.isOwned(), false, 'releasing locks cannot fence new work');
+    resumeUnlink();
+    assert.deepEqual(await Promise.all([first, second]), [true, true]);
+    assert.equal(await lock.release(), false);
+  } finally {
+    resumeUnlink();
+    fs.unlink = originalUnlink;
+  }
 });
 
 test('keeps a killed owner lock until explicit operator recovery', async t => {
@@ -427,11 +506,14 @@ test('keeps a killed owner lock until explicit operator recovery', async t => {
   t.after(() => killChildIfRunning(child));
 
   await waitForOutput(child, 'LOCKED');
-  const serialized = await fs.readFile(layout.lockPath, 'utf8');
-  const abandoned = JSON.parse(serialized);
+  const { ownerPath, serialized, metadata: abandoned } = await readLockForTest(layout);
   assert.equal(serialized.endsWith('\n'), true);
-  assert.deepEqual(Object.keys(abandoned).sort(), ['createdAtMs', 'pid', 'recovery', 'token', 'version']);
-  assert.equal(abandoned.version, 2);
+  assert.deepEqual(
+    Object.keys(abandoned).sort(),
+    ['createdAtMs', 'pid', 'protocol', 'recovery', 'token', 'version'],
+  );
+  assert.equal(abandoned.version, 3);
+  assert.equal(abandoned.protocol, 'owner-directory/v1');
   assert.equal(abandoned.recovery, 'operator_only');
   assert.equal(abandoned.pid, child.pid);
   assert.match(abandoned.token, /^[a-f0-9]{64}$/);
@@ -445,15 +527,65 @@ test('keeps a killed owner lock until explicit operator recovery', async t => {
     acquireVaultLock(layout, { timeoutMs: 80, retryDelayMs: 5, staleMs: 0 }),
     error => error instanceof VaultLockTimeoutError && error.code === 'MEMORY_LOCK_TIMEOUT',
   );
-  assert.equal(await fs.readFile(layout.lockPath, 'utf8'), serialized);
+  assert.equal(await fs.readFile(ownerPath, 'utf8'), serialized);
 
   // This models the documented operator-only procedure in an isolated temp
-  // vault: the owner has exited before the exact lock file is removed.
+  // vault: the owner has exited before its exact metadata file and then the
+  // verified-empty gate directory are removed non-recursively.
   assert.notEqual(child.signalCode, null);
-  await fs.unlink(layout.lockPath);
+  await removeLockForOperatorRecovery(layout);
   const recovered = await acquireVaultLock(layout, { timeoutMs: 500, retryDelayMs: 5 });
   assert.notEqual(recovered.token, abandoned.token);
   await recovered.release();
+});
+
+test('hard kills at every release cleanup boundary preserve fail-closed ownership', async t => {
+  const cases = [
+    {
+      stage: 'before_owner_unlink',
+      output: 'BEFORE_OWNER_UNLINK',
+      expectedGate: 'owned',
+    },
+    {
+      stage: 'before_gate_rmdir',
+      output: 'BEFORE_GATE_RMDIR',
+      expectedGate: 'empty',
+    },
+  ];
+
+  for (const scenario of cases) {
+    await t.test(scenario.stage, async subtest => {
+      const { vault } = await temporaryVault(subtest);
+      const layout = await ensureMemoryLayout(vault);
+      const child = spawnLockHolder(vault, scenario.stage);
+      subtest.after(() => killChildIfRunning(child));
+      await waitForOutput(child, 'LOCKED');
+      const original = await readLockForTest(layout);
+      const paused = waitForOutput(child, scenario.output);
+      child.stdin.write('RELEASE\n');
+      await paused;
+
+      if (scenario.expectedGate === 'owned') {
+        assert.equal((await readLockForTest(layout)).serialized, original.serialized);
+      } else if (scenario.expectedGate === 'empty') {
+        assert.equal((await fs.lstat(layout.lockPath)).isDirectory(), true);
+        assert.deepEqual(await fs.readdir(layout.lockPath), []);
+      } else {
+        await assert.rejects(() => fs.stat(layout.lockPath), { code: 'ENOENT' });
+      }
+
+      const exited = once(child, 'exit');
+      assert.equal(child.kill('SIGKILL'), true);
+      await exited;
+      await assert.rejects(
+        acquireVaultLock(layout, { timeoutMs: 80, retryDelayMs: 5 }),
+        error => error instanceof VaultLockTimeoutError,
+      );
+      await removeLockForOperatorRecovery(layout);
+      const recovered = await acquireVaultLock(layout, { timeoutMs: 500, retryDelayMs: 5 });
+      await recovered.release();
+    });
+  }
 });
 
 test('recovers a fully flushed multi-item journal after its first child writer is hard-killed', async t => {
@@ -463,7 +595,7 @@ test('recovers a fully flushed multi-item journal after its first child writer i
   await waitForOutput(child, 'FIRST_CHILD_COMMITTED', 5_000);
 
   const layout = await ensureMemoryLayout(vault);
-  const lockBytes = await fs.readFile(layout.lockPath, 'utf8');
+  const { ownerPath, serialized: lockBytes } = await readLockForTest(layout);
   assert.ok((await listJournalEntries(layout, 'ingestion')).length > 0);
 
   const exited = once(child, 'exit');
@@ -473,11 +605,11 @@ test('recovers a fully flushed multi-item journal after its first child writer i
     acquireVaultLock(layout, { timeoutMs: 80, retryDelayMs: 5 }),
     error => error instanceof VaultLockTimeoutError,
   );
-  assert.equal(await fs.readFile(layout.lockPath, 'utf8'), lockBytes);
+  assert.equal(await fs.readFile(ownerPath, 'utf8'), lockBytes);
 
   // Operator recovery is modeled only after the child is confirmed stopped.
   assert.notEqual(child.signalCode, null);
-  await fs.unlink(layout.lockPath);
+  await removeLockForOperatorRecovery(layout);
   const recovered = createMemoryStore({ vaultDir: vault, profile: hardKillProfile() });
   const status = await recovered.status();
   assert.equal(status.counts.events, 2);
@@ -489,22 +621,44 @@ test('three contenders time out without changing a live owner lock', async t => 
   const { vault } = await temporaryVault(t);
   const layout = await ensureMemoryLayout(vault);
   const owner = await acquireVaultLock(layout, { timeoutMs: 500, retryDelayMs: 5 });
-  const serialized = await fs.readFile(layout.lockPath, 'utf8');
-  const contenders = await Promise.allSettled(Array.from({ length: 3 }, () => (
-    acquireVaultLock(layout, { timeoutMs: 100, retryDelayMs: 7, staleMs: 1 })
-  )));
+  const { ownerPath, serialized } = await readLockForTest(layout);
+  const observations = Array.from({ length: 3 }, () => {
+    let reportObserved;
+    const observed = new Promise(resolve => { reportObserved = resolve; });
+    return {
+      observed,
+      signal: {
+        aborted: false,
+        addEventListener(type) {
+          assert.equal(type, 'abort');
+          reportObserved();
+        },
+        removeEventListener(type) {
+          assert.equal(type, 'abort');
+        },
+      },
+    };
+  });
+  const pending = observations.map(({ signal }) => acquireVaultLock(layout, {
+    timeoutMs: 100,
+    retryDelayMs: 7,
+    staleMs: 1,
+    signal,
+  }));
+  await Promise.all(observations.map(({ observed }) => observed));
+  const contenders = await Promise.allSettled(pending);
   assert.equal(contenders.length, 3);
   assert.equal(contenders.every(result => (
     result.status === 'rejected'
       && result.reason instanceof VaultLockTimeoutError
       && result.reason.code === 'MEMORY_LOCK_TIMEOUT'
   )), true);
-  assert.equal(await fs.readFile(layout.lockPath, 'utf8'), serialized);
+  assert.equal(await fs.readFile(ownerPath, 'utf8'), serialized);
   assert.equal(await owner.isOwned(), true);
   await owner.release();
 });
 
-test('lock age, a reused live PID, and invalid metadata never authorize automatic recovery', async t => {
+test('legacy and malformed lock files never authorize automatic recovery or migration', async t => {
   const { vault } = await temporaryVault(t);
   const layout = await ensureMemoryLayout(vault);
   const old = Date.now() - 60_000;
@@ -536,6 +690,18 @@ test('lock age, a reused live PID, and invalid metadata never authorize automati
   await fs.unlink(layout.lockPath);
 });
 
+test('an empty abandoned lock directory remains held for operator-only recovery', async t => {
+  const { vault } = await temporaryVault(t);
+  const layout = await ensureMemoryLayout(vault);
+  await fs.mkdir(layout.lockPath);
+  await assert.rejects(
+    acquireVaultLock(layout, { timeoutMs: 80, retryDelayMs: 5 }),
+    error => error instanceof VaultLockTimeoutError,
+  );
+  assert.deepEqual(await fs.readdir(layout.lockPath), []);
+  await removeLockForOperatorRecovery(layout);
+});
+
 test('a delayed contender cannot remove or release a newly acquired owner lock', async t => {
   const { vault } = await temporaryVault(t);
   const layout = await ensureMemoryLayout(vault);
@@ -561,14 +727,192 @@ test('a delayed contender cannot remove or release a newly acquired owner lock',
 
   await first.release();
   const second = await acquireVaultLock(layout, { timeoutMs: 50, retryDelayMs: 2 });
-  const secondBytes = await fs.readFile(layout.lockPath, 'utf8');
+  const { ownerPath: secondOwnerPath, serialized: secondBytes } = await readLockForTest(layout);
   await assert.rejects(
     contender,
     error => error instanceof VaultLockTimeoutError && error.code === 'MEMORY_LOCK_TIMEOUT',
   );
-  assert.equal(await fs.readFile(layout.lockPath, 'utf8'), secondBytes);
+  assert.equal(await fs.readFile(secondOwnerPath, 'utf8'), secondBytes);
   assert.equal(await second.isOwned(), true);
   await second.release();
+});
+
+test('a completed successor survives whole-gate replacement before former owner unlink', async t => {
+  const { vault } = await temporaryVault(t);
+  const layout = await ensureMemoryLayout(vault);
+  const first = await acquireVaultLock(layout);
+  const oldOwnerPath = await onlyLockOwnerPath(layout);
+  const originalUnlink = fs.unlink;
+  let intercepted = false;
+  let successor = null;
+  let successorOwnerPath = null;
+  let successorBytes = null;
+  fs.unlink = async (target, ...args) => {
+    if (!intercepted && path.resolve(String(target)) === path.resolve(oldOwnerPath)) {
+      intercepted = true;
+      fs.unlink = originalUnlink;
+      await originalUnlink(oldOwnerPath);
+      await fs.rmdir(layout.lockPath);
+      successor = await acquireVaultLock(layout, { timeoutMs: 500, retryDelayMs: 2 });
+      const snapshot = await readLockForTest(layout);
+      successorOwnerPath = snapshot.ownerPath;
+      successorBytes = snapshot.serialized;
+      return originalUnlink(target, ...args);
+    }
+    return originalUnlink(target, ...args);
+  };
+  try {
+    await assert.rejects(
+      () => first.release(),
+      error => error instanceof VaultLockOwnershipError && error.code === 'MEMORY_LOCK_OWNERSHIP',
+    );
+  } finally {
+    fs.unlink = originalUnlink;
+  }
+  assert.equal(intercepted, true);
+  assert.notEqual(path.basename(successorOwnerPath), path.basename(oldOwnerPath));
+  assert.equal((await fs.lstat(layout.lockPath)).isDirectory(), true);
+  assert.equal(await fs.readFile(successorOwnerPath, 'utf8'), successorBytes);
+  assert.equal((await readLockForTest(layout)).serialized, successorBytes);
+  assert.equal(await successor.isOwned(), true);
+  await successor.release();
+});
+
+test('a completed successor survives replacement at the former owner final rmdir', async t => {
+  const { vault } = await temporaryVault(t);
+  const layout = await ensureMemoryLayout(vault);
+  const first = await acquireVaultLock(layout);
+  const originalRmdir = fs.rmdir;
+  let intercepted = false;
+  let successor = null;
+  let successorBytes = null;
+  fs.rmdir = async (target, ...args) => {
+    if (!intercepted && path.resolve(String(target)) === path.resolve(layout.lockPath)) {
+      intercepted = true;
+      fs.rmdir = originalRmdir;
+      await originalRmdir(target, ...args);
+      successor = await acquireVaultLock(layout, { timeoutMs: 500, retryDelayMs: 2 });
+      successorBytes = (await readLockForTest(layout)).serialized;
+      return originalRmdir(target, ...args);
+    }
+    return originalRmdir(target, ...args);
+  };
+  try {
+    await assert.rejects(
+      () => first.release(),
+      error => error instanceof VaultLockOwnershipError && error.code === 'MEMORY_LOCK_OWNERSHIP',
+    );
+  } finally {
+    fs.rmdir = originalRmdir;
+  }
+  assert.equal(intercepted, true);
+  assert.equal(await successor.isOwned(), true);
+  assert.equal((await readLockForTest(layout)).serialized, successorBytes);
+  await successor.release();
+});
+
+test('removing a successor empty acquisition window prevents it from reporting ownership', async t => {
+  const { vault } = await temporaryVault(t);
+  const layout = await ensureMemoryLayout(vault);
+  const first = await acquireVaultLock(layout);
+  const originalOpen = fs.open;
+  const originalRmdir = fs.rmdir;
+  let reportMetadataOpen;
+  const metadataOpen = new Promise(resolve => { reportMetadataOpen = resolve; });
+  let resumeMetadataOpen;
+  const metadataMayContinue = new Promise(resolve => { resumeMetadataOpen = resolve; });
+  let blockMetadata = false;
+  let contender = null;
+  let contenderOutcome = null;
+
+  fs.open = async (target, ...args) => {
+    if (blockMetadata
+        && typeof target === 'string'
+        && path.dirname(target) === layout.lockPath
+        && path.basename(target).endsWith('.tmp')) {
+      blockMetadata = false;
+      reportMetadataOpen();
+      await metadataMayContinue;
+    }
+    return originalOpen(target, ...args);
+  };
+  fs.rmdir = async (target, ...args) => {
+    if (path.resolve(String(target)) === path.resolve(layout.lockPath) && contender === null) {
+      fs.rmdir = originalRmdir;
+      await originalRmdir(target, ...args);
+      blockMetadata = true;
+      contender = acquireVaultLock(layout, { timeoutMs: 500, retryDelayMs: 2 });
+      contenderOutcome = contender.then(
+        value => ({ status: 'fulfilled', value }),
+        error => ({ status: 'rejected', error }),
+      );
+      await metadataOpen;
+      const removed = await originalRmdir(target, ...args);
+      resumeMetadataOpen();
+      return removed;
+    }
+    return originalRmdir(target, ...args);
+  };
+
+  try {
+    assert.equal(await first.release(), true);
+    const outcome = await contenderOutcome;
+    assert.equal(outcome.status, 'rejected');
+    assert.equal(outcome.error?.code, 'ENOENT');
+  } finally {
+    resumeMetadataOpen();
+    fs.open = originalOpen;
+    fs.rmdir = originalRmdir;
+  }
+  assert.equal(
+    await fs.stat(layout.lockPath).then(() => false, error => error?.code === 'ENOENT'),
+    true,
+  );
+  const recovered = await acquireVaultLock(layout);
+  await recovered.release();
+});
+
+test('a lock-directory NTFS junction replacement fails closed without touching its target', {
+  skip: process.platform !== 'win32',
+}, async t => {
+  const { scratch, vault } = await temporaryVault(t);
+  const layout = await ensureMemoryLayout(vault);
+  const owner = await acquireVaultLock(layout);
+  await removeLockForOperatorRecovery(layout);
+  const outside = path.join(scratch, 'outside-lock-target');
+  await fs.mkdir(outside);
+  const sentinel = path.join(outside, 'operator-evidence.txt');
+  await fs.writeFile(sentinel, 'preserve', 'utf8');
+  await fs.symlink(outside, layout.lockPath, 'junction');
+  try {
+    await assert.rejects(
+      () => owner.release(),
+      error => error instanceof VaultLockOwnershipError,
+    );
+    await assert.rejects(
+      acquireVaultLock(layout, { timeoutMs: 80, retryDelayMs: 5 }),
+      error => error instanceof VaultLockTimeoutError,
+    );
+    assert.equal(await fs.readFile(sentinel, 'utf8'), 'preserve');
+    assert.deepEqual(await fs.readdir(outside), ['operator-evidence.txt']);
+  } finally {
+    await fs.unlink(layout.lockPath);
+  }
+});
+
+test('malformed directory-owner metadata fails closed without cleanup', async t => {
+  const { vault } = await temporaryVault(t);
+  const layout = await ensureMemoryLayout(vault);
+  const owner = await acquireVaultLock(layout);
+  const ownerPath = await onlyLockOwnerPath(layout);
+  const invalid = '{ malformed owner metadata\n';
+  await fs.writeFile(ownerPath, invalid, 'utf8');
+  await assert.rejects(
+    () => owner.release(),
+    error => error instanceof VaultLockOwnershipError,
+  );
+  assert.equal(await fs.readFile(ownerPath, 'utf8'), invalid);
+  await removeLockForOperatorRecovery(layout);
 });
 
 test('withVaultLock releases the lock after an operation failure', async t => {
@@ -590,20 +934,14 @@ test('withVaultLock fails closed if callback lock ownership is replaced', async 
   const layout = await ensureMemoryLayout(vault);
   await assert.rejects(
     withVaultLock(layout, async () => {
-      await fs.unlink(layout.lockPath);
-      await fs.writeFile(layout.lockPath, serializeJson({
-        version: 1,
-        token: 'f'.repeat(64),
-        pid: process.pid,
-        createdAtMs: Date.now(),
-      }), 'utf8');
+      await replaceWithSyntheticDirectoryLock(layout, 'f'.repeat(64));
       return 'must not be returned';
     }),
     error => error instanceof VaultLockOwnershipError && error.code === 'MEMORY_LOCK_OWNERSHIP',
   );
-  const replacement = JSON.parse(await fs.readFile(layout.lockPath, 'utf8'));
+  const { metadata: replacement } = await readLockForTest(layout);
   assert.equal(replacement.token, 'f'.repeat(64));
-  await fs.unlink(layout.lockPath);
+  await removeLockForOperatorRecovery(layout);
 });
 
 test('mutable publication rechecks lock ownership after preparing its temporary file', async t => {
@@ -621,14 +959,7 @@ test('mutable publication rechecks lock ownership after preparing its temporary 
         && path.dirname(candidate) === layout.stateDir
         && path.basename(candidate).endsWith('.tmp')) {
       replaced = true;
-      await fs.unlink(layout.lockPath);
-      await fs.writeFile(layout.lockPath, serializeJson({
-        version: 2,
-        token: replacementToken,
-        pid: process.pid,
-        createdAtMs: Date.now(),
-        recovery: 'operator_only',
-      }), 'utf8');
+      await replaceWithSyntheticDirectoryLock(layout, replacementToken);
     }
     return handle;
   };
@@ -648,8 +979,8 @@ test('mutable publication rechecks lock ownership after preparing its temporary 
 
   assert.equal(replaced, true);
   assert.deepEqual((await readMutableJson(layout, 'fenced-state')).value, { items: [], revision: 0 });
-  assert.equal(JSON.parse(await fs.readFile(layout.lockPath, 'utf8')).token, replacementToken);
-  await fs.unlink(layout.lockPath);
+  assert.equal((await readLockForTest(layout)).metadata.token, replacementToken);
+  await removeLockForOperatorRecovery(layout);
 });
 
 test('optimistic mutable JSON requires matching revision and digest', async t => {

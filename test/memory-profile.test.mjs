@@ -17,6 +17,10 @@ import {
   resolveAttribution,
   validateProfile,
 } from '../lib/memory/profile.mjs';
+import {
+  SYNTHETIC_SENSITIVE_FIXTURES,
+  escapeRegExp,
+} from '../test-support/memory-sensitive-fixtures.mjs';
 
 function harryPortableProfile(overrides = {}) {
   return createPortableMcpProfile({
@@ -256,13 +260,53 @@ test('validated profiles are canonical, immutable, and reject ambiguous ACLs', (
 });
 
 test('profile identifiers, namespaces, and display names reject credential-like text without echoing it', () => {
-  for (const credential of [`ghp_${'A'.repeat(36)}`, `github_pat_${'A'.repeat(82)}`]) {
+  const credentials = [
+    `ghp_${'A'.repeat(36)}`,
+    `github_pat_${'A'.repeat(82)}`,
+    ...SYNTHETIC_SENSITIVE_FIXTURES.map(({ value }) => value),
+  ];
+  for (const credential of credentials) {
     const attempts = [
       () => harryPortableProfile({
         principal: { id: 'agent:harry', type: 'agent', displayName: credential },
       }),
+      () => harryPortableProfile({
+        principal: { id: `agent:${credential}`, type: 'agent' },
+        allowedActors: [],
+      }),
+      () => harryPortableProfile({
+        agentInstance: { id: `agent_instance:${credential}`, type: 'agent_instance' },
+      }),
+      () => harryPortableProfile({
+        agentInstance: {
+          id: 'agent_instance:harry:desktop',
+          type: 'agent_instance',
+          displayName: credential,
+        },
+      }),
       () => harryPortableProfile({ profileId: credential }),
       () => harryPortableProfile({ sourceIdentity: credential }),
+      () => harryPortableProfile({ ingestedBy: { id: `adapter:${credential}` } }),
+      () => harryPortableProfile({
+        ingestedBy: { id: 'adapter:safire-mcp:harry', profileId: credential },
+      }),
+      () => harryPortableProfile({
+        allowedActors: [{ id: `external_service:${credential}`, type: 'external_service' }],
+      }),
+      () => harryPortableProfile({
+        allowedActors: [{
+          id: 'external_service:synthetic',
+          type: 'external_service',
+          displayName: credential,
+        }],
+      }),
+      () => harryPortableProfile({
+        allowedActors: [{
+          id: 'automation:synthetic',
+          type: 'automation',
+          delegatedBy: `agent:${credential}`,
+        }],
+      }),
       () => harryPortableProfile({
         namespaceGrants: [
           { namespace: `shared/${credential}`, read: true, write: true, descendants: true },
@@ -273,9 +317,50 @@ test('profile identifiers, namespaces, and display names reject credential-like 
       let thrown;
       try { attempt(); } catch (error) { thrown = error; }
       assert.ok(thrown instanceof ProfileValidationError);
-      assert.doesNotMatch(thrown.message, new RegExp(credential, 'i'));
+      const pattern = new RegExp(escapeRegExp(credential), 'i');
+      assert.doesNotMatch(thrown.message, pattern);
+      assert.doesNotMatch(JSON.stringify(thrown), pattern);
     }
   }
+
+  const upperNpm = `NPM_${'A'.repeat(36)}`;
+  assert.throws(
+    () => harryPortableProfile({ profileId: upperNpm }),
+    error => error instanceof ProfileValidationError
+      && !error.message.includes(upperNpm),
+  );
+});
+
+test('over-limit profile identifiers and labels reject before normalization without echo', () => {
+  const token = SYNTHETIC_SENSITIVE_FIXTURES.find(({ family }) => family === 'npm').value;
+  const oversizedId = `${token}:${'x'.repeat(121)}`;
+  const oversizedLabel = `${token} ${'x'.repeat(161)}`;
+  assert.equal(oversizedId.length, 162);
+  assert.equal(oversizedLabel.length, 202);
+
+  const originalNormalize = String.prototype.normalize;
+  const normalizedOversizedValues = [];
+  String.prototype.normalize = function patchedNormalize(...args) {
+    const value = String(this);
+    if (value === oversizedId || value === oversizedLabel) normalizedOversizedValues.push(value);
+    return originalNormalize.apply(this, args);
+  };
+  try {
+    for (const attempt of [
+      () => harryPortableProfile({ profileId: oversizedId }),
+      () => harryPortableProfile({
+        principal: { id: 'agent:harry', type: 'agent', displayName: oversizedLabel },
+      }),
+    ]) {
+      let thrown;
+      try { attempt(); } catch (error) { thrown = error; }
+      assert.ok(thrown instanceof ProfileValidationError);
+      assert.doesNotMatch(thrown.message, new RegExp(escapeRegExp(token), 'i'));
+    }
+  } finally {
+    String.prototype.normalize = originalNormalize;
+  }
+  assert.deepEqual(normalizedOversizedValues, []);
 });
 
 test('unknown actors require explicit allowlisting and system actors remain trusted-bridge only', () => {

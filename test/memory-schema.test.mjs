@@ -6,6 +6,7 @@ import {
   FEEDBACK_SIGNALS,
   MEMORY_SCHEMA_VERSION,
   RELATION_TYPES,
+  SCHEMA_LIMITS,
   SPEECH_ACTS,
   MemorySchemaValidationError,
   canonicalizeNamespace,
@@ -16,6 +17,12 @@ import {
   parseOpaqueId,
   parseSafeAttributes,
 } from '../lib/memory/schema.mjs';
+import {
+  SYNTHETIC_PROVIDER_FIXTURES,
+  SYNTHETIC_RAW_JWT,
+  SYNTHETIC_SENSITIVE_FIXTURES,
+  escapeRegExp,
+} from '../test-support/memory-sensitive-fixtures.mjs';
 
 const validEvent = (overrides = {}) => ({
   schema_version: MEMORY_SCHEMA_VERSION,
@@ -60,8 +67,10 @@ const GITHUB_TOKEN_IDENTIFIERS = Object.freeze([
   `ghp_${'A'.repeat(36)}`,
   `github_pat_${'A'.repeat(82)}`,
 ]);
-
-const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const SENSITIVE_IDENTIFIER_VALUES = Object.freeze([
+  ...GITHUB_TOKEN_IDENTIFIERS,
+  ...SYNTHETIC_SENSITIVE_FIXTURES.map(({ value }) => value),
+]);
 
 test('Stage 1 vocabularies are fixed and exported', () => {
   assert.deepEqual([...ACTOR_TYPES], ['user', 'agent', 'agent_instance', 'automation', 'external_service', 'system', 'unknown']);
@@ -164,6 +173,7 @@ test('credential, token, and private-reasoning content is rejected without loggi
     'Authorization: Bearer abcdefghijklmnopqrstuvwxyz',
     '-----BEGIN PRIVATE KEY-----',
     GITHUB_TOKEN_IDENTIFIERS[1],
+    ...SYNTHETIC_SENSITIVE_FIXTURES.map(({ value }) => value),
     'chain-of-thought: hidden intermediate reasoning',
   ];
   const logged = [];
@@ -188,7 +198,7 @@ test('credential-like material is rejected from every caller-controlled identifi
   const originalError = console.error;
   console.error = (...args) => logged.push(args);
   try {
-    for (const credential of GITHUB_TOKEN_IDENTIFIERS) {
+    for (const credential of SENSITIVE_IDENTIFIER_VALUES) {
       assert.equal(containsDisallowedSensitiveMaterial(credential), true);
       assert.equal(isOpaqueId(credential), false);
 
@@ -197,13 +207,21 @@ test('credential-like material is rejected from every caller-controlled identifi
         validEvent({ actor_id: credential }),
         validEvent({ delegated_by: credential }),
         validEvent({ agent_instance_id: credential }),
+        validEvent({ content: credential }),
         validEvent({ source: { stream: credential, event_id: 'source_event_01' } }),
         validEvent({ source: { stream: 'hermes:conversation', event_id: credential } }),
         validEvent({ relations: [{ type: 'supports', target_event_id: credential }] }),
+        validEvent({ derived: { summary: credential, source_event_ids: ['event_user_01'] } }),
+        validEvent({ derived: { claim: credential, source_event_ids: ['event_user_01'] } }),
         validEvent({ derived: { claim: 'A visible claim.', source_event_ids: [credential] } }),
         validEvent({ attributes: { visible_label: credential } }),
-        validEvent({ attributes: { [credential.toLowerCase()]: 'visible' } }),
       ];
+      const attributeKey = credential.toLowerCase();
+      if (/^[a-z][a-z0-9_]*$/.test(attributeKey)
+          && attributeKey.length <= 64
+          && containsDisallowedSensitiveMaterial(attributeKey)) {
+        eventInputs.push(validEvent({ attributes: { [attributeKey]: 'visible' } }));
+      }
       for (const contextKey of [
         'conversation_id', 'session_id', 'thread_id', 'turn_id', 'message_id',
         'tool_call_id', 'automation_run_id',
@@ -260,6 +278,181 @@ test('fine-grained GitHub token detection follows the exact documented prefix an
   assert.equal(containsDisallowedSensitiveMaterial(`github_pat_${'Z'.repeat(81)}`), false);
   assert.equal(containsDisallowedSensitiveMaterial(`github_pat_${'Z'.repeat(83)}`), false);
   assert.equal(containsDisallowedSensitiveMaterial('A GitHub PAT should be stored outside memory.'), false);
+});
+
+test('provider token detection is boundary-aware, normalization-safe, and narrowly shaped', () => {
+  const fullwidthAscii = value => [...value].map((character) => {
+    const code = character.codePointAt(0);
+    return code >= 0x21 && code <= 0x7e ? String.fromCodePoint(code + 0xfee0) : character;
+  }).join('');
+
+  for (const { family, value } of SYNTHETIC_SENSITIVE_FIXTURES) {
+    for (const candidate of [
+      value,
+      `${value} followed by visible prose`,
+      `visible prose (${value}) continues`,
+      `visible prose ends with ${value}`,
+      `[${value}],`,
+      `${value}.`,
+    ]) {
+      assert.equal(containsDisallowedSensitiveMaterial(candidate), true, family);
+    }
+    assert.equal(containsDisallowedSensitiveMaterial(`x${value}`), false, `${family} left boundary`);
+    assert.equal(containsDisallowedSensitiveMaterial(fullwidthAscii(value)), true, `${family} NFKC`);
+    assert.equal(
+      containsDisallowedSensitiveMaterial(`${value.slice(0, 1)}\u200B${value.slice(1)}`),
+      true,
+      `${family} zero-width space`,
+    );
+    assert.equal(
+      containsDisallowedSensitiveMaterial(`${value.slice(0, 1)}\u2060${value.slice(1)}`),
+      true,
+      `${family} word joiner`,
+    );
+  }
+
+  for (const candidate of [
+    `npm_${'A'.repeat(35)}`,
+    `npm_${'A'.repeat(37)}`,
+    `NPM_${'A'.repeat(36)}`,
+    `npm_${'A'.repeat(18)}/${'A'.repeat(17)}`,
+    `glpat-${'A'.repeat(19)}`,
+    `glpat-${'A'.repeat(21)}`,
+    `glpat-${'A'.repeat(10)}/${'A'.repeat(9)}`,
+    `glpat-${'A'.repeat(20)}.${'a'.repeat(9)}`,
+    `glpat-${'A'.repeat(26)}.${'a'.repeat(9)}`,
+    `glpat-${'A'.repeat(13)}/${'A'.repeat(13)}.${'a'.repeat(9)}`,
+    `glpat-${'A'.repeat(27)}.${'a'.repeat(8)}`,
+    `glpat-${'A'.repeat(27)}.${'a'.repeat(10)}`,
+    `glpat-${'A'.repeat(27)}.${'A'.repeat(9)}`,
+    `glpat-${'A'.repeat(301)}.${'a'.repeat(9)}`,
+    `AIza${'A'.repeat(34)}`,
+    `AIza${'A'.repeat(36)}`,
+    `AIza${'A'.repeat(17)}+${'A'.repeat(17)}`,
+    `aiza${'A'.repeat(35)}`,
+    `sk_test_${'A'.repeat(19)}`,
+    `sk_live_${'A'.repeat(10)}-${'A'.repeat(9)}`,
+    `rk_live_${'A'.repeat(248)}`,
+    `pk_test_${'A'.repeat(24)}`,
+    `sk_prod_${'A'.repeat(24)}`,
+    `hf_${'A'.repeat(33)}`,
+    `hf_${'A'.repeat(35)}`,
+    `hf_${'A'.repeat(17)}_${'A'.repeat(16)}`,
+    `HF_${'A'.repeat(34)}`,
+  ]) {
+    assert.equal(containsDisallowedSensitiveMaterial(candidate), false);
+  }
+
+  for (const candidate of [
+    `glpat-${'A'.repeat(300)}.${'a'.repeat(9)}`,
+    `sk_test_${'A'.repeat(20)}`,
+    `rk_live_${'A'.repeat(247)}`,
+  ]) {
+    assert.equal(containsDisallowedSensitiveMaterial(candidate), true);
+  }
+
+  for (const prose of [
+    'npm access tokens belong in a credential manager.',
+    'The npm_ prefix alone is not a token.',
+    'GitLab personal access tokens commonly begin with glpat-.',
+    'Google documents API key strings beginning with AIza.',
+    'Stripe server keys use sk_test_ or rk_live_ prefixes.',
+    'Hugging Face examples abbreviate tokens as hf_....',
+    'JWT compact notation is often described as header.payload.signature.',
+  ]) {
+    assert.equal(containsDisallowedSensitiveMaterial(prose), false);
+  }
+
+  const upperNpm = `NPM_${'A'.repeat(36)}`;
+  assert.equal(containsDisallowedSensitiveMaterial(upperNpm), false);
+  assert.throws(() => canonicalizeNamespace(`agents/${upperNpm}`), MemorySchemaValidationError);
+});
+
+test('raw JWT detection requires a bounded canonical three-part signed JSON structure', () => {
+  const segment = value => Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+  const header = segment({ alg: 'HS256' });
+  const payload = segment({});
+  const signature = Buffer.alloc(16, 0x5a).toString('base64url');
+  const maximumSignature = Buffer.alloc(6_144, 0x5a).toString('base64url');
+  const token = `${header}.${payload}.${signature}`;
+
+  assert.equal(token, SYNTHETIC_RAW_JWT);
+  assert.equal(maximumSignature.length, 8_192);
+  for (const candidate of [token, `(${token})`, `${token},`, `${token}.`, `.${token}`]) {
+    assert.equal(containsDisallowedSensitiveMaterial(candidate), true);
+  }
+  assert.equal(containsDisallowedSensitiveMaterial(`${header}.${payload}.${maximumSignature}`), true);
+
+  const invalidUtf8 = Buffer.from([0xff]).toString('base64url');
+  const invalidJson = Buffer.from('not-json', 'utf8').toString('base64url');
+  const negatives = [
+    'alpha.beta.gamma',
+    `${header}.${payload}`,
+    `${header}..${signature}`,
+    `${header}.${payload}.`,
+    `${header}.${payload}.${signature}=`,
+    `${header}.${payload}.${signature.slice(0, 5)} ${signature.slice(5)}`,
+    `a.${token}`,
+    `${token}.a`,
+    `${segment({})}.${payload}.${signature}`,
+    `${segment({ alg: '' })}.${payload}.${signature}`,
+    `${segment({ alg: '   ' })}.${payload}.${signature}`,
+    `${segment({ alg: 1 })}.${payload}.${signature}`,
+    `${segment([{ alg: 'HS256' }])}.${payload}.${signature}`,
+    `${header}.${segment([])}.${signature}`,
+    `${header}.${invalidUtf8}.${signature}`,
+    `${header}.${invalidJson}.${signature}`,
+    `${header}.e31.${signature}`,
+    `${header}.${payload}.${Buffer.alloc(15, 0x5a).toString('base64url')}`,
+    `${'A'.repeat(1_025)}.${payload}.${signature}`,
+    `${header}.${'A'.repeat(16_385)}.${signature}`,
+    `${header}.${payload}.${'A'.repeat(8_193)}`,
+  ];
+  for (const candidate of negatives) {
+    assert.equal(containsDisallowedSensitiveMaterial(candidate), false);
+  }
+});
+
+test('over-limit values fail generically before sensitive normalization or scanning', () => {
+  const token = SYNTHETIC_PROVIDER_FIXTURES.find(({ family }) => family === 'npm').value;
+  const overLimitVisible = maximum => `${token} ${'x'.repeat(maximum - token.length)}`;
+  const attempts = [
+    () => parseEventInput(validEvent({ content: overLimitVisible(SCHEMA_LIMITS.visibleContentLength) })),
+    () => parseEventInput(validEvent({ attributes: {
+      visible_label: overLimitVisible(SCHEMA_LIMITS.attributeStringLength),
+    } })),
+    () => parseFeedbackInput({
+      schema_version: 1,
+      target: { type: 'event', id: 'event_01' },
+      signal: 'correction',
+      correction: overLimitVisible(SCHEMA_LIMITS.correctionLength),
+      actor_id: 'actor_user',
+      source: { stream: 'hermes:feedback', event_id: 'feedback_source_01' },
+    }),
+    () => parseOpaqueId(`${'x'.repeat(120)}:${token}`),
+  ];
+  for (const attempt of attempts) {
+    let thrown;
+    try { attempt(); } catch (error) { thrown = error; }
+    assert.ok(thrown instanceof MemorySchemaValidationError);
+    assert.equal(thrown.issues.some(issue => issue.message.includes('Sensitive')), false);
+    assert.doesNotMatch(JSON.stringify(thrown), new RegExp(escapeRegExp(token), 'i'));
+  }
+
+  const oversizedNamespace = `${'x'.repeat(216)}/${token}`;
+  assert.equal(oversizedNamespace.length, SCHEMA_LIMITS.namespaceLength + 1);
+  const originalNormalize = String.prototype.normalize;
+  let oversizedNormalizationCalls = 0;
+  String.prototype.normalize = function patchedNormalize(...args) {
+    if (String(this) === oversizedNamespace) oversizedNormalizationCalls += 1;
+    return originalNormalize.apply(this, args);
+  };
+  try {
+    assert.throws(() => canonicalizeNamespace(oversizedNamespace), MemorySchemaValidationError);
+  } finally {
+    String.prototype.normalize = originalNormalize;
+  }
+  assert.equal(oversizedNormalizationCalls, 0);
 });
 
 test('strict feedback parsing covers targets, fixed signals, correction, actor, and source', () => {
