@@ -3,6 +3,8 @@ import { constants as fsConstants, promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 import {
   MemoryHardLinkUnavailableError,
@@ -12,7 +14,7 @@ import {
   ensureMemoryLayout,
   immutableCollectionDirectory,
 } from '../lib/memory/filesystem.mjs';
-import { registerMemoryMcpTools } from '../lib/memory/mcp.mjs';
+import { createMemoryMcpServer } from '../lib/memory/mcp.mjs';
 import { createPortableMcpProfile } from '../lib/memory/profile.mjs';
 import { createMemoryStore } from '../lib/memory/store.mjs';
 
@@ -57,6 +59,19 @@ function assertProbeIdentityError(error) {
   assert.equal(error.message, 'Safire memory hard-link capability probe identity changed');
   assert.equal(error.cause, undefined);
   return true;
+}
+
+async function connectMemoryMcpClient(t, store) {
+  const { server } = createMemoryMcpServer({ store });
+  const client = new Client({ name: 'safire-hard-link-verifier', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  t.after(async () => {
+    await client.close();
+    await server.close();
+  });
+  return client;
 }
 
 function assertProbeDirectoryError(error) {
@@ -741,19 +756,13 @@ test('capability failure preserves every existing sidecar path and byte', async 
 
 test('MCP maps an injected store initialization failure without path or cause details', async t => {
   const { vault } = await temporaryVault(t);
-  const handlers = new Map();
-  const server = {
-    registerTool(name, _definition, handler) {
-      handlers.set(name, handler);
-    },
-  };
   const store = createMemoryStore({ vaultDir: vault, profile: portableProfile() });
-  registerMemoryMcpTools(server, store);
+  const client = await connectMemoryMcpClient(t, store);
   const originalLink = fs.link;
   fs.link = async () => { throw hardLinkError('EPERM'); };
   let result;
   try {
-    result = await handlers.get('memory_status')({});
+    result = await client.callTool({ name: 'memory_status', arguments: {} });
   } finally {
     fs.link = originalLink;
   }
@@ -770,14 +779,8 @@ test('MCP maps an injected store initialization failure without path or cause de
 
 test('MCP redacts a generic initial handle-stat failure after proven cleanup', async t => {
   const { vault } = await temporaryVault(t);
-  const handlers = new Map();
-  const server = {
-    registerTool(name, _definition, handler) {
-      handlers.set(name, handler);
-    },
-  };
   const store = createMemoryStore({ vaultDir: vault, profile: portableProfile() });
-  registerMemoryMcpTools(server, store);
+  const client = await connectMemoryMcpClient(t, store);
   const originalOpen = fs.open;
   let statCalls = 0;
   fs.open = async (...args) => {
@@ -798,7 +801,7 @@ test('MCP redacts a generic initial handle-stat failure after proven cleanup', a
   };
   let result;
   try {
-    result = await handlers.get('memory_status')({});
+    result = await client.callTool({ name: 'memory_status', arguments: {} });
   } finally {
     fs.open = originalOpen;
   }

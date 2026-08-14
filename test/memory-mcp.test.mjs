@@ -5,7 +5,14 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
+import { z } from 'zod';
 import {
   MemoryMcpConfigurationError,
   createMemoryMcpServer,
@@ -96,6 +103,33 @@ function feedback(targetId, overrides = {}) {
     source: { stream: 'feedback.synthetic', event_id: 'feedback.1' },
     ...overrides,
   };
+}
+
+function maximumEventBatch() {
+  return Array.from({ length: 100 }, (_, eventIndex) => event({
+    source: {
+      stream: 'conversation.synthetic',
+      event_id: `turn.maximum.${eventIndex}`,
+    },
+    relations: Array.from({ length: 128 }, (_, relationIndex) => ({
+      type: 'belongs_to',
+      target_event_id: `event:maximum:${eventIndex}:${relationIndex}`,
+    })),
+    derived: {
+      summary: `Synthetic maximum event ${eventIndex}.`,
+      source_event_ids: Array.from(
+        { length: 512 },
+        (_, sourceIndex) => `event:source:${eventIndex}:${sourceIndex}`,
+      ),
+    },
+    attributes: Object.fromEntries(Array.from(
+      { length: 64 },
+      (_, attributeIndex) => [
+        `field_${attributeIndex}`,
+        Array.from({ length: 32 }, (_, itemIndex) => `item-${eventIndex}-${attributeIndex}-${itemIndex}`),
+      ],
+    )),
+  }));
 }
 
 function createClient({ vaultDir, profilePath, disabled = false, env = {} }) {
@@ -242,6 +276,26 @@ function errorText(result) {
   assert.equal(result.isError, true);
   assert.equal(result.content?.[0]?.type, 'text');
   return result.content[0].text;
+}
+
+function assertGenericValidationError(result, rejectedValues = []) {
+  const text = errorText(result);
+  assert.equal(text, 'Invalid Safire memory input');
+  for (const value of rejectedValues) {
+    assert.doesNotMatch(text, new RegExp(escapeRegExp(value), 'i'));
+  }
+}
+
+async function connectInMemoryClient(t, server, name = 'memory-mcp-public-client') {
+  const client = new Client({ name, version: '1.0.0' });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  t.after(async () => {
+    await client.close().catch(() => {});
+    await server.close().catch(() => {});
+  });
+  return client;
 }
 
 async function temporaryRoot(t, prefix) {
@@ -622,140 +676,217 @@ test('memory MCP rejects credential-shaped property names before validation can 
   }
 });
 
-test('external MCP servers receive the same credential-property preflight', async (t) => {
-  const root = await temporaryRoot(t, 'safire-memory-mcp-external-property-');
-  const vault = path.join(root, 'vault');
-  const store = createMemoryStore({ vaultDir: vault, profile: syntheticProfile() });
-  const server = new McpServer({ name: 'synthetic-external-memory-mcp', version: '1.0.0' });
-  const sdkValidateToolInput = server.validateToolInput;
-  let sdkValidationCalls = 0;
-  server.validateToolInput = function countSdkValidation(...args) {
-    sdkValidationCalls += 1;
-    return sdkValidateToolInput.call(this, ...args);
-  };
+test('memory MCP production uses only supported public SDK handler APIs', async () => {
+  const source = await fs.readFile(path.join(projectRoot, 'lib', 'memory', 'mcp.mjs'), 'utf8');
+  for (const privateSymbol of [
+    'validateToolInput',
+    '_registeredTools',
+    '_toolHandlersInitialized',
+    'setToolRequestHandlers',
+    'createToolError',
+    'PREFLIGHTED_MCP_SERVERS',
+  ]) {
+    assert.doesNotMatch(source, new RegExp(`\\b${privateSymbol}\\b`), privateSymbol);
+  }
+  assert.doesNotMatch(
+    source,
+    /@modelcontextprotocol\/sdk\/server\/(?:zod-compat|zod-json-schema-compat)\.js/,
+  );
+  assert.match(source, /server\.server/);
+  assert.match(source, /\.assertCanSetRequestHandler\(/);
+  assert.match(source, /\.setRequestHandler\(/);
+});
+
+test('public SDK client sees exactly six canonical strict memory tools', async (t) => {
+  const root = await temporaryRoot(t, 'safire-memory-mcp-public-surface-');
+  const vault = path.join(root, 'must-not-be-created');
+  const store = createMemoryStore({ vaultDir: vault, enabled: false });
+  const server = new McpServer({ name: 'synthetic-public-memory-mcp', version: '1.0.0' });
   registerMemoryMcpTools(server, store);
+  const client = await connectInMemoryClient(t, server, 'memory-mcp-public-surface-client');
+
+  const listed = await client.listTools();
+  assert.deepEqual(listed.tools.map(tool => tool.name), toolNames);
+  assert.deepEqual(client.getServerCapabilities()?.tools, { listChanged: true });
+  for (const tool of listed.tools) {
+    assert.deepEqual(
+      tool.inputSchema,
+      z.toJSONSchema(memoryMcpToolSchemas[tool.name], { target: 'draft-07', io: 'input' }),
+      `${tool.name} must advertise its canonical runtime schema`,
+    );
+    assert.equal(tool.inputSchema.type, 'object');
+    assert.equal(tool.inputSchema.additionalProperties, false);
+    assert.deepEqual(tool.execution, { taskSupport: 'forbidden' });
+  }
+  await assert.rejects(() => fs.access(vault));
+});
+
+test('public SDK calls collapse ordinary, sensitive, and invalid inputs before store access', async (t) => {
+  const root = await temporaryRoot(t, 'safire-memory-mcp-public-validation-');
+  const vault = path.join(root, 'vault');
+  const backingStore = createMemoryStore({ vaultDir: vault, profile: syntheticProfile() });
+  let storeCallbackCalls = 0;
+  const store = {
+    enabled: backingStore.enabled,
+    profile: backingStore.profile,
+    status(...args) { storeCallbackCalls += 1; return backingStore.status(...args); },
+    recordEvents(...args) { storeCallbackCalls += 1; return backingStore.recordEvents(...args); },
+    search(...args) { storeCallbackCalls += 1; return backingStore.search(...args); },
+    get(...args) { storeCallbackCalls += 1; return backingStore.get(...args); },
+    recordFeedback(...args) { storeCallbackCalls += 1; return backingStore.recordFeedback(...args); },
+    recall(...args) { storeCallbackCalls += 1; return backingStore.recall(...args); },
+  };
+  const server = new McpServer({ name: 'synthetic-public-validation-mcp', version: '1.0.0' });
+  registerMemoryMcpTools(server, store);
+  const client = await connectInMemoryClient(t, server, 'memory-mcp-public-validation-client');
 
   const candidate = `ASIA${'C'.repeat(16)}`;
-  await assert.rejects(
-    server.validateToolInput(
-      { inputSchema: memoryMcpToolSchemas.memory_search },
-      { query: 'synthetic query', [`_${candidate}_`]: 'synthetic visible value' },
-      'memory_search',
-    ),
-    error => error instanceof Error
-      && error.message === 'Invalid Safire memory input'
-      && !error.message.includes(candidate),
-  );
-  assert.equal(sdkValidationCalls, 0);
-
-  await assert.rejects(
-    server.validateToolInput(
-      { inputSchema: memoryMcpToolSchemas.memory_search },
-      { query: 'synthetic query', ['x'.repeat(513)]: 'synthetic visible value' },
-      'memory_search',
-    ),
-    error => error instanceof Error && error.message === 'Invalid Safire memory input',
-  );
-  assert.equal(sdkValidationCalls, 0);
-
   let nested = { leaf: 'synthetic visible value' };
   for (let depth = 0; depth < 33; depth += 1) nested = { child: nested };
-  await assert.rejects(
-    server.validateToolInput(
-      { inputSchema: memoryMcpToolSchemas.memory_search },
-      { query: 'synthetic query', otherwise_invalid: nested },
-      'memory_search',
-    ),
-    error => error instanceof Error && error.message === 'Invalid Safire memory input',
-  );
-  assert.equal(sdkValidationCalls, 0);
-
   const idsWithNamedProperty = ['memory:synthetic-target'];
   idsWithNamedProperty[`_${candidate}_`] = 'synthetic visible value';
-  await assert.rejects(
-    server.validateToolInput(
-      { inputSchema: memoryMcpToolSchemas.memory_recall },
-      { ids: idsWithNamedProperty },
-      'memory_recall',
-    ),
-    error => error instanceof Error && error.message === 'Invalid Safire memory input',
-  );
-  assert.equal(sdkValidationCalls, 0);
-
   const unreadableArray = new Proxy([], {
     get(target, property, receiver) {
       if (property === 'length') throw new Error('synthetic array length failure');
       return Reflect.get(target, property, receiver);
     },
   });
-  await assert.rejects(
-    server.validateToolInput(
-      { inputSchema: memoryMcpToolSchemas.memory_recall },
-      { ids: unreadableArray },
-      'memory_recall',
-    ),
-    error => error instanceof Error && error.message === 'Invalid Safire memory input',
-  );
-  assert.equal(sdkValidationCalls, 0);
+  const prototypeMarker = 'ordinary-prototype-marker';
+  const prototypeArgument = JSON.parse(`{"__proto__":{"marker":"${prototypeMarker}"}}`);
+  const nestedPrototypeEvent = event({
+    source: { stream: 'conversation.synthetic', event_id: 'turn.prototype-property' },
+  });
+  Object.defineProperty(nestedPrototypeEvent.source, '__proto__', {
+    value: { marker: prototypeMarker },
+    enumerable: true,
+  });
+  const rejected = [
+    ['memory_search', { query: 'synthetic query', ordinary_unknown_field: 'synthetic visible value' }, ['ordinary_unknown_field']],
+    ['memory_search', { query: 'synthetic query', [`_${candidate}_`]: 'synthetic visible value' }, [candidate]],
+    ['memory_search', { query: 42 }, []],
+    ['memory_search', { query: 'synthetic query', ['x'.repeat(513)]: 'synthetic visible value' }, []],
+    ['memory_search', { query: 'synthetic query', otherwise_invalid: nested }, []],
+    ['memory_recall', { ids: idsWithNamedProperty }, [candidate]],
+    ['memory_recall', { ids: unreadableArray }, []],
+    ['memory_status', prototypeArgument, [prototypeMarker]],
+    ['memory_record_events', { events: [nestedPrototypeEvent] }, [prototypeMarker]],
+    ['memory_not_a_tool', { [`_${candidate}_`]: 'synthetic visible value' }, [candidate]],
+  ];
 
-  const ordinaryUnknownKey = 'ordinary_unknown_field';
-  await assert.rejects(
-    server.validateToolInput(
-      { inputSchema: memoryMcpToolSchemas.memory_search },
-      { query: 'synthetic query', [ordinaryUnknownKey]: 'synthetic visible value' },
-      'memory_search',
-    ),
-    error => error instanceof Error
-      && error.message === 'Invalid Safire memory input'
-      && !error.message.includes(ordinaryUnknownKey),
-  );
-  assert.equal(sdkValidationCalls, 1);
+  for (const [name, args, rejectedValues] of rejected) {
+    const result = await client.callTool({ name, arguments: args });
+    assertGenericValidationError(result, rejectedValues);
+  }
 
-  assert.deepEqual(
-    await server.validateToolInput(
-      { inputSchema: memoryMcpToolSchemas.memory_search },
-      { query: 'synthetic query' },
-      'memory_search',
-    ),
-    { query: 'synthetic query' },
-  );
-  assert.equal(sdkValidationCalls, 2);
-
-  const maximumEvents = Array.from({ length: 100 }, (_, eventIndex) => event({
-    source: {
-      stream: 'conversation.synthetic',
-      event_id: `turn.maximum.${eventIndex}`,
+  for (const params of [
+    { name: 'memory_search', arguments: `_${candidate}_` },
+    { name: 'memory_search', arguments: null },
+    { name: 'memory_search', arguments: [] },
+    { name: 'memory_search', arguments: 42 },
+    { name: { [`_${candidate}_`]: 'synthetic visible value' }, arguments: {} },
+  ]) {
+    assertGenericValidationError(await client.callTool(params), [candidate]);
+  }
+  const envelopeMarker = 'ordinary-envelope-marker';
+  assertGenericValidationError(await client.request({
+    method: 'tools/call',
+    params: {
+      name: 'memory_status',
+      arguments: {},
+      ordinary_extra: envelopeMarker,
     },
-    relations: Array.from({ length: 128 }, (_, relationIndex) => ({
-      type: 'belongs_to',
-      target_event_id: `event:maximum:${eventIndex}:${relationIndex}`,
-    })),
-    derived: {
-      summary: `Synthetic maximum event ${eventIndex}.`,
-      source_event_ids: Array.from(
-        { length: 512 },
-        (_, sourceIndex) => `event:source:${eventIndex}:${sourceIndex}`,
-      ),
-    },
-    attributes: Object.fromEntries(Array.from(
-      { length: 64 },
-      (_, attributeIndex) => [
-        `field_${attributeIndex}`,
-        Array.from({ length: 32 }, (_, itemIndex) => `item-${eventIndex}-${attributeIndex}-${itemIndex}`),
-      ],
-    )),
-  }));
-  const maximumBatch = await server.validateToolInput(
-    { inputSchema: memoryMcpToolSchemas.memory_record_events },
-    { events: maximumEvents },
-    'memory_record_events',
-  );
-  assert.equal(maximumBatch.events.length, 100);
-  assert.equal(maximumBatch.events[99].relations.length, 128);
-  assert.equal(maximumBatch.events[99].derived.source_event_ids.length, 512);
-  assert.equal(Object.keys(maximumBatch.events[99].attributes).length, 64);
-  assert.equal(sdkValidationCalls, 3);
+  }, z.any()), [envelopeMarker]);
+  assert.equal(storeCallbackCalls, 0);
   await assert.rejects(() => fs.access(vault));
+
+  parseToolJson(await client.callTool({ name: 'memory_status', arguments: {} }));
+  const existingTree = await readTreeMaterial(vault);
+  storeCallbackCalls = 0;
+  assertGenericValidationError(await client.callTool({
+    name: 'memory_search',
+    arguments: { query: 'synthetic query', [`_${candidate}_`]: 'synthetic visible value' },
+  }), [candidate]);
+  assert.equal(storeCallbackCalls, 0);
+  assert.equal(await readTreeMaterial(vault), existingTree);
+});
+
+test('public SDK call accepts the maximum valid event schema before invoking the store', async (t) => {
+  let receivedEvents = null;
+  const store = {
+    enabled: true,
+    profile: syntheticProfile(),
+    status: () => ({}),
+    recordEvents(events) {
+      receivedEvents = events;
+      return { accepted_count: events.length };
+    },
+  };
+  const server = new McpServer({ name: 'synthetic-public-maximum-mcp', version: '1.0.0' });
+  registerMemoryMcpTools(server, store);
+  const client = await connectInMemoryClient(t, server, 'memory-mcp-public-maximum-client');
+
+  const result = parseToolJson(await client.callTool({
+    name: 'memory_record_events',
+    arguments: { events: maximumEventBatch() },
+  }));
+  assert.deepEqual(result, { accepted_count: 100 });
+  assert.equal(receivedEvents.length, 100);
+  assert.equal(receivedEvents[99].relations.length, 128);
+  assert.equal(receivedEvents[99].derived.source_event_ids.length, 512);
+  assert.equal(Object.keys(receivedEvents[99].attributes).length, 64);
+});
+
+test('unsupported and preoccupied public handler boundaries fail closed', async (t) => {
+  let memoryStoreCalls = 0;
+  const store = {
+    enabled: true,
+    profile: syntheticProfile(),
+    status() { memoryStoreCalls += 1; return {}; },
+  };
+  assert.throws(
+    () => registerMemoryMcpTools({ registerTool() {} }, store),
+    { name: 'TypeError', message: 'A supported MCP server is required' },
+  );
+  const unsupportedLowLevel = new McpServer({ name: 'synthetic-low-level-only', version: '1.0.0' });
+  assert.throws(
+    () => registerMemoryMcpTools(unsupportedLowLevel.server, store),
+    { name: 'TypeError', message: 'A supported MCP server is required' },
+  );
+
+  const listServer = new McpServer({ name: 'synthetic-preoccupied-list', version: '1.0.0' });
+  listServer.server.registerCapabilities({ tools: { listChanged: true } });
+  listServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: [{
+      name: 'preoccupied_tool',
+      description: 'Synthetic preoccupied list handler.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    }],
+  }));
+  assert.throws(() => registerMemoryMcpTools(listServer, store), /already exists/);
+  const listClient = await connectInMemoryClient(t, listServer, 'memory-mcp-preoccupied-list-client');
+  assert.deepEqual((await listClient.listTools()).tools.map(tool => tool.name), ['preoccupied_tool']);
+
+  const callServer = new McpServer({ name: 'synthetic-preoccupied-call', version: '1.0.0' });
+  callServer.server.registerCapabilities({ tools: { listChanged: true } });
+  callServer.server.setRequestHandler(CallToolRequestSchema, async () => ({
+    content: [{ type: 'text', text: 'preoccupied call handler' }],
+  }));
+  assert.throws(() => registerMemoryMcpTools(callServer, store), /already exists/);
+  const callClient = await connectInMemoryClient(t, callServer, 'memory-mcp-preoccupied-call-client');
+  const callResult = await callClient.callTool({ name: 'preoccupied_tool', arguments: {} });
+  assert.equal(callResult.content[0].text, 'preoccupied call handler');
+
+  const connectedServer = new McpServer({ name: 'synthetic-connected-server', version: '1.0.0' });
+  const connectedClient = await connectInMemoryClient(t, connectedServer, 'memory-mcp-connected-client');
+  assert.throws(
+    () => registerMemoryMcpTools(connectedServer, store),
+    /Cannot register capabilities after connecting to transport/,
+  );
+  await assert.rejects(
+    () => connectedClient.callTool({ name: 'memory_status', arguments: {} }),
+    /does not support tools|Method not found/i,
+  );
+  assert.equal(memoryStoreCalls, 0);
 });
 
 test('ordinary memory MCP rejects trusted bridges from profile files and injected stores', async (t) => {
