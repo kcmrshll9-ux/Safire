@@ -98,7 +98,7 @@
   <h3>Search and saved searches</h3><p>The search field looks through note paths and note content. After entering a useful query, choose <strong>Save search</strong>; it will appear on Home until you remove it.</p>
   <h3>Wikilinks and backlinks</h3>
   <ul><li>Write <code>[[Project Plan]]</code> to link by note title.</li><li>In preview, select a linked note to open it. If the linked note does not exist, Safire can offer to create it.</li><li><strong>Outgoing links</strong> show notes named by the current note.</li><li><strong>Backlinks</strong> show notes that point back to the current note.</li></ul>
-  <h3>Graph view</h3><p>Graph view arranges notes by connection density. Solid connections are resolved links; dashed connections represent unresolved links. Select a graph node to open the corresponding note.</p>
+  <h3>Graph view</h3><p>Graph view arranges notes by connection density. Solid connections are resolved links; dashed connections represent unresolved links. Select a graph node to open the corresponding note. To keep large or adversarial vaults responsive, Safire applies fixed note, link, and unresolved-placeholder limits and displays a notice with source and rendered note counts whenever a graph is truncated. Link counts that stop before all omitted notes are scanned are explicitly labeled as lower bounds.</p>
   <div class="callout"><strong>Useful pattern:</strong> Write first, link second. When you mention a person, project, place, or repeated idea, type a wikilink. Over time the graph becomes more useful without an elaborate folder scheme.</div>
   <h2 id="workflows">6. Home, tasks, capture, daily notes, and templates</h2>
   <div class="grid">
@@ -135,7 +135,7 @@ Date: {{date}} {{time}}
 <main class="page"><section class="content page-break">
   <h2>7. Continued: image controls and rich links</h2>
   <h3>Image sizing</h3><p>Select an image in Preview to open the Image size menu. Choose <strong>Small</strong>, <strong>Medium</strong>, <strong>Large</strong>, <strong>Full width</strong>, <strong>Original</strong>, or <strong>Use default</strong>. Per-image choices are stored in portable Markdown as a compact size marker; the global <em>Fit images to page</em> setting controls the default behavior.</p>
-  <h3>YouTube links</h3><p>When a normal YouTube URL appears in a note, Safire renders it as a rich preview card with a thumbnail. Other links remain standard Markdown links.</p>
+  <h3>YouTube links</h3><p>When a normal YouTube URL appears in a note, Safire renders a local-only card without downloading a thumbnail or embedding a player. YouTube is contacted only after you open the link. The desktop content policy blocks remote Markdown images; attach an image to the vault when it should appear in Preview.</p>
   <div class="callout safe"><strong>Attachment safety:</strong> Safire only accepts attachment paths under the vault’s <code>Attachments/</code> folder and keeps preview navigation inside the app whenever possible.</div>
   <h2 id="clipper">8. Web Clipper</h2>
   <p>The Web Clipper saves a public web page as durable, offline-readable Markdown in your vault. It is designed for research material, recipes, references, articles, and academic papers—not as a cloud service.</p>
@@ -205,7 +205,7 @@ Date: {{date}} {{time}}
 
 <main class="page"><section class="content page-break">
   <h2>10. Continued: how the integration is configured</h2>
-  <p>Safire’s MCP server runs locally through <code>safire-mcp.mjs</code> and starts a loopback-only Safire service for the vault chosen during desktop setup. Change the selection later through <strong>Safire → Change Vault Location…</strong>; then start a new Hermes session so it reconnects to that shared choice.</p>
+  <p>Safire’s MCP server runs locally through <code>safire-mcp.mjs</code>, uses an in-process vault service over stdio, and opens no HTTP listener. It uses the vault chosen during desktop setup. Change the selection later through <strong>Safire → Change Vault Location…</strong>; then start a new Hermes session so it reconnects to that shared choice.</p>
   <p>In a standard Hermes configuration, the server is represented as a local stdio MCP entry similar to this:</p>
   <pre style="white-space:pre-wrap;background:#101a2d;color:#e7efff;padding:13px;border-radius:10px">mcp_servers:
   safire:

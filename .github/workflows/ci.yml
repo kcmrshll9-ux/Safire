@@ -21,10 +21,12 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22.19.0
           cache: npm
@@ -46,6 +48,12 @@ jobs:
 
       - name: Build unpacked Windows artifact
         run: npx electron-builder --win --x64 --dir
+
+      - name: Verify packaged Markdown renderer isolation
+        shell: pwsh
+        run: |
+          $env:SAFIRE_PACKAGED_APP = Join-Path $PWD 'release\win-unpacked\Safire.exe'
+          node test-support/packaged-renderer-security.mjs
 
       - name: Verify packaged memory runtime
         shell: pwsh

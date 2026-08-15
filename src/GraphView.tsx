@@ -1,4 +1,5 @@
 import React from 'react';
+import { GRAPH_RENDER_LIMITS, graphSourceLinkCountLabel, limitGraphForRendering } from './frontendSecurity';
 
 export type GraphNodeData = {
   id: string;
@@ -22,7 +23,21 @@ export type GraphLinkData = {
   resolution: 'exact-path' | 'unique-title' | 'ambiguous' | 'missing';
 };
 
-export type GraphData = { nodes: GraphNodeData[]; links: GraphLinkData[] };
+export type GraphData = {
+  nodes: GraphNodeData[];
+  links: GraphLinkData[];
+  meta?: {
+    sourceNotes: number;
+    sourceLinks: number;
+    sourceLinksComplete?: boolean;
+    returnedNotes: number;
+    returnedLinks: number;
+    truncated: boolean;
+    omittedNoteContent?: number;
+    omittedLinkFields?: number;
+    responseBytes?: number;
+  };
+};
 
 type GraphViewProps = {
   graph: GraphData;
@@ -215,6 +230,10 @@ function formatGraphDate(timestamp: number) {
   return new Date(timestamp).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+function reportedGraphCount(value: number | undefined, fallback: number) {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= fallback ? value : fallback;
+}
+
 export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissing, overlay }: GraphViewProps) {
   const workspaceRef = React.useRef<HTMLDivElement | null>(null);
   const stageRef = React.useRef<HTMLDivElement | null>(null);
@@ -245,7 +264,19 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
   const [timelineCutoff, setTimelineCutoff] = React.useState(Number.POSITIVE_INFINITY);
   const [timelinePlaying, setTimelinePlaying] = React.useState(false);
   const [announcement, setAnnouncement] = React.useState('');
-  const expanded = React.useMemo(() => expandGraph(graph), [graph]);
+  const renderBudget = React.useMemo(() => limitGraphForRendering(graph, activePath), [graph, activePath]);
+  const expanded = React.useMemo(() => expandGraph(renderBudget.graph), [renderBudget]);
+  const sourceNoteCount = reportedGraphCount(graph.meta?.sourceNotes, graph.nodes.length);
+  const sourceLinkCount = reportedGraphCount(graph.meta?.sourceLinks, graph.links.length);
+  const sourceLinkLabel = graphSourceLinkCountLabel(sourceLinkCount, graph.meta?.sourceLinksComplete !== false);
+  const omittedNoteContent = reportedGraphCount(graph.meta?.omittedNoteContent, 0);
+  const omittedLinkFields = reportedGraphCount(graph.meta?.omittedLinkFields, 0);
+  const graphWasTruncated = Boolean(
+    graph.meta?.truncated
+    || renderBudget.truncated
+    || sourceNoteCount > renderBudget.renderedNotes
+    || sourceLinkCount > renderBudget.renderedLinks,
+  );
   const modifiedRange = React.useMemo(() => {
     const values = expanded.nodes.filter(node => !node.missing && node.mtime > 0).map(node => node.mtime);
     return { minimum: values.length ? Math.min(...values) : 0, maximum: values.length ? Math.max(...values) : 0 };
@@ -262,6 +293,13 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
   React.useEffect(() => {
     setTimelineCutoff(modifiedRange.maximum || Number.POSITIVE_INFINITY);
   }, [modifiedRange.maximum]);
+
+  React.useEffect(() => {
+    const retainedIds = new Set(expanded.nodes.map(node => node.id));
+    for (const nodeId of positionsRef.current.keys()) {
+      if (!retainedIds.has(nodeId)) positionsRef.current.delete(nodeId);
+    }
+  }, [expanded]);
 
   React.useEffect(() => {
     const stage = stageRef.current;
@@ -652,7 +690,7 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
   const visibleResolvedLinkCount = visibleLinks.filter(link => link.resolved).length;
   const visibleMissingLinkCount = visibleLinks.length - visibleResolvedLinkCount;
   const currentMenuNode = menu ? nodeById.get(menu.nodeId) || null : null;
-  const nodeCountLabel = visibleNoteCount === graph.nodes.length ? `${visibleNoteCount}` : `${visibleNoteCount} of ${graph.nodes.length}`;
+  const nodeCountLabel = visibleNoteCount === sourceNoteCount ? `${visibleNoteCount}` : `${visibleNoteCount} of ${sourceNoteCount}`;
   void layoutVersion;
 
   const fullscreenActive = isFullscreen || fullscreenFallback;
@@ -679,6 +717,12 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
         <button className="graph-fullscreen-button" onClick={() => void toggleFullscreen()} aria-pressed={fullscreenActive}>{fullscreenActive ? 'Exit full screen' : 'Full screen'}</button>
       </div>
     </div>
+
+    {graphWasTruncated && <p className="graph-limit-notice" role="status">
+      Large graph limited for responsiveness: rendering {renderBudget.renderedNotes} of {sourceNoteCount} notes and {renderBudget.renderedLinks} of {sourceLinkLabel} links. Unresolved placeholders are limited to {GRAPH_RENDER_LIMITS.missing}.
+      {omittedNoteContent > 0 && <> Content indexing was skipped for {omittedNoteContent} oversized note{omittedNoteContent === 1 ? '' : 's'}.</>}
+      {omittedLinkFields > 0 && <> {omittedLinkFields} oversized or malformed link field{omittedLinkFields === 1 ? ' was' : 's were'} omitted.</>}
+    </p>}
 
     <div className="graph-3d-stage graph-2d-stage" ref={stageRef} tabIndex={0} onKeyDown={onGraphKeyDown}>
       <svg ref={svgRef} className="graph-svg-canvas" viewBox={`0 0 ${dimensions.width} ${dimensions.height}`} aria-label={`Interactive ${scope} knowledge graph with ${visibleNodes.length} visible notes and ${visibleLinks.length} visible links`} onPointerMove={movePointer} onPointerUp={endPointer} onPointerCancel={endPointer} onWheel={event => {
