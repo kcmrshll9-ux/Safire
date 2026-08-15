@@ -9,22 +9,33 @@ import { Agent, fetch as undiciFetch } from 'undici';
 import vaultConfig from './vault-config.cjs';
 import {
   excerpt,
+  isPublicTaskLine,
+  parseEvidenceReceipts,
   parseLinks,
+  parsePublicEvidenceReceipts,
+  parsePublicTasks,
   parseTags,
   publicEvidenceContent,
   publicNoteMetadata,
   semanticMarkdownContent,
-  wikiLinkTargets,
 } from './lib/note-projection.mjs';
+import {
+  GRAPH_STORAGE_LIMITS,
+  createGraphResponseBudget,
+  readBoundedIndexNote,
+  scanBoundedGraphWikiLinks,
+  selectGraphNotePaths,
+} from './lib/graph-policy.mjs';
+import {
+  createNoteMutator,
+  listContainedFiles,
+  readContainedFile,
+} from './lib/note-mutations.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const { resolveVaultPath: resolveConfiguredVaultPath } = vaultConfig;
 const LOOPBACK_HOST = '127.0.0.1';
-const GRAPH_NOTE_LIMIT = 1000;
-const GRAPH_LINK_LIMIT = 2000;
-const GRAPH_LINK_SCAN_LIMIT = 4000;
-const GRAPH_TAGS_PER_NOTE_LIMIT = 32;
 function loopbackHost(candidate) {
   return ['127.0.0.1', '::1'].includes(String(candidate || '').trim()) ? String(candidate).trim() : LOOPBACK_HOST;
 }
@@ -62,6 +73,7 @@ const PORT = Number(process.env.PORT || 5277);
 const DEFAULT_DIST_DIR = path.join(__dirname, 'dist');
 let VAULT_DIR = resolveConfiguredVaultPath();
 let DIST_DIR = DEFAULT_DIST_DIR;
+let noteMutator;
 const IS_CLI = process.argv[1] && path.resolve(process.argv[1]) === __filename;
 
 const app = express();
@@ -94,12 +106,16 @@ async function ensureVault() {
   await fs.mkdir(VAULT_DIR, { recursive: true });
   await fs.mkdir(path.join(VAULT_DIR, 'Daily Notes'), { recursive: true });
   const welcome = path.join(VAULT_DIR, 'Welcome.md');
-  if (!fssync.existsSync(welcome)) {
-    await fs.writeFile(welcome, `# Welcome to Safire\n\nSafire is your privacy-focused, local-first Markdown workspace: warm, fast, portable, and yours.\n\n- Link notes with [[Ideas]]\n- Tag notes with #home or #projects\n- Use the graph view to see connections\n- Press Ctrl+K for the command palette\n- Press Ctrl+O for quick switcher\n- Press Ctrl+S to save\n\nCore note workflows stay on this computer. See PRIVACY.md for the network boundaries of optional features.\n`, 'utf8');
+  try {
+    await fs.writeFile(welcome, `# Welcome to Safire\n\nSafire is your privacy-focused, local-first Markdown workspace: warm, fast, portable, and yours.\n\n- Link notes with [[Ideas]]\n- Tag notes with #home or #projects\n- Use the graph view to see connections\n- Press Ctrl+K for the command palette\n- Press Ctrl+O for quick switcher\n- Press Ctrl+S to save\n\nCore note workflows stay on this computer. See PRIVACY.md for the network boundaries of optional features.\n`, { encoding: 'utf8', flag: 'wx' });
+  } catch (error) {
+    if (error?.code !== 'EEXIST') throw error;
   }
   const ideas = path.join(VAULT_DIR, 'Ideas.md');
-  if (!fssync.existsSync(ideas)) {
-    await fs.writeFile(ideas, `# Ideas\n\nThis note links back to [[Welcome]].\n\n#ideas\n`, 'utf8');
+  try {
+    await fs.writeFile(ideas, `# Ideas\n\nThis note links back to [[Welcome]].\n\n#ideas\n`, { encoding: 'utf8', flag: 'wx' });
+  } catch (error) {
+    if (error?.code !== 'EEXIST') throw error;
   }
 }
 
@@ -183,26 +199,41 @@ async function buildTree(dir = VAULT_DIR, base = VAULT_DIR) {
   return children.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'folder' ? -1 : 1));
 }
 
-async function noteMeta(rel) {
+async function noteMeta(rel, byteLimit = GRAPH_STORAGE_LIMITS.noteBytes) {
   const { abs } = resolveNotePath(rel);
-  const [stat, content] = await Promise.all([fs.stat(abs), fs.readFile(abs, 'utf8')]);
-  return { path: rel, title: titleFromPath(rel), folder: slash(path.dirname(rel)) === '.' ? '' : slash(path.dirname(rel)), size: stat.size, mtime: stat.mtimeMs, ...publicNoteMetadata(content) };
+  const indexed = await readBoundedIndexNote(fs, abs, byteLimit);
+  const metadata = indexed.contentOmitted ? { tags: [], links: [], excerpt: '' } : publicNoteMetadata(indexed.content);
+  return {
+    note: {
+      path: rel,
+      title: titleFromPath(rel),
+      folder: slash(path.dirname(rel)) === '.' ? '' : slash(path.dirname(rel)),
+      size: indexed.stat.size,
+      mtime: indexed.stat.mtimeMs,
+      contentOmitted: indexed.contentOmitted,
+      ...metadata,
+    },
+    bytesConsumed: indexed.bytesConsumed,
+  };
 }
 
 async function allNotesWithContent() {
   const rels = await walkMarkdown(VAULT_DIR);
   const notes = [];
+  let remainingBytes = GRAPH_STORAGE_LIMITS.indexBytesPerOperation;
   for (const rel of rels) {
     const { abs } = resolveNotePath(rel);
-    const [stat, content] = await Promise.all([fs.stat(abs), fs.readFile(abs, 'utf8')]);
-    const semanticContent = semanticMarkdownContent(content);
+    const indexed = await readBoundedIndexNote(fs, abs, remainingBytes);
+    remainingBytes = Math.max(0, remainingBytes - indexed.bytesConsumed);
+    const semanticContent = indexed.contentOmitted ? '' : semanticMarkdownContent(indexed.content);
     notes.push({
       rel,
-      content,
+      content: indexed.content,
+      contentOmitted: indexed.contentOmitted,
       title: titleFromPath(rel),
       folder: slash(path.dirname(rel)) === '.' ? '' : slash(path.dirname(rel)),
-      size: stat.size,
-      mtime: stat.mtimeMs,
+      size: indexed.stat.size,
+      mtime: indexed.stat.mtimeMs,
       tags: parseTags(semanticContent),
       links: parseLinks(semanticContent),
     });
@@ -250,17 +281,6 @@ function createWikiLinkResolver(notes) {
   };
 }
 
-async function backupIfExists(abs) {
-  if (!fssync.existsSync(abs)) return null;
-  const rel = slash(path.relative(VAULT_DIR, abs));
-  const backupDir = resolveVaultPath(`.safire-backups/${new Date().toISOString().slice(0, 10)}`).abs;
-  await fs.mkdir(backupDir, { recursive: true });
-  const backupName = rel.replace(/[\\/:]/g, '__') + '.' + Date.now() + '.bak';
-  const backupPath = path.join(backupDir, backupName);
-  await fs.copyFile(abs, backupPath);
-  return slash(path.relative(VAULT_DIR, backupPath));
-}
-
 function settingsDir() { return resolveVaultPath('.safire').abs; }
 function settingsPath() { return path.join(settingsDir(), 'settings.json'); }
 const DEFAULT_SETTINGS = {
@@ -304,29 +324,16 @@ async function writeSettings(patch = {}) {
   return next;
 }
 
-async function walkAllFiles(dir, base = dir) {
-  if (!fssync.existsSync(dir)) return [];
-  const out = [];
-  const entries = await fs.readdir(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isSymbolicLink()) continue;
-    if (entry.isDirectory()) out.push(...await walkAllFiles(full, base));
-    else if (entry.isFile()) out.push(slash(path.relative(base, full)));
-  }
-  return out.sort((a, b) => a.localeCompare(b));
-}
-
 function backupNoteFromName(fileRel) {
   const base = path.basename(fileRel).replace(/\.bak$/i, '');
-  const withoutStamp = base.replace(/\.\d+$/, '');
+  const withoutStamp = base.replace(/\.\d+(?:\.[A-Za-z0-9_-]+)?$/, '');
   return withoutStamp.replace(/__/g, '/');
 }
 
 function resolveBackupId(id = '') {
   const rel = slash(id).replace(/^\/+/, '');
   if (!rel || rel.includes('\0') || rel.split('/').some(part => part === '..' || part === '')) throw new Error('Unsafe backup id');
-  const root = path.join(VAULT_DIR, '.safire-backups');
+  const root = resolveVaultPath('.safire-backups').abs;
   const abs = path.resolve(root, rel);
   if (!abs.startsWith(root + path.sep) && abs !== root) throw new Error('Backup path escapes vault');
   assertNoReparsePoints(abs);
@@ -411,22 +418,9 @@ async function pruneWorkspace(workspace) {
   workspace.recentNotes = (await Promise.all(workspace.recentNotes.map(async item => (await exists(item.path)) ? item : null))).filter(Boolean);
   return workspace;
 }
-function parseTasks(content, notePath) {
-  const tasks = [];
-  let inFence = false;
-  const lines = content.split(String.fromCharCode(13)).join('').split(String.fromCharCode(10));
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (/^\s*```/.test(line)) { inFence = !inFence; continue; }
-    if (inFence) continue;
-    const match = line.match(/^(\s*[-*+]\s+\[)( |x|X)(\]\s+)(.*)$/);
-    if (match) tasks.push({ id: `${notePath}:${index + 1}`, path: notePath, line: index + 1, text: match[4].trim(), completed: match[2].toLowerCase() === 'x' });
-  }
-  return tasks;
-}
 async function allTasks(state = 'open') {
   const notes = await allNotesWithContent();
-  const tasks = notes.flatMap(note => parseTasks(note.content, note.rel));
+  const tasks = notes.flatMap(note => parsePublicTasks(note.content, note.rel));
   const filtered = state === 'completed' ? tasks.filter(task => task.completed) : state === 'all' ? tasks : tasks.filter(task => !task.completed);
   return filtered.sort((a, b) => Number(a.completed) - Number(b.completed) || a.path.localeCompare(b.path) || a.line - b.line);
 }
@@ -434,17 +428,22 @@ async function toggleTaskAtLine(rawPath, rawLine) {
   const { rel, abs } = resolveNotePath(rawPath);
   const lineNumber = Number(rawLine);
   if (!Number.isInteger(lineNumber) || lineNumber < 1) throw new Error('Task line must be a positive integer');
-  const content = await fs.readFile(abs, 'utf8');
-  const newline = content.includes(String.fromCharCode(13, 10)) ? String.fromCharCode(13, 10) : String.fromCharCode(10);
-  const lines = content.split(String.fromCharCode(13)).join('').split(String.fromCharCode(10));
-  const index = lineNumber - 1;
-  const match = lines[index]?.match(/^(\s*[-*+]\s+\[)( |x|X)(\]\s+)(.*)$/);
-  if (!match) throw new Error('No supported task exists on that line');
-  const nextState = match[2].toLowerCase() === 'x' ? ' ' : 'x';
-  lines[index] = `${match[1]}${nextState}${match[3]}${match[4]}`;
-  const backup = await backupIfExists(abs);
-  await fs.writeFile(abs, lines.join(newline), 'utf8');
-  return { task: parseTasks(lines.join('\n'), rel).find(task => task.line === lineNumber), backup };
+  const { backup, value: task } = await noteMutator.mutate(abs, (current) => {
+    const content = current.toString('utf8');
+    if (!isPublicTaskLine(content, lineNumber)) throw new Error('No supported public task exists on that line');
+    const newline = content.includes(String.fromCharCode(13, 10)) ? String.fromCharCode(13, 10) : String.fromCharCode(10);
+    const lines = content.split(String.fromCharCode(13)).join('').split(String.fromCharCode(10));
+    const index = lineNumber - 1;
+    const match = lines[index]?.match(/^(\s*[-*+]\s+\[)( |x|X)(\]\s+)(.*)$/);
+    if (!match) throw new Error('No supported task exists on that line');
+    const nextState = match[2].toLowerCase() === 'x' ? ' ' : 'x';
+    lines[index] = `${match[1]}${nextState}${match[3]}${match[4]}`;
+    return {
+      content: lines.join(newline),
+      value: parsePublicTasks(lines.join('\n'), rel).find(candidate => candidate.line === lineNumber),
+    };
+  }, { requireExisting: true });
+  return { task, backup };
 }
 function safeCaptureTag(raw = '') {
   const tag = String(raw).trim().replace(/^#/, '');
@@ -480,58 +479,9 @@ function yamlValue(value = '') {
   return `"${compact}"`;
 }
 
-const EVIDENCE_SOURCE_TYPES = new Set(['url', 'local_file', 'manual_observation', 'tool_result']);
-const EVIDENCE_STATUSES = new Set(['verified', 'inferred', 'stale', 'conflicting', 'unavailable']);
-
-function evidenceValue(raw = '') {
-  const value = String(raw).trim();
-  if (!value) return '';
-  if (value.startsWith('"')) {
-    try { return String(JSON.parse(value)); } catch { /* Fall through to readable YAML text. */ }
-  }
-  if (value.startsWith("'") && value.endsWith("'")) return value.slice(1, -1).replace(/''/g, "'");
-  return value;
-}
-
 function evidenceDate(value = '') {
   const timestamp = Date.parse(String(value));
   return Number.isFinite(timestamp) ? timestamp : null;
-}
-
-function parseEvidenceReceipts(content = '', notePath = '') {
-  const receipts = [];
-  const blocks = String(content).matchAll(/^\s*```safire-evidence\s*\x0d?\n([\s\S]*?)^\s*```\s*$/gim);
-  let index = 0;
-  for (const match of blocks) {
-    const raw = {};
-    for (const line of match[1].split('\n')) {
-      const separator = line.indexOf(':');
-      if (separator < 1 || /^\s*#/.test(line)) continue;
-      raw[line.slice(0, separator).trim()] = evidenceValue(line.slice(separator + 1));
-    }
-    const sourceType = EVIDENCE_SOURCE_TYPES.has(raw.source_type) ? raw.source_type : 'manual_observation';
-    const status = EVIDENCE_STATUSES.has(raw.status) ? raw.status : 'unavailable';
-    const freshness = raw.freshness || raw.expires_at || '';
-    const freshnessDate = evidenceDate(freshness);
-    const receipt = {
-      id: raw.id || `${notePath || 'note'}:evidence:${index + 1}`,
-      claim: raw.claim || raw.label || '',
-      sourceType,
-      source: raw.source || raw.source_url_or_path || '',
-      observedAt: raw.observed_at || '',
-      action: raw.action || raw.action_performed || '',
-      verification: raw.verification || raw.predicate || raw.test || '',
-      status,
-      freshness,
-      excerpt: raw.excerpt || raw.evidence_excerpt || '',
-      hash: raw.hash || raw.sha256 || '',
-      privateNotes: raw.private_notes || raw.notes || '',
-      expired: freshnessDate !== null && freshnessDate <= Date.now(),
-    };
-    if (receipt.claim || raw.id) receipts.push(receipt);
-    index += 1;
-  }
-  return receipts;
 }
 
 function evidenceSummary(receipts = []) {
@@ -788,14 +738,18 @@ async function createWebClip(input = {}) {
   };
   const baseName = safeFilename(data.title).slice(0, 140) || 'Untitled web clip';
   const folder = `Web Clips/${template.folder}`;
-  let rel = `${folder}/${baseName}.md`;
-  let attempt = 2;
-  while (fssync.existsSync(resolveNotePath(rel).abs)) rel = `${folder}/${baseName} (${attempt++}).md`;
-  const { abs } = resolveNotePath(rel);
-  await fs.mkdir(path.dirname(abs), { recursive: true });
   const content = renderWebClip(template, data);
-  await fs.writeFile(abs, content, 'utf8');
-  return { path: rel, title: data.title, template: template.id, source: data.url, content };
+  for (let attempt = 1; attempt <= 1000; attempt += 1) {
+    const rel = attempt === 1 ? `${folder}/${baseName}.md` : `${folder}/${baseName} (${attempt}).md`;
+    const { abs } = resolveNotePath(rel);
+    try {
+      await noteMutator.create(abs, content);
+      return { path: rel, title: data.title, template: template.id, source: data.url, content };
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+    }
+  }
+  throw new Error('Safire could not allocate a unique web clip note');
 }
 
 function publicVaultLabel() {
@@ -812,8 +766,18 @@ app.get('/api/notes', async (_req, res, next) => {
   try {
     const rels = await walkMarkdown(VAULT_DIR);
     const notes = [];
-    for (const rel of rels) notes.push(await noteMeta(rel));
-    res.json({ vault: publicVaultLabel(), notes });
+    let remainingBytes = GRAPH_STORAGE_LIMITS.indexBytesPerOperation;
+    for (const rel of rels) {
+      const indexedMetadata = await noteMeta(rel, remainingBytes);
+      const note = indexedMetadata.note;
+      remainingBytes = Math.max(0, remainingBytes - indexedMetadata.bytesConsumed);
+      notes.push(note);
+    }
+    res.json({
+      vault: publicVaultLabel(),
+      notes,
+      meta: { contentOmitted: notes.filter(note => note.contentOmitted).length },
+    });
   } catch (err) { next(err); }
 });
 
@@ -831,10 +795,13 @@ app.post('/api/note', async (req, res, next) => {
     const wanted = req.body.path || req.body.title || 'Untitled';
     const safe = slash(safeFilename(wanted)).replace(/^\/+/, '') || 'Untitled';
     const { rel, abs } = resolveNotePath(safe);
-    if (fssync.existsSync(abs)) return res.status(409).json({ error: 'Note already exists', path: rel });
-    await fs.mkdir(path.dirname(abs), { recursive: true });
     const initial = req.body.content ?? `# ${titleFromPath(rel)}\n\n`;
-    await fs.writeFile(abs, initial, 'utf8');
+    try {
+      await noteMutator.create(abs, initial);
+    } catch (error) {
+      if (error?.code === 'EEXIST') return res.status(409).json({ error: 'Note already exists', path: rel });
+      throw error;
+    }
     res.status(201).json({ path: rel, content: initial });
   } catch (err) { next(err); }
 });
@@ -842,9 +809,7 @@ app.post('/api/note', async (req, res, next) => {
 app.put('/api/note', async (req, res, next) => {
   try {
     const { rel, abs } = resolveNotePath(req.body.path);
-    await fs.mkdir(path.dirname(abs), { recursive: true });
-    const backup = await backupIfExists(abs);
-    await fs.writeFile(abs, String(req.body.content ?? ''), 'utf8');
+    const { backup } = await noteMutator.replace(abs, String(req.body.content ?? ''));
     res.json({ ok: true, path: rel, backup });
   } catch (err) { next(err); }
 });
@@ -852,8 +817,7 @@ app.put('/api/note', async (req, res, next) => {
 app.delete('/api/note', async (req, res, next) => {
   try {
     const { rel, abs } = resolveNotePath(req.body.path);
-    const backup = await backupIfExists(abs);
-    await fs.rm(abs, { force: true });
+    const { backup } = await noteMutator.remove(abs);
     res.json({ ok: true, path: rel, backup });
   } catch (err) { next(err); }
 });
@@ -862,7 +826,7 @@ app.post('/api/folder', async (req, res, next) => {
   try {
     const { rel, abs } = resolveVaultPath(req.body.path || 'New Folder');
     if (!rel) throw new Error('Folder name required');
-    await fs.mkdir(abs, { recursive: true });
+    await noteMutator.ensureFolder(abs);
     res.status(201).json({ path: rel });
   } catch (err) { next(err); }
 });
@@ -875,10 +839,23 @@ app.post('/api/rename', async (req, res, next) => {
     const toIsNote = String(toRaw).toLowerCase().endsWith('.md') || fromIsNote;
     const from = fromIsNote ? resolveNotePath(fromRaw) : resolveVaultPath(fromRaw);
     const to = toIsNote ? resolveNotePath(toRaw) : resolveVaultPath(toRaw);
-    if (!fssync.existsSync(from.abs)) return res.status(404).json({ error: 'Source not found' });
-    if (fssync.existsSync(to.abs)) return res.status(409).json({ error: 'Destination already exists' });
-    await fs.mkdir(path.dirname(to.abs), { recursive: true });
-    await fs.rename(from.abs, to.abs);
+    if (fromIsNote) {
+      try {
+        await noteMutator.rename(from.abs, to.abs);
+      } catch (error) {
+        if (error?.code === 'ENOENT') return res.status(404).json({ error: 'Source not found' });
+        if (error?.code === 'EEXIST') return res.status(409).json({ error: 'Destination already exists' });
+        throw error;
+      }
+      return res.json({ ok: true, from: from.rel, to: to.rel });
+    }
+    try {
+      await noteMutator.renameFolder(from.abs, to.abs);
+    } catch (error) {
+      if (error?.code === 'ENOENT') return res.status(404).json({ error: 'Source not found' });
+      if (error?.code === 'EEXIST') return res.status(409).json({ error: 'Destination already exists' });
+      throw error;
+    }
     res.json({ ok: true, from: from.rel, to: to.rel });
   } catch (err) { next(err); }
 });
@@ -887,9 +864,10 @@ app.post('/api/daily', async (_req, res, next) => {
   try {
     const rel = `Daily Notes/${todayName()}.md`;
     const { abs } = resolveNotePath(rel);
-    if (!fssync.existsSync(abs)) {
-      await fs.mkdir(path.dirname(abs), { recursive: true });
-      await fs.writeFile(abs, `# ${todayName()}\n\n## Notes\n\n## Tasks\n\n- [ ] \n\n#daily\n`, 'utf8');
+    try {
+      await noteMutator.create(abs, `# ${todayName()}\n\n## Notes\n\n## Tasks\n\n- [ ] \n\n#daily\n`);
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
     }
     res.json({ path: rel });
   } catch (err) { next(err); }
@@ -904,9 +882,8 @@ app.post('/api/capture', async (req, res, next) => {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const rel = `Inbox/${stamp}-${Math.random().toString(36).slice(2, 6)}.md`;
     const { abs } = resolveNotePath(rel);
-    await fs.mkdir(path.dirname(abs), { recursive: true });
     const content = `# Quick capture\n\n${text}\n${tag ? `\n#${tag}\n` : ''}`;
-    await fs.writeFile(abs, content, 'utf8');
+    await noteMutator.create(abs, content);
     res.status(201).json({ path: rel, content });
   } catch (err) { next(err); }
 });
@@ -939,11 +916,14 @@ app.post('/api/template/instantiate', async (req, res, next) => {
     const destinationRaw = String(req.body?.destination || req.body?.title || '').trim();
     if (!destinationRaw) throw new Error('New note destination is required');
     const destination = resolveNotePath(destinationRaw);
-    if (fssync.existsSync(destination.abs)) return res.status(409).json({ error: 'Note already exists', path: destination.rel });
-    await fs.mkdir(path.dirname(destination.abs), { recursive: true });
     const title = String(req.body?.title || titleFromPath(destination.rel)).trim().slice(0, 200) || titleFromPath(destination.rel);
     const content = renderTemplate(source, { title });
-    await fs.writeFile(destination.abs, content, 'utf8');
+    try {
+      await noteMutator.create(destination.abs, content);
+    } catch (error) {
+      if (error?.code === 'EEXIST') return res.status(409).json({ error: 'Note already exists', path: destination.rel });
+      throw error;
+    }
     res.status(201).json({ path: destination.rel, content });
   } catch (err) { next(err); }
 });
@@ -956,7 +936,7 @@ app.get('/api/search', async (req, res, next) => {
     const notes = await allNotesWithContent();
     const results = (!q && !hasEvidenceFilter ? [] : notes.map(n => {
       const searchable = publicSearchContent(n.content);
-      const receipts = parseEvidenceReceipts(searchable, n.rel);
+      const receipts = parsePublicEvidenceReceipts(searchable, n.rel);
       const matchingReceipts = receipts.filter(receipt => receiptMatchesFilters(receipt, filters));
       const textMatches = !q || n.rel.toLowerCase().includes(q) || searchable.toLowerCase().includes(q);
       const evidenceMatches = !hasEvidenceFilter || matchingReceipts.length > 0;
@@ -992,47 +972,75 @@ app.post('/api/task/toggle', async (req, res, next) => {
   try { res.json({ ok: true, ...(await toggleTaskAtLine(req.body?.path, req.body?.line)) }); } catch (err) { next(err); }
 });
 
-app.get('/api/graph', async (_req, res, next) => {
+app.get('/api/graph', async (req, res, next) => {
   try {
     const notePaths = await walkMarkdown(VAULT_DIR);
-    const returnedPaths = notePaths.slice(0, GRAPH_NOTE_LIMIT);
-    const returnedNoteIds = new Set(returnedPaths);
+    let activePath = '';
+    const requestedActive = String(req.query.active || '').trim();
+    if (requestedActive) {
+      try {
+        const requested = resolveNotePath(requestedActive).rel.toLowerCase();
+        activePath = notePaths.find(candidate => candidate.toLowerCase() === requested) || '';
+      } catch {
+        // Invalid, outside-vault, and nonexistent active paths are deliberately
+        // indistinguishable and do not change the deterministic default page.
+      }
+    }
+    const returnedPaths = selectGraphNotePaths(notePaths, activePath);
+    const selectedNoteIds = new Set(returnedPaths);
     const resolveWikiLink = createWikiLinkResolver(notePaths.map(rel => ({ rel })));
-    const notes = [];
-    const links = [];
+    const noteRecords = [];
+    const candidateLinks = [];
     let sourceLinks = 0;
     let omittedLink = false;
     let linkDiscoveryStopped = false;
-    for (const rel of returnedPaths) {
+    let omittedNoteContent = 0;
+    let omittedLinkFields = 0;
+    let remainingIndexBytes = GRAPH_STORAGE_LIMITS.indexBytesPerOperation;
+    for (let noteIndex = 0; noteIndex < returnedPaths.length; noteIndex += 1) {
+      const rel = returnedPaths[noteIndex];
       const { abs } = resolveNotePath(rel);
-      const [stat, content] = await Promise.all([fs.stat(abs), fs.readFile(abs, 'utf8')]);
-      const semanticContent = semanticMarkdownContent(content);
-      notes.push({
+      const indexed = await readBoundedIndexNote(fs, abs, remainingIndexBytes);
+      remainingIndexBytes = Math.max(0, remainingIndexBytes - indexed.bytesConsumed);
+      const semanticContent = indexed.contentOmitted ? '' : semanticMarkdownContent(indexed.content);
+      if (indexed.contentOmitted) omittedNoteContent += 1;
+      noteRecords.push({
         rel,
         title: titleFromPath(rel),
         folder: slash(path.dirname(rel)) === '.' ? '' : slash(path.dirname(rel)),
-        size: stat.size,
-        mtime: stat.mtimeMs,
-        tags: parseTags(semanticContent, GRAPH_TAGS_PER_NOTE_LIMIT),
+        size: indexed.stat.size,
+        mtime: indexed.stat.mtimeMs,
+        tags: parseTags(semanticContent, GRAPH_STORAGE_LIMITS.tagsPerNote),
       });
-      if (linkDiscoveryStopped) continue;
+      if (indexed.contentOmitted || linkDiscoveryStopped) continue;
+
+      const remainingObservations = GRAPH_STORAGE_LIMITS.observedLinks - sourceLinks;
+      if (remainingObservations <= 0) {
+        linkDiscoveryStopped = true;
+        omittedLink = true;
+        continue;
+      }
+      const scan = scanBoundedGraphWikiLinks(semanticContent, remainingObservations);
+      sourceLinks += scan.observed;
+      omittedLinkFields += scan.omitted;
+      if (!scan.complete) omittedLink = true;
+      if (!scan.observationsComplete) linkDiscoveryStopped = true;
       const retainedTargets = new Set();
-      for (const linkTitle of wikiLinkTargets(semanticContent)) {
-        sourceLinks += 1;
-        if (sourceLinks > GRAPH_LINK_SCAN_LIMIT || links.length >= GRAPH_LINK_LIMIT) {
+      for (const linkTitle of scan.targets) {
+        if (candidateLinks.length >= GRAPH_STORAGE_LIMITS.links) {
           omittedLink = true;
           linkDiscoveryStopped = true;
           break;
         }
         if (retainedTargets.has(linkTitle)) continue;
         const resolution = resolveWikiLink(linkTitle);
-        if (resolution.resolved && !returnedNoteIds.has(resolution.target)) {
+        if (resolution.resolved && !selectedNoteIds.has(resolution.target)) {
           omittedLink = true;
           continue;
         }
         retainedTargets.add(linkTitle);
-        links.push({
-          id: `link:${encodeURIComponent(rel)}:${encodeURIComponent(linkTitle)}`,
+        candidateLinks.push({
+          id: `link:${candidateLinks.length}`,
           source: rel,
           target: resolution.target,
           label: linkTitle,
@@ -1040,41 +1048,85 @@ app.get('/api/graph', async (_req, res, next) => {
           resolution: resolution.resolution,
         });
       }
+      if (sourceLinks >= GRAPH_STORAGE_LIMITS.observedLinks && noteIndex < returnedPaths.length - 1) {
+        omittedLink = true;
+        linkDiscoveryStopped = true;
+      }
     }
-    const incoming = new Map(notes.map(n => [n.rel, 0]));
-    const outgoing = new Map(notes.map(n => [n.rel, 0]));
+
+    const responseBudget = createGraphResponseBudget();
+    const nodes = [];
+    const prioritizedNoteRecords = activePath
+      ? [noteRecords.find(note => note.rel === activePath), ...noteRecords.filter(note => note.rel !== activePath)].filter(Boolean)
+      : noteRecords;
+    for (const note of prioritizedNoteRecords) {
+      const node = {
+        id: note.rel,
+        label: note.title,
+        tags: note.tags,
+        folder: note.folder,
+        size: note.size,
+        mtime: note.mtime,
+        inDegree: 0,
+        outDegree: 0,
+        degree: 0,
+        orphan: true,
+      };
+      if (!responseBudget.tryAppend(nodes, node) && node.tags.length > 0) {
+        responseBudget.tryAppend(nodes, { ...node, tags: [] });
+      }
+    }
+    const returnedOrder = new Map(returnedPaths.map((rel, index) => [rel, index]));
+    nodes.sort((left, right) => returnedOrder.get(left.id) - returnedOrder.get(right.id));
+    const returnedNodeIds = new Set(nodes.map(node => node.id));
+    const links = [];
+    for (const link of candidateLinks) {
+      if (!returnedNodeIds.has(link.source) || (link.resolved && !returnedNodeIds.has(link.target))) {
+        omittedLink = true;
+        continue;
+      }
+      if (!responseBudget.tryAppend(links, link)) omittedLink = true;
+    }
+
+    const incoming = new Map(nodes.map(node => [node.id, 0]));
+    const outgoing = new Map(nodes.map(node => [node.id, 0]));
     for (const link of links) {
       outgoing.set(link.source, (outgoing.get(link.source) || 0) + 1);
       if (link.resolved && incoming.has(link.target)) incoming.set(link.target, (incoming.get(link.target) || 0) + 1);
     }
-    const nodes = notes.map(n => {
-      const inDegree = incoming.get(n.rel) || 0;
-      const outDegree = outgoing.get(n.rel) || 0;
-      return {
-        id: n.rel,
-        label: n.title,
-        tags: n.tags,
-        folder: n.folder,
-        size: n.size,
-        mtime: n.mtime,
-        inDegree,
-        outDegree,
-        degree: inDegree + outDegree,
-        orphan: inDegree === 0 && outDegree === 0,
-      };
-    });
-    res.json({
+    for (const node of nodes) {
+      node.inDegree = incoming.get(node.id) || 0;
+      node.outDegree = outgoing.get(node.id) || 0;
+      node.degree = node.inDegree + node.outDegree;
+      node.orphan = node.degree === 0;
+    }
+
+    const payload = {
       nodes,
       links,
       meta: {
         sourceNotes: notePaths.length,
         sourceLinks,
-        sourceLinksComplete: !linkDiscoveryStopped && notePaths.length === returnedPaths.length,
+        sourceLinksComplete: !linkDiscoveryStopped && omittedNoteContent === 0 && notePaths.length === returnedPaths.length,
         returnedNotes: nodes.length,
         returnedLinks: links.length,
-        truncated: notePaths.length > nodes.length || omittedLink,
+        omittedNoteContent,
+        omittedLinkFields,
+        responseBytes: 0,
+        truncated: notePaths.length > nodes.length || omittedLink || omittedNoteContent > 0 || responseBudget.truncated,
       },
-    });
+    };
+    // Include the decimal byte-count field itself in the reported total. The
+    // value converges as soon as its digit width stops changing.
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const measured = Buffer.byteLength(JSON.stringify(payload), 'utf8');
+      if (payload.meta.responseBytes === measured) break;
+      payload.meta.responseBytes = measured;
+    }
+    if (payload.meta.responseBytes > GRAPH_STORAGE_LIMITS.responseBytes) {
+      throw new Error('Graph response exceeded the safe byte limit');
+    }
+    res.json(payload);
   } catch (err) { next(err); }
 });
 
@@ -1155,16 +1207,15 @@ app.delete('/api/workspace/search/:id', async (req, res, next) => {
 app.get('/api/backups', async (req, res, next) => {
   try {
     const target = req.query.path ? normalizeNotePath(req.query.path) : '';
-    const root = path.join(VAULT_DIR, '.safire-backups');
-    const files = (await walkAllFiles(root)).filter(f => f.toLowerCase().endsWith('.bak'));
+    const root = resolveVaultPath('.safire-backups').abs;
+    const files = (await listContainedFiles(VAULT_DIR, root)).filter(file => file.relativePath.toLowerCase().endsWith('.bak'));
     const backups = [];
-    for (const id of files) {
-      const { abs } = resolveBackupId(id);
-      const stat = await fs.stat(abs);
+    for (const file of files) {
+      const id = file.relativePath;
       const notePath = backupNoteFromName(id);
       if (target && notePath !== target) continue;
-      const stamp = id.match(/\.(\d+)\.bak$/)?.[1];
-      backups.push({ id, notePath, size: stat.size, createdAt: stamp ? Number(stamp) : stat.mtimeMs });
+      const stamp = id.match(/\.(\d+)(?:\.[A-Za-z0-9_-]+)?\.bak$/)?.[1];
+      backups.push({ id, notePath, size: file.size, createdAt: stamp ? Number(stamp) : file.mtimeMs });
     }
     backups.sort((a, b) => b.createdAt - a.createdAt);
     res.json({ backups });
@@ -1174,7 +1225,7 @@ app.get('/api/backups', async (req, res, next) => {
 app.get('/api/backup', async (req, res, next) => {
   try {
     const { rel, abs } = resolveBackupId(req.query.id || '');
-    const content = await fs.readFile(abs, 'utf8');
+    const content = await readContainedFile(VAULT_DIR, abs, 'utf8');
     res.json({ id: rel, notePath: backupNoteFromName(rel), content });
   } catch (err) { next(err); }
 });
@@ -1184,9 +1235,8 @@ app.post('/api/backup/restore', async (req, res, next) => {
     const { rel, abs } = resolveBackupId(req.body.id || '');
     const toPath = req.body.path ? normalizeNotePath(req.body.path) : backupNoteFromName(rel);
     const target = resolveNotePath(toPath);
-    await fs.mkdir(path.dirname(target.abs), { recursive: true });
-    const safetyBackup = await backupIfExists(target.abs);
-    await fs.copyFile(abs, target.abs);
+    const content = await readContainedFile(VAULT_DIR, abs);
+    const { backup: safetyBackup } = await noteMutator.put(target.abs, content);
     res.json({ ok: true, path: target.rel, restoredFrom: rel, backup: safetyBackup });
   } catch (err) { next(err); }
 });
@@ -1241,7 +1291,8 @@ app.get('/api/vault-health', async (_req, res, next) => {
     }
     const orphanNotes = notes.filter(note => !linkedTargets.has(note.rel.toLowerCase()) && note.links.length === 0).map(note => note.rel);
     const backupRoot = resolveVaultPath('.safire-backups').abs;
-    const backups = await walkAllFiles(backupRoot);
+    const backups = (await listContainedFiles(VAULT_DIR, backupRoot))
+      .filter(item => item.relativePath.toLowerCase().endsWith('.bak'));
     res.json({ noteCount: notes.length, tagCount: new Set(notes.flatMap(n => n.tags)).size, linkCount: notes.reduce((sum, n) => sum + n.links.length, 0), missingLinks, orphanNotes, backupCount: backups.length });
   } catch (err) { next(err); }
 });
@@ -1256,6 +1307,7 @@ function publicErrorMessage(error) {
   if (error?.type === 'entity.parse.failed') return 'Invalid JSON request';
   const fileSystemMessages = {
     EACCES: 'Safire could not access the requested item',
+    EBUSY: 'Safire is busy with note changes; try again',
     EEXIST: 'The requested item already exists',
     EISDIR: 'The requested item is not a file',
     ENOENT: 'The requested item was not found',
@@ -1263,6 +1315,9 @@ function publicErrorMessage(error) {
     EPERM: 'Safire could not access the requested item',
   };
   if (fileSystemMessages[error?.code]) return fileSystemMessages[error.code];
+  if (typeof error?.code === 'string' && /^(?:E[A-Z0-9_]+|ERR_FS_[A-Z0-9_]+)$/.test(error.code)) {
+    return 'Safire could not complete the requested file operation';
+  }
   let message = String(error?.message || 'Request failed').replace(/[\r\n]+/g, ' ').slice(0, 300);
   if (VAULT_DIR) {
     const escapedVault = VAULT_DIR.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -1283,6 +1338,7 @@ export async function startSafireServer(options = {}) {
   DIST_DIR = path.resolve(options.distDir || DEFAULT_DIST_DIR);
   await ensureVault();
   VAULT_DIR = await fs.realpath(VAULT_DIR);
+  noteMutator = createNoteMutator({ ...(options.noteMutationOptions || {}), vaultDir: VAULT_DIR });
   const host = loopbackHost(options.host || HOST);
   const port = Number(options.port ?? PORT);
   const log = typeof options.log === 'function' ? options.log : console.log;

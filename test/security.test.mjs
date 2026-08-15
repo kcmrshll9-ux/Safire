@@ -141,6 +141,40 @@ test('vault health rejects an NTFS junction at the backup root without traversin
   });
 });
 
+test('all HTTP backup traversal entry points reject an NTFS junction root', async (t) => {
+  await withTemporaryVault(async ({ root, vault, backend }) => {
+    const outside = path.join(root, 'outside-backup-api');
+    const sentinel = path.join(outside, 'outside-sentinel.bak');
+    await fs.mkdir(outside);
+    await fs.writeFile(sentinel, 'outside backup sentinel', 'utf8');
+    try {
+      await fs.symlink(outside, path.join(vault, '.safire-backups'), 'junction');
+    } catch (error) {
+      t.skip(`Windows junctions are unavailable in this environment: ${error.message}`);
+      return;
+    }
+
+    const attempts = [
+      fetch(`${backend.url}/api/backups`),
+      fetch(`${backend.url}/api/backup?id=${encodeURIComponent('outside-sentinel.bak')}`),
+      fetch(`${backend.url}/api/backup/restore`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: 'outside-sentinel.bak', path: 'Restored.md' }),
+      }),
+    ];
+    for (const response of await Promise.all(attempts)) {
+      assert.equal(response.status, 400);
+      const body = await response.json();
+      assert.equal(body.error, 'Vault paths cannot use symlinks or junctions');
+      assert.doesNotMatch(JSON.stringify(body), /outside-sentinel|backupCount|noteCount/i);
+      assert.equal(JSON.stringify(body).includes(path.resolve(root)), false);
+    }
+    assert.equal(await fs.readFile(sentinel, 'utf8'), 'outside backup sentinel');
+    await assert.rejects(() => fs.access(path.join(vault, 'Restored.md')), { code: 'ENOENT' });
+  });
+});
+
 test('Safire rejects link-local and loopback web-clip addresses before fetching', async () => {
   await assert.rejects(() => assertPublicWebUrl(new URL('http://169.254.169.254/latest/meta-data')));
   await assert.rejects(() => assertPublicWebUrl(new URL('http://[::1]/')));

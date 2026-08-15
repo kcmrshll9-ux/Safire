@@ -42,13 +42,13 @@ Safire is under active development. Version 1.4.0 adds the opt-in, agent-indepen
 - Split editor and preview, focused edit and reading modes, and tabbed notes
 - Search, tags, backlinks, outgoing links, and `[[wiki links]]`
 - Interactive 2D force-directed graph with global and local scopes and explicit large-vault rendering limits
-- Large graph responses are limited to 1,000 notes and 2,000 links, with at most 250 unique unresolved placeholders rendered; truncation is visibly labeled
+- Large graph responses are limited to 1,000 notes, 2,000 links, and 2 MiB of response data; link targets and aliases are limited to 1,024 characters and 2 KiB, at most 250 unique unresolved placeholders are rendered, the active note is retained, and truncation or omitted imported content is visibly labeled
 - Graph depth, filters, folder/tag grouping, display controls, and adjustable forces
 - Node hover, drag, pan, zoom, keyboard navigation, context actions, and in-graph note panels
 - Daily notes, Markdown tasks, templates, quick capture, and saved searches
 - Command palette, quick switcher, and Markdown formatting controls
 - Drag-and-drop, paste, and file attachments
-- Backup-before-write behavior with preview and restore tools
+- Serialized note mutations with complete backup-before-write publication, preview, and contained restore tools
 - Web Clipper and private evidence receipts for local research workflows
 - Vault health summaries and configurable local-first settings
 - Legacy vault-scoped MCP server with a deliberately narrow eight-tool surface
@@ -66,6 +66,8 @@ Safire is local-first, but “local-first” does not mean the application never
 - The memory sidecar records only explicit tool or host calls. It does not monitor transcripts or auto-capture agent activity.
 - The Web Clipper makes an outbound request only when the user asks it to capture a public URL.
 - Recognized YouTube links use a local-only card and contact YouTube only after the user opens the link.
+- Imported note bodies larger than 1 MiB are checked by metadata only and omitted from generic metadata, search, MCP list/search, and graph indexing; explicit note reads remain available. A single index operation reads at most 16 MiB of note bodies.
+- Private or structurally uncertain evidence and tasks are excluded fail-closed from generic metadata, search, graph, task aggregation, and MCP projections.
 - The desktop content policy blocks remote Markdown images; attach images to the local vault for Preview.
 - Opening an external link hands that URL to the system browser.
 

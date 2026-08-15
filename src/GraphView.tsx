@@ -33,6 +33,9 @@ export type GraphData = {
     returnedNotes: number;
     returnedLinks: number;
     truncated: boolean;
+    omittedNoteContent?: number;
+    omittedLinkFields?: number;
+    responseBytes?: number;
   };
 };
 
@@ -266,6 +269,8 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
   const sourceNoteCount = reportedGraphCount(graph.meta?.sourceNotes, graph.nodes.length);
   const sourceLinkCount = reportedGraphCount(graph.meta?.sourceLinks, graph.links.length);
   const sourceLinkLabel = graphSourceLinkCountLabel(sourceLinkCount, graph.meta?.sourceLinksComplete !== false);
+  const omittedNoteContent = reportedGraphCount(graph.meta?.omittedNoteContent, 0);
+  const omittedLinkFields = reportedGraphCount(graph.meta?.omittedLinkFields, 0);
   const graphWasTruncated = Boolean(
     graph.meta?.truncated
     || renderBudget.truncated
@@ -715,6 +720,8 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
 
     {graphWasTruncated && <p className="graph-limit-notice" role="status">
       Large graph limited for responsiveness: rendering {renderBudget.renderedNotes} of {sourceNoteCount} notes and {renderBudget.renderedLinks} of {sourceLinkLabel} links. Unresolved placeholders are limited to {GRAPH_RENDER_LIMITS.missing}.
+      {omittedNoteContent > 0 && <> Content indexing was skipped for {omittedNoteContent} oversized note{omittedNoteContent === 1 ? '' : 's'}.</>}
+      {omittedLinkFields > 0 && <> {omittedLinkFields} oversized or malformed link field{omittedLinkFields === 1 ? ' was' : 's were'} omitted.</>}
     </p>}
 
     <div className="graph-3d-stage graph-2d-stage" ref={stageRef} tabIndex={0} onKeyDown={onGraphKeyDown}>

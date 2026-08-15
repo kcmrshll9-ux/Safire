@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { startSafireServer } from '../server.mjs';
+import { GRAPH_STORAGE_LIMITS } from '../lib/graph-policy.mjs';
 
 async function withServer(t, run) {
   const vault = await fs.mkdtemp(path.join(os.tmpdir(), 'safire-12-test-'));
@@ -41,6 +42,142 @@ test('Safire server can be scoped to a temporary vault', async (t) => {
   });
 });
 
+test('HTTP note mutations serialize accepted writes and publish complete unique backups', async (t) => {
+  await withServer(t, async ({ url }) => {
+    const initialVersions = Array.from({ length: 32 }, (_value, index) => `creator-${index}\n`);
+    const creates = await Promise.all(initialVersions.map((content) => fetch(`${url}/api/note`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'Concurrent.md', content }),
+    })));
+    assert.equal(creates.filter((response) => response.status === 201).length, 1);
+    assert.equal(creates.filter((response) => response.status === 409).length, 31);
+
+    const acceptedInitial = (await fetch(`${url}/api/note?path=Concurrent.md`).then((response) => response.json())).content;
+    assert.equal(initialVersions.includes(acceptedInitial), true);
+    const updates = Array.from({ length: 32 }, (_value, index) => `update-${index}\n`);
+    const updated = await Promise.all(updates.map((content) => fetch(`${url}/api/note`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'Concurrent.md', content }),
+    })));
+    assert.equal(updated.every((response) => response.status === 200), true);
+
+    const final = (await fetch(`${url}/api/note?path=Concurrent.md`).then((response) => response.json())).content;
+    const listed = await fetch(`${url}/api/backups?path=Concurrent.md`).then((response) => response.json());
+    assert.equal(listed.backups.length, updates.length);
+    assert.equal(listed.backups.every((backup) => backup.size > 0), true);
+    assert.equal(new Set(listed.backups.map((backup) => backup.id)).size, listed.backups.length);
+    const backupContents = await Promise.all(listed.backups.map((backup) => fetch(`${url}/api/backup?id=${encodeURIComponent(backup.id)}`).then((response) => response.json()).then((body) => body.content)));
+    assert.deepEqual(new Set([final, ...backupContents]), new Set([acceptedInitial, ...updates]));
+
+    const missingUpdate = await fetch(`${url}/api/note`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'Missing.md', content: 'must not be created' }),
+    });
+    assert.equal(missingUpdate.status, 400);
+    assert.equal((await missingUpdate.json()).error, 'The requested item was not found');
+  });
+});
+
+test('HTTP create and note rename cannot both succeed for the same destination', async (t) => {
+  const vault = await fs.mkdtemp(path.join(os.tmpdir(), 'safire-http-rename-race-'));
+  let gate;
+  const gatedFs = {
+    ...fs,
+    async open(target, flags, mode) {
+      if (gate && !gate.consumed && flags === 'wx' && path.resolve(target) === gate.target) {
+        gate.consumed = true;
+        gate.started();
+        await gate.wait;
+      }
+      return fs.open(target, flags, mode);
+    },
+  };
+  const started = await startSafireServer({
+    vaultDir: vault,
+    port: 0,
+    log: () => {},
+    noteMutationOptions: { fsApi: gatedFs },
+  });
+  t.after(async () => {
+    await new Promise((resolve) => started.server.close(resolve));
+    await fs.rm(vault, { recursive: true, force: true });
+  });
+
+  async function scenario(createFirst) {
+    const suffix = createFirst ? 'create-first' : 'rename-first';
+    const sourceRel = `Source-${suffix}.md`;
+    const destinationRel = `Destination-${suffix}.md`;
+    await fs.writeFile(path.join(vault, sourceRel), `source-${suffix}`, 'utf8');
+    let markStarted;
+    const destinationOpenStarted = new Promise((resolve) => { markStarted = resolve; });
+    let release;
+    const wait = new Promise((resolve) => { release = resolve; });
+    gate = {
+      consumed: false,
+      started: markStarted,
+      target: path.resolve(vault, destinationRel),
+      wait,
+    };
+    const create = () => fetch(`${started.url}/api/note`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: destinationRel, content: `created-${suffix}` }),
+    });
+    const rename = () => fetch(`${started.url}/api/rename`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: sourceRel, to: destinationRel }),
+    });
+    const first = createFirst ? create() : rename();
+    await destinationOpenStarted;
+    const second = createFirst ? rename() : create();
+    release();
+    const [firstResponse, secondResponse] = await Promise.all([first, second]);
+    assert.equal(firstResponse.status, createFirst ? 201 : 200);
+    assert.equal(secondResponse.status, 409);
+    if (createFirst) {
+      assert.equal(await fs.readFile(path.join(vault, destinationRel), 'utf8'), `created-${suffix}`);
+      assert.equal(await fs.readFile(path.join(vault, sourceRel), 'utf8'), `source-${suffix}`);
+    } else {
+      assert.equal(await fs.readFile(path.join(vault, destinationRel), 'utf8'), `source-${suffix}`);
+      await assert.rejects(() => fs.access(path.join(vault, sourceRel)), { code: 'ENOENT' });
+    }
+  }
+
+  await scenario(true);
+  await scenario(false);
+});
+
+test('HTTP folder rename preserves descendant notes under coordinated mutation', async (t) => {
+  await withServer(t, async ({ url }) => {
+    const folder = await fetch(`${url}/api/folder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'Original/Subfolder' }),
+    });
+    assert.equal(folder.status, 201);
+    const note = await fetch(`${url}/api/note`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'Original/Subfolder/Note.md', content: 'preserved descendant' }),
+    });
+    assert.equal(note.status, 201);
+    const renamed = await fetch(`${url}/api/rename`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: 'Original', to: 'Renamed' }),
+    });
+    assert.equal(renamed.status, 200);
+    assert.deepEqual(await renamed.json(), { ok: true, from: 'Original', to: 'Renamed' });
+    const moved = await fetch(`${url}/api/note?path=${encodeURIComponent('Renamed/Subfolder/Note.md')}`);
+    assert.equal(moved.status, 200);
+    assert.equal((await moved.json()).content, 'preserved descendant');
+  });
+});
+
 test('Safire graph resolves paths deterministically and reports note topology metadata', async (t) => {
   await withServer(t, async ({ url }) => {
     const createNote = async (notePath, content) => {
@@ -65,8 +202,12 @@ test('Safire graph resolves paths deterministically and reports note topology me
       sourceLinksComplete: true,
       returnedNotes: 7,
       returnedLinks: 7,
+      omittedNoteContent: 0,
+      omittedLinkFields: 0,
+      responseBytes: Buffer.byteLength(JSON.stringify(graph), 'utf8'),
       truncated: false,
     });
+    assert.ok(graph.meta.responseBytes <= GRAPH_STORAGE_LIMITS.responseBytes);
     const nodes = new Map(graph.nodes.map(node => [node.id, node]));
     const links = graph.links.filter(link => link.source === 'Links.md');
     const linksByLabel = new Map(links.map(link => [link.label, link]));
@@ -137,10 +278,13 @@ test('Safire graph response applies deterministic note and link budgets', async 
     assert.deepEqual(first, second, 'budgeted graph selection must be deterministic');
     assert.deepEqual(first.meta, {
       sourceNotes: 1004,
-      sourceLinks: 2002,
+      sourceLinks: 2003,
       sourceLinksComplete: false,
       returnedNotes: 1000,
       returnedLinks: 2000,
+      omittedNoteContent: 0,
+      omittedLinkFields: 0,
+      responseBytes: Buffer.byteLength(JSON.stringify(first), 'utf8'),
       truncated: true,
     });
     assert.equal(first.nodes.length, 1000);
@@ -148,6 +292,91 @@ test('Safire graph response applies deterministic note and link budgets', async 
     assert.deepEqual(first.nodes.find(node => node.id === 'Graph Budget/0000.md').tags, Array.from({ length: 32 }, (_value, index) => `tag-${String(index).padStart(2, '0')}`));
     assert.equal(first.links.some(link => link.resolved && link.target === 'Graph Budget/1001.md'), false);
     assert.equal(first.links.every(link => !link.resolved || first.nodes.some(node => node.id === link.target)), true);
+    assert.ok(first.meta.responseBytes <= GRAPH_STORAGE_LIMITS.responseBytes);
+
+    const active = await fetch(`${url}/api/graph?active=${encodeURIComponent('Graph Budget/1001.md')}`).then(response => response.json());
+    assert.equal(active.nodes.length, GRAPH_STORAGE_LIMITS.notes);
+    assert.equal(active.nodes.some(node => node.id === 'Graph Budget/1001.md'), true);
+    assert.equal(active.nodes.some(node => node.id === 'Graph Budget/0999.md'), false);
+    assert.ok(active.meta.responseBytes <= GRAPH_STORAGE_LIMITS.responseBytes);
+
+    const invalidActive = await fetch(`${url}/api/graph?active=${encodeURIComponent('../outside.md')}`).then(response => response.json());
+    const missingActive = await fetch(`${url}/api/graph?active=${encodeURIComponent('Graph Budget/Missing.md')}`).then(response => response.json());
+    assert.deepEqual(invalidActive, first, 'outside active paths must not alter or disclose the graph page');
+    assert.deepEqual(missingActive, first, 'missing active paths must be indistinguishable from the default graph page');
+  });
+});
+
+test('Safire index and graph omit oversized imported note bodies while explicit reads remain available', async (t) => {
+  await withServer(t, async ({ vault, url }) => {
+    const privateMarker = 'OVERSIZED-IMPORTED-NOTE-MARKER';
+    const oversizedTarget = 'Z'.repeat(GRAPH_STORAGE_LIMITS.noteBytes + 1);
+    const oversizedContent = `# Oversized\n\n${privateMarker}\n[[${oversizedTarget}]]\n`;
+    await fs.writeFile(path.join(vault, 'Oversized.md'), oversizedContent, 'utf8');
+
+    const listed = await fetch(`${url}/api/notes`).then(response => response.json());
+    const metadata = listed.notes.find(note => note.path === 'Oversized.md');
+    assert.equal(metadata.contentOmitted, true);
+    assert.deepEqual({ tags: metadata.tags, links: metadata.links, excerpt: metadata.excerpt }, { tags: [], links: [], excerpt: '' });
+    assert.equal(listed.meta.contentOmitted, 1);
+
+    const searched = await fetch(`${url}/api/search?q=${encodeURIComponent(privateMarker)}`).then(response => response.json());
+    assert.deepEqual(searched.results, []);
+
+    const graph = await fetch(`${url}/api/graph?active=${encodeURIComponent('Oversized.md')}`).then(response => response.json());
+    assert.equal(graph.nodes.some(node => node.id === 'Oversized.md'), true);
+    assert.equal(graph.links.some(link => String(link.label).includes(privateMarker)), false);
+    assert.ok(graph.meta.omittedNoteContent >= 1);
+    assert.equal(graph.meta.truncated, true);
+    assert.equal(graph.meta.responseBytes, Buffer.byteLength(JSON.stringify(graph), 'utf8'));
+    assert.ok(graph.meta.responseBytes <= GRAPH_STORAGE_LIMITS.responseBytes);
+
+    const explicit = await fetch(`${url}/api/note?path=${encodeURIComponent('Oversized.md')}`).then(response => response.json());
+    assert.equal(explicit.content, oversizedContent);
+  });
+});
+
+test('Safire graph marks source-link totals incomplete when the observation ceiling is reached', async (t) => {
+  await withServer(t, async ({ vault, url }) => {
+    await fs.writeFile(
+      path.join(vault, 'Duplicate Links.md'),
+      `# Duplicate links\n${'[[Repeated Target]]\n'.repeat(GRAPH_STORAGE_LIMITS.observedLinks + 1)}`,
+      'utf8',
+    );
+
+    const graph = await fetch(`${url}/api/graph`).then(response => response.json());
+    assert.equal(graph.meta.sourceLinks, GRAPH_STORAGE_LIMITS.observedLinks);
+    assert.equal(graph.meta.sourceLinksComplete, false);
+    assert.equal(graph.meta.truncated, true);
+    assert.equal(graph.links.filter(link => link.source === 'Duplicate Links.md').length, 1);
+    assert.ok(graph.meta.responseBytes <= GRAPH_STORAGE_LIMITS.responseBytes);
+  });
+});
+
+test('Safire graph retains the requested active note when response bytes truncate other nodes', async (t) => {
+  await withServer(t, async ({ vault, url }) => {
+    const largeTags = Array.from({ length: GRAPH_STORAGE_LIMITS.tagsPerNote }, (_value, index) => (
+      `#tag${String(index).padStart(2, '0')}${'x'.repeat(980)}`
+    )).join(' ');
+    const writes = Array.from({ length: 66 }, (_value, index) => fs.writeFile(
+      path.join(vault, `A Heavy ${String(index).padStart(2, '0')}.md`),
+      `# Heavy ${index}\n${largeTags}\n`,
+      'utf8',
+    ));
+    writes.push(fs.writeFile(path.join(vault, 'Z Active.md'), '# Active\n', 'utf8'));
+    await Promise.all(writes);
+
+    const graph = await fetch(`${url}/api/graph?active=${encodeURIComponent('Z Active.md')}`).then(response => response.json());
+    assert.equal(graph.nodes.some(node => node.id === 'Z Active.md'), true);
+    assert.equal(graph.meta.truncated, true);
+    assert.equal(
+      graph.nodes.some(node => node.id.startsWith('A Heavy ') && node.tags.length === 0)
+        || graph.meta.returnedNotes < graph.meta.sourceNotes,
+      true,
+      'the response budget must omit lower-priority node fields or nodes before the active note',
+    );
+    assert.equal(graph.meta.responseBytes, Buffer.byteLength(JSON.stringify(graph), 'utf8'));
+    assert.ok(graph.meta.responseBytes <= GRAPH_STORAGE_LIMITS.responseBytes);
   });
 });
 
@@ -208,6 +437,96 @@ test('Safire aggregates and toggles Markdown tasks without reading fenced code',
     assert.equal(toggle.status, 200);
     const completed = await fetch(`${url}/api/tasks?state=completed`).then(res => res.json());
     assert.deepEqual(completed.tasks.map(task => task.text).sort(), ['Finished task', 'First task']);
+
+    const privateContent = [
+      '# Private task fixture',
+      '',
+      '> ```safire-evidence',
+      '> private_notes: |',
+      '- [ ] SYNTHETIC-PRIVATE-TASK #private-task [[Private Task Link]]',
+      '> ```',
+      '',
+      '- [ ] Public task',
+      '',
+    ].join('\n');
+    const created = await fetch(`${url}/api/note`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'Private Tasks.md', content: privateContent }),
+    });
+    assert.equal(created.status, 201);
+    const allTasks = await fetch(`${url}/api/tasks?state=all`).then(res => res.json());
+    assert.equal(allTasks.tasks.some(task => /SYNTHETIC-PRIVATE-TASK|private-task|Private Task Link/.test(task.text)), false);
+    assert.equal(allTasks.tasks.some(task => task.path === 'Private Tasks.md' && task.text === 'Public task' && task.line === 8), true);
+
+    const rejectedToggle = await fetch(`${url}/api/task/toggle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'Private Tasks.md', line: 5 }),
+    });
+    assert.equal(rejectedToggle.status, 400);
+    assert.equal(await fetch(`${url}/api/note?path=${encodeURIComponent('Private Tasks.md')}`).then(res => res.json()).then(body => body.content), privateContent);
+    assert.deepEqual(await fetch(`${url}/api/backups?path=${encodeURIComponent('Private Tasks.md')}`).then(res => res.json()).then(body => body.backups), []);
+  });
+});
+
+test('HTTP metadata, search, and task toggles fail closed for list-contained evidence', async (t) => {
+  await withServer(t, async ({ url }) => {
+    const noteContent = [
+      '# HTTP list evidence',
+      '1. ~~~safire-evidence',
+      '   id: http-list-public',
+      '   claim: HTTP public list claim #http-list-public [[HTTP List Public]]',
+      '   private_notes: |-',
+      '     - [ ] HTTP-LIST-PRIVATE-TASK #http-list-private [[HTTP List Private]]',
+      '   ~~~',
+      '- [ ] HTTP public outside task',
+      '> - ~~~safire-evidence extra',
+      '>   claim: HTTP-MALFORMED-LIST-PUBLIC',
+      '>   private_notes: HTTP-MALFORMED-LIST-PRIVATE #http-malformed-private [[HTTP Malformed Private]]',
+      '>   - [ ] HTTP-MALFORMED-LIST-PRIVATE-TASK',
+      '>   ~~~',
+    ].join('\r\n');
+    const created = await fetch(`${url}/api/note`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'HTTP List Evidence.md', content: noteContent }),
+    });
+    assert.equal(created.status, 201);
+
+    const listed = await fetch(`${url}/api/notes`).then(response => response.json());
+    const metadata = listed.notes.find(note => note.path === 'HTTP List Evidence.md');
+    assert.deepEqual(metadata.tags, ['http-list-public']);
+    assert.deepEqual(metadata.links, ['HTTP List Public']);
+    assert.doesNotMatch(JSON.stringify(metadata), /HTTP-LIST-PRIVATE|http-list-private|HTTP-MALFORMED-LIST|http-malformed-private|HTTP (?:List|Malformed) Private/);
+
+    for (const query of ['HTTP-LIST-PRIVATE-TASK', 'HTTP-MALFORMED-LIST-PUBLIC', 'HTTP-MALFORMED-LIST-PRIVATE']) {
+      const searched = await fetch(`${url}/api/search?q=${encodeURIComponent(query)}`).then(response => response.json());
+      assert.deepEqual(searched.results, []);
+    }
+    const publicSearch = await fetch(`${url}/api/search?q=${encodeURIComponent('HTTP public list claim')}`).then(response => response.json());
+    assert.equal(publicSearch.results.length, 1);
+    assert.equal(publicSearch.results[0].evidence.receipts[0].claim, 'HTTP public list claim #http-list-public [[HTTP List Public]]');
+    assert.doesNotMatch(JSON.stringify(publicSearch), /HTTP-LIST-PRIVATE|HTTP-MALFORMED-LIST|HTTP (?:List|Malformed) Private/);
+
+    const tasks = await fetch(`${url}/api/tasks?state=all`).then(response => response.json());
+    assert.deepEqual(tasks.tasks.filter(task => task.path === 'HTTP List Evidence.md').map(task => ({ line: task.line, text: task.text })), [
+      { line: 8, text: 'HTTP public outside task' },
+    ]);
+
+    for (const privateLine of [6, 12]) {
+      const rejected = await fetch(`${url}/api/task/toggle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: 'HTTP List Evidence.md', line: privateLine }),
+      });
+      assert.equal(rejected.status, 400);
+      assert.equal((await rejected.json()).error, 'No supported public task exists on that line');
+      const stored = await fetch(`${url}/api/note?path=${encodeURIComponent('HTTP List Evidence.md')}`).then(response => response.json());
+      assert.equal(stored.content, noteContent);
+      const backups = await fetch(`${url}/api/backups?path=${encodeURIComponent('HTTP List Evidence.md')}`).then(response => response.json());
+      assert.deepEqual(backups.backups, []);
+    }
   });
 });
 

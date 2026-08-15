@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { GRAPH_STORAGE_LIMITS } from '../lib/graph-policy.mjs';
 import vaultConfig from '../vault-config.cjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -59,6 +60,29 @@ function createClient({ vaultDir, configPath, useVaultArgument = true, extraEnv 
     if (!child.killed) child.kill();
   };
   return { request, notify, close, stderr: () => stderr };
+}
+
+async function snapshotFileTree(root) {
+  const snapshot = [];
+  async function visit(directory) {
+    let entries;
+    try {
+      entries = await fs.readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if (error?.code === 'ENOENT') return;
+      throw error;
+    }
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      const absolute = path.join(directory, entry.name);
+      const relative = path.relative(root, absolute).replaceAll('\\', '/');
+      if (entry.isDirectory()) await visit(absolute);
+      else if (entry.isFile()) snapshot.push([relative, (await fs.readFile(absolute)).toString('base64')]);
+      else snapshot.push([relative, entry.isSymbolicLink() ? 'symbolic-link' : 'other']);
+    }
+  }
+  await visit(root);
+  return snapshot;
 }
 
 test('Safire MCP exposes a scoped note workflow over stdio', async (t) => {
@@ -139,6 +163,36 @@ test('Safire MCP exposes a scoped note workflow over stdio', async (t) => {
   assert.match(health.result.content[0].text, /"noteCount"/);
 });
 
+test('Safire MCP omits oversized imported bodies from list and search indexes but preserves explicit reads', async (t) => {
+  const vault = await fs.mkdtemp(path.join(os.tmpdir(), 'safire-mcp-oversized-'));
+  const marker = 'MCP-OVERSIZED-IMPORTED-MARKER';
+  const content = `# Oversized\n\n${marker}\n${'Z'.repeat(GRAPH_STORAGE_LIMITS.noteBytes)}\n`;
+  await fs.writeFile(path.join(vault, 'Oversized.md'), content, 'utf8');
+  const client = createClient({ vaultDir: vault });
+  t.after(async () => {
+    await client.close();
+    await fs.rm(vault, { recursive: true, force: true });
+  });
+
+  await client.request('initialize', {
+    protocolVersion: '2025-03-26',
+    capabilities: {},
+    clientInfo: { name: 'safire-oversized-index-test', version: '1.0.0' },
+  });
+  client.notify('notifications/initialized');
+
+  const listed = await client.request('tools/call', { name: 'list_notes', arguments: {} });
+  const metadata = JSON.parse(listed.result.content[0].text).notes.find(note => note.path === 'Oversized.md');
+  assert.equal(metadata.contentOmitted, true);
+  assert.deepEqual({ tags: metadata.tags, links: metadata.links, excerpt: metadata.excerpt }, { tags: [], links: [], excerpt: '' });
+
+  const searched = await client.request('tools/call', { name: 'list_notes', arguments: { query: marker } });
+  assert.deepEqual(JSON.parse(searched.result.content[0].text).results, []);
+
+  const explicit = await client.request('tools/call', { name: 'read_note', arguments: { path: 'Oversized.md' } });
+  assert.match(explicit.result.content[0].text, new RegExp(marker));
+});
+
 test('Safire MCP follows the vault selected by the desktop app', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'safire-mcp-selected-vault-'));
   const vault = path.join(root, 'Chosen Vault');
@@ -162,6 +216,48 @@ test('Safire MCP follows the vault selected by the desktop app', async (t) => {
   });
   assert.match(created.result.content[0].text, /Projects\/Shared Vault\.md/);
   assert.equal(await fs.readFile(path.join(vault, 'Projects', 'Shared Vault.md'), 'utf8'), '# Shared vault\n');
+});
+
+test('Safire MCP neither lists nor toggles a structurally private evidence task', async (t) => {
+  const vault = await fs.mkdtemp(path.join(os.tmpdir(), 'safire-mcp-private-task-'));
+  const client = createClient({ vaultDir: vault });
+  t.after(async () => {
+    await client.close();
+    await fs.rm(vault, { recursive: true, force: true });
+  });
+  await client.request('initialize', {
+    protocolVersion: '2025-03-26',
+    capabilities: {},
+    clientInfo: { name: 'safire-private-task-test', version: '1.0.0' },
+  });
+  client.notify('notifications/initialized');
+  const content = [
+    '# Private task fixture',
+    '',
+    '> ~~~safire-evidence',
+    '> private_notes: |',
+    '- [ ] SYNTHETIC-MCP-PRIVATE-TASK #mcp-private [[MCP Private Link]]',
+    '> ~~~',
+    '',
+    '- [ ] Public MCP task',
+    '',
+  ].join('\n');
+  await client.request('tools/call', {
+    name: 'create_note',
+    arguments: { path: 'Private Tasks.md', content },
+  });
+  const tasks = await client.request('tools/call', { name: 'list_tasks', arguments: { state: 'all' } });
+  assert.doesNotMatch(tasks.result.content[0].text, /SYNTHETIC-MCP-PRIVATE-TASK|mcp-private|MCP Private Link/);
+  assert.match(tasks.result.content[0].text, /Public MCP task/);
+
+  const toggle = await client.request('tools/call', {
+    name: 'toggle_task',
+    arguments: { path: 'Private Tasks.md', line: 5 },
+  });
+  assert.equal(toggle.result.isError, true);
+  assert.equal(await fs.readFile(path.join(vault, 'Private Tasks.md'), 'utf8'), content);
+  const backups = await fs.readdir(path.join(vault, '.safire-backups'), { recursive: true }).catch((error) => error?.code === 'ENOENT' ? [] : Promise.reject(error));
+  assert.deepEqual(backups, []);
 });
 
 test('Safire MCP vault health rejects a junction at the backup root without traversing it', async (t) => {
@@ -313,6 +409,216 @@ test('Safire MCP excludes private nested blockquoted evidence from list and sear
   assert.deepEqual(publicPayload.results[0].tags, ['outside', 'quoted-public']);
   assert.deepEqual(publicPayload.results[0].links, ['Outside Link', 'Quoted Public Link']);
   assert.doesNotMatch(JSON.stringify(publicPayload.results[0]), /MCP-(?:BLOCKQUOTE|MALFORMED|PRIVATE|UNCLOSED)|quoted-private|promoted-private|unclosed-private|Private Link/);
+});
+
+test('Safire MCP fails closed for malformed flow and evidence-like fences while parsing public multiline receipts', async (t) => {
+  const vault = await fs.mkdtemp(path.join(os.tmpdir(), 'safire-mcp-structural-evidence-'));
+  const noteContent = [
+    '# Structural evidence',
+    '',
+    'Outside prose #outside [[Outside Link]].',
+    '',
+    '```safire-evidence',
+    'id: flow-private-id',
+    'private_notes: [FLOW-PRIVATE-PREFIX',
+    'claim: FLOW-PRIVATE-CONTINUATION #flow-private [[Flow Private Link]]',
+    'status: verified',
+    '```',
+    '',
+    '~~~~SAFIRE-EVIDENCE',
+    'id: multiline-public',
+    'claim: >-',
+    '  Public multiline line one: with colon',
+    '  Public multiline line two',
+    'source_type: manual_observation',
+    'status: verified',
+    'private_notes: |-',
+    '  TILDE-PRIVATE #tilde-private [[Tilde Private Link]]',
+    '~~~~',
+    '',
+    '```safire-evidence extra',
+    'claim: MALFORMED-INFO-PUBLIC',
+    'private_notes: MALFORMED-INFO-PRIVATE #malformed-private [[Malformed Private Link]]',
+    '```',
+  ].join('\r\n');
+  await fs.writeFile(path.join(vault, 'Structural Evidence.md'), noteContent, 'utf8');
+  const client = createClient({ vaultDir: vault });
+  t.after(async () => {
+    await client.close();
+    await fs.rm(vault, { recursive: true, force: true });
+  });
+
+  await client.request('initialize', {
+    protocolVersion: '2025-03-26',
+    capabilities: {},
+    clientInfo: { name: 'safire-structural-evidence-test', version: '1.0.0' },
+  });
+  client.notify('notifications/initialized');
+
+  const listed = await client.request('tools/call', { name: 'list_notes', arguments: {} });
+  const metadata = JSON.parse(listed.result.content[0].text).notes.find(note => note.path === 'Structural Evidence.md');
+  assert.deepEqual(metadata.tags, ['outside']);
+  assert.deepEqual(metadata.links, ['Outside Link']);
+  assert.doesNotMatch(JSON.stringify(metadata), /FLOW-PRIVATE|flow-private|TILDE-PRIVATE|tilde-private|MALFORMED-INFO|malformed-private|Private Link/);
+
+  for (const query of [
+    'FLOW-PRIVATE-PREFIX',
+    'FLOW-PRIVATE-CONTINUATION',
+    'TILDE-PRIVATE',
+    'MALFORMED-INFO-PUBLIC',
+    'MALFORMED-INFO-PRIVATE',
+  ]) {
+    const searched = await client.request('tools/call', { name: 'list_notes', arguments: { query } });
+    const payload = JSON.parse(searched.result.content[0].text);
+    assert.deepEqual(payload.results, [], `${query} must not be searchable`);
+    assert.doesNotMatch(JSON.stringify(payload), /FLOW-PRIVATE|TILDE-PRIVATE|MALFORMED-INFO|Private Link/);
+  }
+
+  const publicSearch = await client.request('tools/call', {
+    name: 'list_notes',
+    arguments: { query: 'Public multiline line one' },
+  });
+  const publicPayload = JSON.parse(publicSearch.result.content[0].text);
+  assert.equal(publicPayload.results.length, 1);
+  assert.equal(publicPayload.results[0].evidence.receipts.length, 1);
+  assert.equal(publicPayload.results[0].evidence.receipts[0].id, 'multiline-public');
+  assert.equal(publicPayload.results[0].evidence.receipts[0].claim, 'Public multiline line one: with colon Public multiline line two');
+  assert.equal(publicPayload.results[0].evidence.receipts[0].status, 'verified');
+  assert.equal(publicPayload.results[0].evidence.receipts[0].sourceType, 'manual_observation');
+  assert.equal(publicPayload.results[0].evidence.receipts[0].privateNotes, undefined);
+  assert.doesNotMatch(JSON.stringify(publicPayload), /FLOW-PRIVATE|TILDE-PRIVATE|MALFORMED-INFO|Private Link/);
+});
+
+test('Safire MCP projects list-contained evidence and rejects private list-task toggles byte-for-byte', async (t) => {
+  const vault = await fs.mkdtemp(path.join(os.tmpdir(), 'safire-mcp-list-evidence-'));
+  const notePath = path.join(vault, 'List Evidence.md');
+  const backupSentinel = path.join(vault, '.safire-backups', 'sentinel', 'keep.bak');
+  const noteContent = [
+    '# List evidence',
+    '- ~~~safire-evidence',
+    '  id: list-public',
+    '  claim: Public list claim #list-public [[List Public Link]]',
+    '  private_notes: |-',
+    '    - [ ] MCP-LIST-PRIVATE-TASK #list-private [[List Private Link]]',
+    '  ~~~',
+    '- [ ] Public outside task',
+    '> 1. ~~~safire-evidence extra',
+    '>    claim: MALFORMED-LIST-PUBLIC',
+    '>    private_notes: MALFORMED-LIST-PRIVATE #malformed-private [[Malformed Private Link]]',
+    '>    - [ ] MALFORMED-LIST-PRIVATE-TASK',
+    '>    ~~~',
+  ].join('\r\n');
+  await fs.mkdir(path.dirname(backupSentinel), { recursive: true });
+  await fs.writeFile(notePath, noteContent, 'utf8');
+  await fs.writeFile(backupSentinel, 'unchanged backup sentinel', 'utf8');
+  const client = createClient({ vaultDir: vault });
+  t.after(async () => {
+    await client.close();
+    await fs.rm(vault, { recursive: true, force: true });
+  });
+
+  await client.request('initialize', {
+    protocolVersion: '2025-03-26',
+    capabilities: {},
+    clientInfo: { name: 'safire-list-evidence-test', version: '1.0.0' },
+  });
+  client.notify('notifications/initialized');
+
+  const listed = await client.request('tools/call', { name: 'list_notes', arguments: {} });
+  const metadata = JSON.parse(listed.result.content[0].text).notes.find(note => note.path === 'List Evidence.md');
+  assert.deepEqual(metadata.tags, ['list-public']);
+  assert.deepEqual(metadata.links, ['List Public Link']);
+  assert.doesNotMatch(JSON.stringify(metadata), /MCP-LIST-PRIVATE|list-private|MALFORMED-LIST|malformed-private|Private Link/);
+
+  for (const query of ['MCP-LIST-PRIVATE-TASK', 'MALFORMED-LIST-PUBLIC', 'MALFORMED-LIST-PRIVATE']) {
+    const searched = await client.request('tools/call', { name: 'list_notes', arguments: { query } });
+    assert.deepEqual(JSON.parse(searched.result.content[0].text).results, []);
+  }
+  const publicSearch = await client.request('tools/call', { name: 'list_notes', arguments: { query: 'Public list claim' } });
+  const publicPayload = JSON.parse(publicSearch.result.content[0].text);
+  assert.equal(publicPayload.results.length, 1);
+  assert.equal(publicPayload.results[0].evidence.receipts[0].claim, 'Public list claim #list-public [[List Public Link]]');
+  assert.doesNotMatch(JSON.stringify(publicPayload), /MCP-LIST-PRIVATE|MALFORMED-LIST|Private Link/);
+
+  const tasks = await client.request('tools/call', { name: 'list_tasks', arguments: { state: 'all' } });
+  assert.deepEqual(JSON.parse(tasks.result.content[0].text).tasks.map(task => ({ line: task.line, text: task.text })), [
+    { line: 8, text: 'Public outside task' },
+  ]);
+
+  const before = await snapshotFileTree(vault);
+  for (const privateLine of [6, 12]) {
+    const rejected = await client.request('tools/call', {
+      name: 'toggle_task',
+      arguments: { path: 'List Evidence.md', line: privateLine },
+    });
+    assert.equal(rejected.result.isError, true);
+    assert.equal(rejected.result.content[0].text, 'No supported public task exists on that line');
+    assert.deepEqual(await snapshotFileTree(vault), before);
+  }
+});
+
+test('Safire MCP omits private tasks and rejects their toggles without changing note or backup bytes', async (t) => {
+  const vault = await fs.mkdtemp(path.join(os.tmpdir(), 'safire-mcp-private-tasks-'));
+  const notePath = path.join(vault, 'Private Tasks.md');
+  const noteContent = [
+    '- [ ] Public first',
+    '',
+    '```safire-evidence',
+    'private_notes: |-',
+    '  - [ ] Standard private task',
+    '```',
+    '> ```safire-evidence',
+    '- [ ] Malformed-depth private task',
+    '> ```',
+    '~~~safire-evidence',
+    'private_notes: |-',
+    '  - [ ] Tilde private task',
+    '~~~',
+    '- [x] Public second',
+    '```safire-evidence extra',
+    '- [ ] Malformed-info private task',
+    '```',
+    '```safire-evidence',
+    'private_notes: |-',
+    '- [ ] Unclosed private task',
+  ].join('\r\n');
+  const backupSentinel = path.join(vault, '.safire-backups', 'sentinel', 'keep.bak');
+  await fs.mkdir(path.dirname(backupSentinel), { recursive: true });
+  await fs.writeFile(notePath, noteContent, 'utf8');
+  await fs.writeFile(backupSentinel, 'unchanged backup sentinel', 'utf8');
+  const client = createClient({ vaultDir: vault });
+  t.after(async () => {
+    await client.close();
+    await fs.rm(vault, { recursive: true, force: true });
+  });
+
+  await client.request('initialize', {
+    protocolVersion: '2025-03-26',
+    capabilities: {},
+    clientInfo: { name: 'safire-private-task-test', version: '1.0.0' },
+  });
+  client.notify('notifications/initialized');
+
+  const tasks = await client.request('tools/call', { name: 'list_tasks', arguments: { state: 'all' } });
+  const taskPayload = JSON.parse(tasks.result.content[0].text);
+  assert.deepEqual(taskPayload.tasks.map(task => ({ line: task.line, text: task.text })), [
+    { line: 1, text: 'Public first' },
+    { line: 14, text: 'Public second' },
+  ]);
+  assert.doesNotMatch(JSON.stringify(taskPayload), /Standard private|Malformed-depth private|Tilde private|Malformed-info private|Unclosed private/i);
+
+  const before = await snapshotFileTree(vault);
+  for (const privateLine of [5, 8, 12, 16, 20]) {
+    const rejected = await client.request('tools/call', {
+      name: 'toggle_task',
+      arguments: { path: 'Private Tasks.md', line: privateLine },
+    });
+    assert.equal(rejected.result.isError, true);
+    assert.equal(rejected.result.content[0].text, 'No supported public task exists on that line');
+    assert.equal(JSON.stringify(rejected).includes(path.resolve(vault)), false);
+    assert.deepEqual(await snapshotFileTree(vault), before, `line ${privateLine} rejection must be byte-preserving`);
+  }
+  assert.equal(client.stderr().includes(path.resolve(vault)), false);
 });
 
 test('Safire MCP uses only its in-process eight-tool service and cannot reach hidden HTTP mutations', async (t) => {

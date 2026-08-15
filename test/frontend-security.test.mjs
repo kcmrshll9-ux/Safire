@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
+import { marked } from 'marked';
 
 const root = path.resolve(import.meta.dirname, '..');
 
@@ -18,7 +19,14 @@ async function loadFrontendSecurityModule() {
 }
 
 const securityModule = await loadFrontendSecurityModule();
-const { GRAPH_RENDER_LIMITS, graphSourceLinkCountLabel, limitGraphForRendering, renderYouTubeLinkCard } = securityModule;
+const {
+  GRAPH_RENDER_LIMITS,
+  filterMarkdownClassName,
+  getYouTubeVideoId,
+  graphSourceLinkCountLabel,
+  limitGraphForRendering,
+  renderYouTubeLinkCard,
+} = securityModule;
 
 function node(id) {
   return { id };
@@ -34,7 +42,8 @@ function missingLink(id, source, target) {
 
 test('YouTube link cards use a local placeholder and create no automatic subresource request', async () => {
   const candidate = 'https://www.youtube.com/watch?v=synthetic123&list=synthetic';
-  const card = renderYouTubeLinkCard(candidate, '<strong>Synthetic video</strong>', 'Open synthetic video');
+  const [{ tokens: [link] }] = marked.lexer('[**Synthetic video**](https://www.youtube.com/watch?v=synthetic123&list=synthetic "Open synthetic video")');
+  const card = renderYouTubeLinkCard(candidate, link.tokens, 'Open synthetic video');
   assert.match(card, /class="youtube-link-card"/);
   assert.match(card, /href="https:\/\/www\.youtube\.com\/watch\?v=synthetic123&amp;list=synthetic"/);
   assert.match(card, /target="_blank" rel="noopener noreferrer"/);
@@ -44,6 +53,56 @@ test('YouTube link cards use a local placeholder and create no automatic subreso
 
   const mainSource = await fs.readFile(path.join(root, 'src', 'main.tsx'), 'utf8');
   assert.doesNotMatch(mainSource, /img\.youtube\.com/i);
+});
+
+test('YouTube link cards reduce resource-bearing labels to bounded safe inline markup', () => {
+  const cases = [
+    '[![Synthetic image](https://remote.invalid/tracker.png)](https://youtu.be/synthetic)',
+    '[<IMG SRC="//remote.invalid/tracker.png">Synthetic](https://youtube.com/watch?v=synthetic)',
+    '[<video poster="https%3A%2F%2Fremote.invalid%2Fposter.png"><source src="//remote.invalid/a.mp4"></video>](https://youtube.com/watch?v=synthetic#fragment)',
+    '[<svg><image href="https://remote.invalid/pixel"></image></svg>](https://YouTube.com/watch?v=synthetic)',
+    '[<style>@import url(//remote.invalid/style.css)</style>Safe](https://youtube.com/watch?v=synthetic)',
+  ];
+
+  for (const markdown of cases) {
+    const [{ tokens: [link] }] = marked.lexer(markdown);
+    const card = renderYouTubeLinkCard(link.href, link.tokens, link.title);
+    assert.doesNotMatch(card, /<(?:audio|embed|iframe|img|link|object|picture|source|style|svg|video)\b/i, markdown);
+    assert.doesNotMatch(card, /\s(?:poster|src|srcset)\s*=/i, markdown);
+    assert.match(card, /target="_blank" rel="noopener noreferrer"/);
+  }
+
+  const [{ tokens: [safeLink] }] = marked.lexer('[**Bold** and *emphasis* with `code`](https://youtu.be/synthetic)');
+  const safeCard = renderYouTubeLinkCard(safeLink.href, safeLink.tokens, safeLink.title);
+  assert.match(safeCard, /<strong>Bold<\/strong> and <em>emphasis<\/em> with <code>code<\/code>/);
+});
+
+test('YouTube recognition accepts intended URL variants and rejects malformed or ordinary links', () => {
+  assert.equal(getYouTubeVideoId('https://YouTube.com/watch?v=synthetic#fragment'), 'synthetic');
+  assert.equal(getYouTubeVideoId('//youtu.be/synthetic?feature=share', 'https://safire.invalid/'), 'synthetic');
+  assert.equal(getYouTubeVideoId('https://www.youtube-nocookie.com/embed/synthetic'), 'synthetic');
+  for (const href of [
+    'not a URL',
+    'javascript:alert(1)',
+    'https://youtube.com.evil.invalid/watch?v=synthetic',
+    'https://remote.invalid/watch?v=synthetic',
+    'https%3A%2F%2Fyoutube.com%2Fwatch%3Fv%3Dsynthetic',
+  ]) assert.equal(getYouTubeVideoId(href), null, href);
+});
+
+test('Markdown rendering strips application and arbitrary classes while retaining only preview-safe renderer classes', async () => {
+  assert.equal(filterMarkdownClassName('modal-backdrop palette primary-action'), '');
+  assert.equal(filterMarkdownClassName('safire-preview-image modal-backdrop'), 'safire-preview-image');
+  assert.equal(filterMarkdownClassName('youtube-link-card youtube-title'), 'youtube-link-card youtube-title');
+  assert.equal(filterMarkdownClassName('evidence-status verified'), 'evidence-status verified');
+  assert.equal(filterMarkdownClassName('evidence-status owner-controlled'), 'evidence-status');
+
+  const mainSource = await fs.readFile(path.join(root, 'src', 'main.tsx'), 'utf8');
+  assert.match(mainSource, /renderer\.html\s*=\s*\(token\)\s*=>\s*DOMPurify\.sanitize/);
+  assert.match(mainSource, /FORBID_ATTR:\s*\['class', 'id', 'style'\]/);
+  assert.match(mainSource, /filterMarkdownClassName\(data\.attrValue\)/);
+  assert.match(mainSource, /data\.keepAttr\s*=\s*false/);
+  assert.match(mainSource, /if \(!videoId\) return defaultLinkRenderer\(token\)/);
 });
 
 test('graph rendering retains the active note while enforcing fixed node and link ceilings', () => {
@@ -91,6 +150,36 @@ test('graph budget drops links whose endpoints are outside the retained note set
   assert.equal(limited.truncated, true);
 });
 
+test('graph rendering drops oversized fields before lowercase keys, placeholder expansion, or layout', () => {
+  const oversized = 'X'.repeat(GRAPH_RENDER_LIMITS.fieldCharacters + 1);
+  const limited = limitGraphForRendering({
+    nodes: [
+      { id: 'Safe.md', label: 'Safe', folder: '', tags: [] },
+      { id: 'Oversized.md', label: oversized, folder: '', tags: [] },
+    ],
+    links: [
+      missingLink('oversized-target', 'Safe.md', oversized),
+      { ...missingLink('oversized-label', 'Safe.md', 'Missing'), label: oversized },
+      missingLink('safe', 'Safe.md', 'Missing'),
+    ],
+  });
+
+  assert.deepEqual(limited.graph.nodes.map(candidate => candidate.id), ['Safe.md']);
+  assert.deepEqual(limited.graph.links.map(link => link.id), ['safe']);
+  assert.equal(limited.truncated, true);
+});
+
+test('graph rendering enforces an aggregate string budget before expansion', () => {
+  const target = 'M'.repeat(Math.floor(GRAPH_RENDER_LIMITS.fieldCharacters / 2));
+  const links = Array.from({ length: GRAPH_RENDER_LIMITS.links }, (_, index) => missingLink(`link-${index}`, 'Root.md', `${index}-${target}`));
+  const limited = limitGraphForRendering({ nodes: [{ id: 'Root.md', label: 'Root', folder: '', tags: [] }], links });
+
+  assert.ok(limited.graph.links.length > 0);
+  assert.ok(limited.graph.links.length < links.length);
+  assert.ok(limited.renderedStringCharacters <= GRAPH_RENDER_LIMITS.aggregateStringCharacters);
+  assert.equal(limited.truncated, true);
+});
+
 test('GraphView applies the defensive budget before expanding placeholders and exposes truncation', async () => {
   const source = await fs.readFile(path.join(root, 'src', 'GraphView.tsx'), 'utf8');
   const budgetCall = source.indexOf('limitGraphForRendering(graph, activePath)');
@@ -101,6 +190,14 @@ test('GraphView applies the defensive budget before expanding placeholders and e
   assert.match(source, /className="graph-limit-notice" role="status"/);
   assert.match(source, /rendering \{renderBudget\.renderedNotes\} of \{sourceNoteCount\} notes/);
   assert.match(source, /graphSourceLinkCountLabel\(sourceLinkCount, graph\.meta\?\.sourceLinksComplete !== false\)/);
+  assert.match(source, /Content indexing was skipped for \{omittedNoteContent\} oversized note/);
+  assert.match(source, /\{omittedLinkFields\} oversized or malformed link field/);
+});
+
+test('frontend identifies the active note on initial and post-navigation graph requests', async () => {
+  const source = await fs.readFile(path.join(root, 'src', 'main.tsx'), 'utf8');
+  assert.match(source, /\/api\/graph\?active=\$\{encodeURIComponent\(activePath\)\}/);
+  assert.match(source, /\/api\/graph\?active=\$\{encodeURIComponent\(data\.path\)\}/);
 });
 
 test('incomplete server link totals are visibly labeled as lower bounds', () => {

@@ -4,7 +4,7 @@ import { marked, Renderer, type Tokens } from 'marked';
 import DOMPurify from 'dompurify';
 import pkg from '../package.json';
 import { GraphView } from './GraphView';
-import { renderYouTubeLinkCard } from './frontendSecurity';
+import { filterMarkdownClassName, getYouTubeVideoId, renderYouTubeLinkCard } from './frontendSecurity';
 import './styles.css';
 
 const APP_VERSION = pkg.version;
@@ -16,7 +16,7 @@ type GraphLink = { id: string; source: string; target: string; label: string; re
 type Graph = {
   nodes: GraphNode[];
   links: GraphLink[];
-  meta?: { sourceNotes: number; sourceLinks: number; sourceLinksComplete?: boolean; returnedNotes: number; returnedLinks: number; truncated: boolean };
+  meta?: { sourceNotes: number; sourceLinks: number; sourceLinksComplete?: boolean; returnedNotes: number; returnedLinks: number; truncated: boolean; omittedNoteContent?: number; omittedLinkFields?: number; responseBytes?: number };
 };
 type GraphPanel = { mode: 'preview' | 'edit' };
 type Mode = 'split'|'edit'|'preview'|'graph';
@@ -109,22 +109,6 @@ function escapeHtml(value: string) {
   return value.replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch] || ch));
 }
 
-function getYouTubeVideoId(href: string) {
-  try {
-    const url = new URL(href, window.location.href);
-    const host = url.hostname.replace(/^www\./i, '').toLowerCase();
-    if (host === 'youtu.be') return url.pathname.split('/').filter(Boolean)[0] || null;
-    if (host === 'youtube.com' || host === 'm.youtube.com' || host === 'music.youtube.com' || host === 'youtube-nocookie.com') {
-      if (url.searchParams.get('v')) return url.searchParams.get('v');
-      const parts = url.pathname.split('/').filter(Boolean);
-      if (['embed', 'shorts', 'live'].includes(parts[0])) return parts[1] || null;
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
 const IMAGE_SIZES: { value: ImageSize | null; label: string; hint: string }[] = [
   { value: null, label: 'Use default', hint: 'Follow the global image setting' },
   { value: 'small', label: 'Small', hint: 'Compact image' },
@@ -182,12 +166,18 @@ function renderMarkdown(md: string) {
   let headingIndex = 0;
 
   renderer.link = (token: Tokens.Link) => {
-    const videoId = getYouTubeVideoId(token.href);
+    const videoId = getYouTubeVideoId(token.href, window.location.href);
     if (!videoId) return defaultLinkRenderer(token);
 
-    const label = renderer.parser.parseInline(token.tokens);
-    return renderYouTubeLinkCard(token.href, label, token.title);
+    return renderYouTubeLinkCard(token.href, token.tokens, token.title);
   };
+
+  renderer.html = (token) => DOMPurify.sanitize(token.raw, {
+    USE_PROFILES: { html: true },
+    ALLOWED_URI_REGEXP: SAFE_MARKDOWN_URI,
+    FORBID_ATTR: ['class', 'id', 'style'],
+    FORBID_TAGS: ['base', 'embed', 'form', 'iframe', 'math', 'object', 'script', 'style', 'svg'],
+  });
 
   renderer.image = (token: Tokens.Image) => {
     const index = imageIndex++;
@@ -215,13 +205,24 @@ function renderMarkdown(md: string) {
   };
 
   const rendered = marked.parse(addImageSizeHashes(wikiToMarkdownLinks(md)), { async: false, renderer }) as string;
-  return DOMPurify.sanitize(rendered, {
-    USE_PROFILES: { html: true },
-    ADD_ATTR: ['class', 'data-image-index', 'data-image-size', 'loading', 'rel', 'tabindex', 'target'],
-    ALLOWED_URI_REGEXP: SAFE_MARKDOWN_URI,
-    FORBID_ATTR: ['style'],
-    FORBID_TAGS: ['base', 'embed', 'form', 'iframe', 'math', 'object', 'script', 'style', 'svg'],
-  });
+  const markdownClassHook = (_node: Element, data: { attrName: string; attrValue: string; keepAttr: boolean }) => {
+    if (data.attrName !== 'class') return;
+    const safeClassName = filterMarkdownClassName(data.attrValue);
+    if (safeClassName) data.attrValue = safeClassName;
+    else data.keepAttr = false;
+  };
+  DOMPurify.addHook('uponSanitizeAttribute', markdownClassHook);
+  try {
+    return DOMPurify.sanitize(rendered, {
+      USE_PROFILES: { html: true },
+      ADD_ATTR: ['class', 'data-image-index', 'data-image-size', 'loading', 'rel', 'tabindex', 'target'],
+      ALLOWED_URI_REGEXP: SAFE_MARKDOWN_URI,
+      FORBID_ATTR: ['style'],
+      FORBID_TAGS: ['base', 'embed', 'form', 'iframe', 'math', 'object', 'script', 'style', 'svg'],
+    });
+  } finally {
+    DOMPurify.removeHook('uponSanitizeAttribute');
+  }
 }
 
 function titleFromPath(path: string) {
@@ -298,13 +299,13 @@ function App() {
     const [notesData, treeData, graphData] = await Promise.all([
       api<{ vault: string; notes: NoteMeta[] }>('/api/notes'),
       api<{ vault: string; tree: TreeNode[] }>('/api/tree'),
-      api<Graph>('/api/graph'),
+      api<Graph>(`/api/graph?active=${encodeURIComponent(activePath)}`),
     ]);
     setNotes(notesData.notes);
     setTree(treeData.tree);
     setVaultPath(notesData.vault);
     setGraph(graphData);
-  }, []);
+  }, [activePath]);
 
   const loadSettings = React.useCallback(async () => {
     const data = await api<{ settings: SafireSettings }>('/api/settings');
@@ -363,7 +364,11 @@ function App() {
     setContent(data.content);
     setSavedContent(data.content);
     if (addTab) setTabs(prev => prev.includes(data.path) ? prev : [...prev, data.path]);
-    await loadBacklinks(data.path);
+    const [, graphData] = await Promise.all([
+      loadBacklinks(data.path),
+      api<Graph>(`/api/graph?active=${encodeURIComponent(data.path)}`),
+    ]);
+    setGraph(graphData);
     api<WorkspaceState>('/api/workspace/recent', { method: 'POST', body: JSON.stringify({ path: data.path }) }).then(setWorkspaceState).catch(() => null);
     setStatus(`Opened ${data.path}`);
   }, [loadBacklinks]);

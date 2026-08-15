@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  isPublicTaskLine,
+  parseEvidenceReceipts,
+  parsePublicEvidenceReceipts,
+  parsePublicTasks,
   publicEvidenceContent,
   publicNoteMetadata,
 } from '../lib/note-projection.mjs';
@@ -109,6 +113,11 @@ test('an unclosed evidence fence is omitted through EOF without altering ordinar
 
   const ordinaryFence = ['```markdown', '```safire-evidence', 'private_notes: "ordinary code"', '```', '```'].join('\n');
   assert.equal(publicEvidenceContent(ordinaryFence), ordinaryFence);
+
+  const openingOnly = '~~~safire-evidence';
+  const closedProjection = '~~~safire-evidence\n~~~';
+  assert.equal(publicEvidenceContent(openingOnly), closedProjection);
+  assert.equal(publicEvidenceContent(closedProjection), closedProjection);
 });
 
 test('nested blockquoted evidence is projected structurally and fails closed', () => {
@@ -144,4 +153,327 @@ test('nested blockquoted evidence is projected structurally and fails closed', (
 
   const ordinary = ['> ```markdown', '> private_notes: "ordinary quoted code #ordinary [[Ordinary Link]]"', '> ```'].join('\n');
   assert.equal(publicEvidenceContent(ordinary), ordinary);
+});
+
+test('malformed flow scalars fail the whole evidence record closed for LF and CRLF', () => {
+  for (const newline of ['\n', '\r\n']) {
+    for (const opening of ['[FLOW-PRIVATE-PREFIX', '{FLOW-PRIVATE-PREFIX']) {
+      const markdown = [
+        '# Outside #outside [[Outside Link]]',
+        '```safire-evidence',
+        'id: public-id',
+        `private_notes: ${opening}`,
+        'claim: FLOW-PRIVATE-CONTINUATION #flow-private [[Flow Private Link]]',
+        'status: verified',
+        '```',
+      ].join(newline);
+      const projected = publicEvidenceContent(markdown);
+
+      assert.match(projected, /Outside Link/);
+      assert.doesNotMatch(projected, /public-id|FLOW-PRIVATE|flow-private|Flow Private Link|verified/);
+      assert.deepEqual(publicNoteMetadata(markdown), {
+        tags: ['outside'],
+        links: ['Outside Link'],
+        excerpt: 'Outside outside Outside Link',
+      });
+      assert.deepEqual(parsePublicEvidenceReceipts(markdown, 'Flow.md'), []);
+    }
+  }
+});
+
+test('balanced-but-invalid flow and unsupported scalar wrappers also fail closed', () => {
+  const privateValues = [
+    ['[', '  one', '  two', ']'],
+    ['{key value}', '', '', ''],
+    ['!!seq [WRAPPED-PRIVATE', '', '', ''],
+    ['"BAD-ESCAPE-\\q"', '', '', ''],
+    ['["BAD-FLOW-ESCAPE-\\q"]', '', '', ''],
+    ['|22', '  BAD-BLOCK-PRIVATE', '', ''],
+  ];
+  for (const [value, continuationOne, continuationTwo, closing] of privateValues) {
+    const markdown = [
+      '```safire-evidence',
+      'id: should-disappear',
+      `private_notes: ${value}`,
+      ...(continuationOne ? [continuationOne] : []),
+      ...(continuationTwo ? [continuationTwo] : []),
+      ...(closing ? [closing] : []),
+      'claim: MUST-NOT-BE-PROMOTED #private [[Private Link]]',
+      'status: verified',
+      '```',
+    ].join('\n');
+    assert.deepEqual(parsePublicEvidenceReceipts(markdown, 'Malformed.md'), []);
+    assert.doesNotMatch(publicEvidenceContent(markdown), /should-disappear|MUST-NOT-BE-PROMOTED|#private|Private Link|verified/);
+  }
+});
+
+test('balanced private flow and quoted scalars consume root-looking continuation lines', () => {
+  const markdown = [
+    '```safire-evidence',
+    'id: safe-id',
+    'private_notes: [',
+    '  "FLOW-CONTINUATION #private-flow [[Private Flow Link]]",',
+    '  "claim: still private",',
+    ']',
+    'notes: "QUOTED-PREFIX',
+    'status: QUOTED-CONTINUATION #private-quote [[Private Quote Link]]"',
+    'claim: Public claim',
+    'status: verified',
+    '```',
+  ].join('\n');
+  const projected = publicEvidenceContent(markdown);
+
+  assert.match(projected, /Public claim/);
+  assert.doesNotMatch(projected, /FLOW-CONTINUATION|QUOTED-CONTINUATION|private-flow|private-quote|Private (?:Flow|Quote) Link/);
+  assert.deepEqual(parsePublicEvidenceReceipts(markdown, 'Balanced.md').map(({ id, claim, status }) => ({ id, claim, status })), [
+    { id: 'safe-id', claim: 'Public claim', status: 'verified' },
+  ]);
+});
+
+test('evidence fence recognition covers tildes, long runs, case, blockquotes, and evidence-like info', () => {
+  const exactOpenings = [
+    '~~~safire-evidence',
+    '~~~~~SAFIRE-EVIDENCE   ',
+    '```SaFiRe-EvIdEnCe',
+    '    ~~~safire-evidence',
+    '\t```safire-evidence',
+    '> > ~~~~ safire-evidence',
+  ];
+  for (const opening of exactOpenings) {
+    const marker = opening.includes('~') ? '~'.repeat((opening.match(/~+/)?.[0].length || 3)) : '`'.repeat((opening.match(/`+/)?.[0].length || 3));
+    const quote = opening.startsWith('> >') ? '> > ' : '';
+    const markdown = [
+      opening,
+      `${quote}claim: Public claim #public-tag [[Public Link]]`,
+      `${quote}private_notes: TILDE-PRIVATE #tilde-private [[Tilde Private Link]]`,
+      `${quote}${marker}`,
+    ].join('\r\n');
+    const projected = publicEvidenceContent(markdown);
+    assert.match(projected, /Public claim/);
+    assert.doesNotMatch(projected, /TILDE-PRIVATE|tilde-private|Tilde Private Link/);
+  }
+
+  const evidenceLikeOpenings = [
+    '```safire-evidence extra',
+    '~~~safire-evidence.invalid',
+    '```{.safire-evidence}',
+  ];
+  for (const opening of evidenceLikeOpenings) {
+    const marker = opening.startsWith('~') ? '~~~' : '```';
+    const markdown = [opening, 'claim: SHOULD-NOT-BE-PUBLIC', 'private_notes: MALFORMED-INFO-PRIVATE #private [[Private Link]]', marker].join('\n');
+    const projected = publicEvidenceContent(markdown);
+    assert.doesNotMatch(projected, /SHOULD-NOT-BE-PUBLIC|MALFORMED-INFO-PRIVATE|#private|Private Link|extra|invalid/);
+  }
+});
+
+test('mismatched and unclosed sensitive fences fail closed while unrelated fences remain byte-identical', () => {
+  const sensitiveCases = [
+    ['~~~safire-evidence', '```'],
+    ['````safire-evidence', '```'],
+    ['> ```safire-evidence', '```'],
+  ];
+  for (const [opening, wrongClose] of sensitiveCases) {
+    const markdown = [opening, 'private_notes: UNCLOSED-PRIVATE #private [[Private Link]]', wrongClose, 'OUTSIDE-AFTER-UNCERTAIN'].join('\r\n');
+    const projected = publicEvidenceContent(markdown);
+    assert.doesNotMatch(projected, /UNCLOSED-PRIVATE|#private|Private Link|OUTSIDE-AFTER-UNCERTAIN/);
+  }
+
+  for (const ordinary of [
+    ['~~~markdown', 'private_notes: ordinary #ordinary [[Ordinary Link]]', '~~~'].join('\n'),
+    ['````typescript', '```safire-evidence', 'private_notes: ordinary', '```', '````'].join('\r\n'),
+  ]) assert.equal(publicEvidenceContent(ordinary), ordinary);
+});
+
+test('public task parsing uses a line-preserving visibility mask for all fenced and uncertain content', () => {
+  const markdown = [
+    '- [ ] Public first',
+    '```markdown',
+    '- [ ] Ordinary fenced task',
+    '```',
+    '> ~~~safire-evidence',
+    '- [ ] Malformed-depth private task #private [[Private Link]]',
+    '> ~~~',
+    '- [x] Public second',
+    '```safire-evidence extra',
+    '- [ ] Malformed-info private task',
+    '```',
+  ].join('\r\n');
+
+  assert.deepEqual(parsePublicTasks(markdown, 'Tasks.md'), [
+    { id: 'Tasks.md:1', path: 'Tasks.md', line: 1, text: 'Public first', completed: false },
+    { id: 'Tasks.md:8', path: 'Tasks.md', line: 8, text: 'Public second', completed: true },
+  ]);
+  assert.equal(isPublicTaskLine(markdown, 1), true);
+  assert.equal(isPublicTaskLine(markdown, 6), false);
+  assert.equal(isPublicTaskLine(markdown, 8), true);
+  assert.equal(isPublicTaskLine(markdown, 10), false);
+
+  const unclosed = ['- [ ] Public', '~~~safire-evidence', 'private_notes: |', '- [ ] Private', '- [ ] Structurally uncertain'].join('\n');
+  assert.deepEqual(parsePublicTasks(unclosed, 'Unclosed.md').map(task => task.line), [1]);
+});
+
+test('receipt parsing supports bounded multiline YAML scalars without root-field promotion', () => {
+  const cases = [
+    ['|', 'Public line one\nPublic line two\n'],
+    ['|-', 'Public line one\nPublic line two'],
+    ['|+', 'Public line one\nPublic line two\n\n'],
+    ['>', 'Public line one Public line two\n'],
+    ['>-', 'Public line one Public line two'],
+    ['>+', 'Public line one Public line two\n\n'],
+    ['|2-', 'Public line one\nPublic line two'],
+    ['>2-', 'Public line one Public line two'],
+    ['|+2', 'Public line one\nPublic line two\n'],
+    ['>-2', 'Public line one Public line two'],
+  ];
+
+  for (const newline of ['\n', '\r\n']) {
+    for (const [indicator, expectedClaim] of cases) {
+      const keepBlank = indicator.endsWith('+');
+      const markdown = [
+        '```safire-evidence',
+        `id: multiline-${indicator.replace(/[^A-Za-z0-9]/g, '') || 'plain'}`,
+        `claim: ${indicator}`,
+        '  Public line one',
+        '  Public line two',
+        ...(keepBlank ? [''] : []),
+        'private_notes: |-',
+        '  RECEIPT-PRIVATE #private [[Private Link]]',
+        'status: verified',
+        '```',
+      ].join(newline);
+      const [receipt] = parsePublicEvidenceReceipts(markdown, 'Receipt.md');
+      assert.equal(receipt.claim, expectedClaim);
+      assert.equal(receipt.status, 'verified');
+      assert.equal(receipt.privateNotes, undefined);
+    }
+  }
+});
+
+test('multiline receipt continuations cannot overwrite root fields and explicit parsing retains private notes', () => {
+  const markdown = [
+    '```safire-evidence',
+    'id: multiline',
+    'claim: >-',
+    '  Public line one: with colon',
+    '  status: conflicting',
+    '  source_type: url',
+    'source_type: manual_observation',
+    'status: verified',
+    'private_notes: |-',
+    '  PRIVATE-RECEIPT-NOTE',
+    '```',
+    '',
+    '~~~safire-evidence',
+    'id: second',
+    'claim: Second receipt',
+    'status: stale',
+    '~~~',
+  ].join('\n');
+
+  const publicReceipts = parsePublicEvidenceReceipts(markdown, 'Receipts.md');
+  assert.equal(publicReceipts.length, 2);
+  assert.equal(publicReceipts[0].claim, 'Public line one: with colon status: conflicting source_type: url');
+  assert.equal(publicReceipts[0].sourceType, 'manual_observation');
+  assert.equal(publicReceipts[0].status, 'verified');
+  assert.equal(publicReceipts[0].privateNotes, undefined);
+
+  const explicitReceipts = parseEvidenceReceipts(markdown, 'Receipts.md');
+  assert.equal(explicitReceipts[0].privateNotes, 'PRIVATE-RECEIPT-NOTE');
+  assert.equal(explicitReceipts[1].claim, 'Second receipt');
+
+  const malformed = ['```safire-evidence', 'id: broken', 'claim: [not closed', 'status: verified', '```'].join('\n');
+  assert.deepEqual(parsePublicEvidenceReceipts(malformed, 'Broken.md'), []);
+});
+
+test('folded receipt scalars preserve paragraph and more-indented line breaks', () => {
+  const markdown = [
+    '```safire-evidence',
+    'id: folded-paragraphs',
+    'claim: >-',
+    '  First line',
+    '  continued',
+    '',
+    '  Second paragraph',
+    '    more-indented',
+    '  final line',
+    'status: verified',
+    '```',
+  ].join('\n');
+  const [receipt] = parsePublicEvidenceReceipts(markdown, 'Folded.md');
+  assert.equal(receipt.claim, 'First line continued\nSecond paragraph\n  more-indented\nfinal line');
+});
+
+test('evidence projection recognizes unordered, ordered, nested, and blockquoted list containers', () => {
+  const cases = [
+    { opening: '- ~~~safire-evidence', continuation: '  ', closing: '  ~~~' },
+    { opening: '+ ```SAFIRE-EVIDENCE', continuation: '  ', closing: '  ```' },
+    { opening: '* ~~~~safire-evidence', continuation: '  ', closing: '  ~~~~' },
+    { opening: '10. ~~~safire-evidence', continuation: '    ', closing: '    ~~~' },
+    { opening: '2) ~~~safire-evidence', continuation: '   ', closing: '   ~~~' },
+    { opening: '- 1. ~~~safire-evidence', continuation: '     ', closing: '     ~~~' },
+    { opening: '> - ~~~safire-evidence', continuation: '>   ', closing: '>   ~~~' },
+    { opening: '- > ~~~safire-evidence', continuation: '  > ', closing: '  > ~~~' },
+    { opening: '> 3) - ~~~safire-evidence', continuation: `> ${' '.repeat(5)}`, closing: `> ${' '.repeat(5)}~~~` },
+  ];
+
+  for (const [caseIndex, container] of cases.entries()) {
+    const markdown = [
+      container.opening,
+      `${container.continuation}id: list-${caseIndex}`,
+      `${container.continuation}claim: Public list claim ${caseIndex} #list-public-${caseIndex} [[List Public ${caseIndex}]]`,
+      `${container.continuation}private_notes: |-`,
+      `${container.continuation}  - [ ] LIST-PRIVATE-${caseIndex} #list-private-${caseIndex} [[List Private ${caseIndex}]]`,
+      container.closing,
+      `- [ ] Outside task ${caseIndex}`,
+    ].join(caseIndex % 2 ? '\r\n' : '\n');
+    const projected = publicEvidenceContent(markdown);
+    assert.match(projected, new RegExp(`Public list claim ${caseIndex}`));
+    assert.doesNotMatch(projected, new RegExp(`LIST-PRIVATE-${caseIndex}|list-private-${caseIndex}|List Private ${caseIndex}`));
+    assert.deepEqual(publicNoteMetadata(markdown).tags, [`list-public-${caseIndex}`]);
+    assert.deepEqual(publicNoteMetadata(markdown).links, [`List Public ${caseIndex}`]);
+    assert.deepEqual(parsePublicTasks(markdown, `List-${caseIndex}.md`).map(task => ({ line: task.line, text: task.text })), [
+      { line: 7, text: `Outside task ${caseIndex}` },
+    ]);
+    assert.equal(isPublicTaskLine(markdown, 5), false);
+    assert.equal(isPublicTaskLine(markdown, 7), true);
+  }
+});
+
+test('malformed and unclosed list-contained evidence fails closed with line-preserving task masking', () => {
+  const malformed = [
+    '1. ~~~safire-evidence extra',
+    '   claim: MALFORMED-LIST-PUBLIC',
+    '   private_notes: MALFORMED-LIST-PRIVATE #private [[Private Link]]',
+    '   ~~~',
+    '- [ ] Public after malformed block',
+  ].join('\r\n');
+  const malformedProjection = publicEvidenceContent(malformed);
+  assert.doesNotMatch(malformedProjection, /MALFORMED-LIST|#private|Private Link|extra/);
+  assert.deepEqual(parsePublicTasks(malformed, 'Malformed List.md').map(task => task.line), [5]);
+
+  for (const unclosed of [
+    ['- ~~~~safire-evidence', '  private_notes: LIST-UNCLOSED-PRIVATE', '  ~~~', '- [ ] UNCERTAIN-TASK'],
+    ['> - ~~~safire-evidence', '>   private_notes: LIST-MISMATCHED-PRIVATE', '>   ```', '- [ ] UNCERTAIN-TASK'],
+    ['- 1. ~~~safire-evidence', '     private_notes: LIST-EOF-PRIVATE', '     - [ ] UNCERTAIN-TASK'],
+  ].map(lines => lines.join('\n'))) {
+    const projected = publicEvidenceContent(unclosed);
+    assert.doesNotMatch(projected, /LIST-(?:UNCLOSED|MISMATCHED|EOF)-PRIVATE|UNCERTAIN-TASK/);
+    assert.equal(publicEvidenceContent(projected), projected);
+    assert.deepEqual(parsePublicTasks(unclosed, 'Unclosed List.md'), []);
+  }
+});
+
+test('ordinary list-contained code fences remain byte-identical and non-task content remains public', () => {
+  const markdown = [
+    '- ~~~markdown',
+    '  Ordinary code #ordinary-code [[Ordinary Code Link]]',
+    '  - [ ] Ordinary fenced task',
+    '  ~~~',
+    '- [ ] Outside public task',
+  ].join('\r\n');
+  assert.equal(publicEvidenceContent(markdown), markdown);
+  assert.match(publicEvidenceContent(markdown), /Ordinary code #ordinary-code/);
+  assert.deepEqual(parsePublicTasks(markdown, 'Ordinary List.md').map(task => ({ line: task.line, text: task.text })), [
+    { line: 5, text: 'Outside public task' },
+  ]);
 });

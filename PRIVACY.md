@@ -36,7 +36,15 @@ information.
 Private `private_notes` and legacy `notes` evidence fields remain in the local
 Markdown and in explicit note or evidence reads, but are excluded fail-closed
 from generic note metadata, search, graph, and MCP list/search projections.
-Malformed or unclosed evidence blocks contribute no generic metadata.
+Tasks inside private, malformed, or unclosed evidence are also excluded from
+generic task lists and cannot be toggled through those task APIs. Malformed or
+unclosed evidence blocks contribute no generic metadata.
+
+Generic note indexes do not read an imported note body larger than 1 MiB and
+read at most 16 MiB of note bodies per operation. Such notes remain listed by
+path and basic filesystem metadata, but their body, tags, links, excerpt,
+tasks, and search matches are omitted until opened explicitly. Graph responses
+are capped at 1,000 notes, 2,000 links, and 2 MiB and visibly report truncation.
 
 The agent-memory sidecar records only explicit MCP calls or deliberate host
 library calls. It does not monitor conversations, modify Hermes or another
@@ -96,7 +104,9 @@ Vault data consists of ordinary files in the selected folder. Users can view,
 copy, move, back up, encrypt, or remove those files with their normal operating
 system tools. Safire may create a backup before a note is overwritten,
 restored, task-edited, or deleted. Renaming a note does not itself create a
-backup. Deleting a note therefore may not
+backup. Mutations accepted by one Safire process are serialized per note, and
+a complete backup is published before replacement. Backup traversal rejects
+an uncontained, symbolic-link, or junctioned backup root. Deleting a note therefore may not
 delete its backup copies; backups in `.safire-backups` must be reviewed and
 removed separately when they are no longer wanted.
 
