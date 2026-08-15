@@ -322,6 +322,29 @@ test('AWS access key IDs use ASCII-alphanumeric boundaries and exact case-sensit
   }
 });
 
+test('provider credentials remain detectable when delimited by underscores', () => {
+  const credentials = [
+    ...GITHUB_TOKEN_IDENTIFIERS,
+    ...SYNTHETIC_PROVIDER_FIXTURES.map(({ value }) => value),
+    `sk-proj-${'A'.repeat(48)}`,
+    `xoxb-${'A'.repeat(24)}`,
+  ];
+
+  for (const credential of credentials) {
+    for (const candidate of [
+      `_${credential}`,
+      `${credential}_`,
+      `_${credential}_`,
+    ]) {
+      assert.equal(
+        containsDisallowedSensitiveMaterial(candidate),
+        true,
+        candidate,
+      );
+    }
+  }
+});
+
 test('provider token detection is boundary-aware, normalization-safe, and narrowly shaped', () => {
   const fullwidthAscii = value => [...value].map((character) => {
     const code = character.codePointAt(0);

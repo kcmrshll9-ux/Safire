@@ -480,6 +480,7 @@ test('memory MCP rejects impersonation, caller-controlled trust, unsafe paths, a
       source: { stream: 'feedback.synthetic', event_id: 'feedback.sensitive-correction' },
     })] }),
     await callTool(client, 'memory_search', { query: GITHUB_TOKEN_IDENTIFIER }),
+    await callTool(client, 'memory_search', { query: `_${GITHUB_TOKEN_IDENTIFIER}_` }),
     await callTool(client, 'memory_get', { id: GITHUB_TOKEN_IDENTIFIER }),
     await callTool(client, 'memory_recall', { ids: [GITHUB_TOKEN_IDENTIFIER] }),
   ];
@@ -501,6 +502,9 @@ test('memory MCP rejects impersonation, caller-controlled trust, unsafe paths, a
         source: { stream: 'feedback.synthetic', event_id: `sensitive-${family}-correction` },
       })] }),
       await callTool(client, 'memory_search', { query: value }),
+      ...(family === 'raw_jwt'
+        ? []
+        : [await callTool(client, 'memory_search', { query: `_${value}_` })]),
       await callTool(client, 'memory_get', { id: value }),
       await callTool(client, 'memory_recall', { ids: [value] }),
     ];
