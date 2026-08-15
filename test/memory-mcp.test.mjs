@@ -480,6 +480,7 @@ test('memory MCP rejects impersonation, caller-controlled trust, unsafe paths, a
       source: { stream: 'feedback.synthetic', event_id: 'feedback.sensitive-correction' },
     })] }),
     await callTool(client, 'memory_search', { query: GITHUB_TOKEN_IDENTIFIER }),
+    await callTool(client, 'memory_search', { query: `_${GITHUB_TOKEN_IDENTIFIER}_` }),
     await callTool(client, 'memory_get', { id: GITHUB_TOKEN_IDENTIFIER }),
     await callTool(client, 'memory_recall', { ids: [GITHUB_TOKEN_IDENTIFIER] }),
   ];
@@ -501,6 +502,7 @@ test('memory MCP rejects impersonation, caller-controlled trust, unsafe paths, a
         source: { stream: 'feedback.synthetic', event_id: `sensitive-${family}-correction` },
       })] }),
       await callTool(client, 'memory_search', { query: value }),
+      await callTool(client, 'memory_search', { query: `_${value}_` }),
       await callTool(client, 'memory_get', { id: value }),
       await callTool(client, 'memory_recall', { ids: [value] }),
     ];
@@ -509,6 +511,48 @@ test('memory MCP rejects impersonation, caller-controlled trust, unsafe paths, a
     }
     assert.doesNotMatch(client.diagnostics().stderr, pattern, `${family} stderr`);
   }
+
+  const segment = value => Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+  const underscoreJwt = `${segment({ alg: 'HS256' })}.${segment({})}.${Buffer.alloc(16, 0xff).toString('base64url')}`;
+  const embeddedUnderscoreJwt = `prefix_${underscoreJwt}_suffix`;
+  const underscoreJwtAttempts = [
+    await callTool(client, 'memory_record_events', { events: [event({
+      content: embeddedUnderscoreJwt,
+      source: { stream: 'conversation.synthetic', event_id: 'sensitive-raw-jwt-underscore-content' },
+    })] }),
+  ];
+  for (const query of [
+    underscoreJwt,
+    `_${underscoreJwt}`,
+    `${underscoreJwt}_`,
+    `_${underscoreJwt}_`,
+    embeddedUnderscoreJwt,
+  ]) {
+    underscoreJwtAttempts.push(await callTool(client, 'memory_search', { query }));
+  }
+  for (const attempt of underscoreJwtAttempts) {
+    assertGenericValidationError(attempt, [underscoreJwt]);
+  }
+  assert.doesNotMatch(client.diagnostics().stderr, new RegExp(escapeRegExp(underscoreJwt), 'i'));
+
+  const rawHyphenJwt = `${segment({ alg: 'HS256' })}.${segment({})}.${Buffer.alloc(16, 0x5a).toString('base64url')}`;
+  const hyphenJwt = `${rawHyphenJwt}-`;
+  const hyphenJwtAttempts = [
+    await callTool(client, 'memory_record_events', { events: [event({
+      content: hyphenJwt,
+      source: { stream: 'conversation.synthetic', event_id: 'sensitive-raw-jwt-hyphen-content' },
+    })] }),
+    await callTool(client, 'memory_record_feedback', { feedback: [feedback(memoryId, {
+      signal: 'correction',
+      correction: hyphenJwt,
+      source: { stream: 'feedback.synthetic', event_id: 'sensitive-raw-jwt-hyphen-correction' },
+    })] }),
+    await callTool(client, 'memory_search', { query: hyphenJwt }),
+  ];
+  for (const attempt of hyphenJwtAttempts) {
+    assertGenericValidationError(attempt, [hyphenJwt]);
+  }
+  assert.doesNotMatch(client.diagnostics().stderr, new RegExp(escapeRegExp(rawHyphenJwt), 'i'));
 
   const oversizedSensitiveQuery = `${SYNTHETIC_SENSITIVE_FIXTURES[0].value} ${'x'.repeat(2_001)}`;
   const oversizedQueryAttempt = await callTool(client, 'memory_search', { query: oversizedSensitiveQuery });
