@@ -4,6 +4,13 @@ Notable changes to Safire are recorded here. Application versions follow the ver
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-08-15
+
+### Security
+
+- Hardened memory credential detection for underscore- and hyphen-delimited credential-like values, embedded compact JWTs, JWT punctuation boundaries, and bounded adversarial scan work.
+- Added regression coverage for credential/JWT boundary handling in the memory schema and MCP ingress.
+
 ## [1.4.0] - 2026-08-14
 
 ### Added
