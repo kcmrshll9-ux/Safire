@@ -773,3 +773,204 @@ test('Safire MCP uses only its in-process eight-tool service and cannot reach hi
   const entrySource = await fs.readFile(mcpEntry, 'utf8');
   assert.doesNotMatch(entrySource, /startSafireServer|server\.mjs|\bfetch\s*\(/);
 });
+
+test('Safire MCP rejects control-directory mutation paths without leaving a lock gate', async (t) => {
+  const vault = await fs.mkdtemp(path.join(os.tmpdir(), 'safire-mcp-reserved-path-'));
+  const client = createClient({ vaultDir: vault });
+  t.after(async () => {
+    await client.close();
+    await fs.rm(vault, { recursive: true, force: true });
+  });
+
+  await client.request('initialize', {
+    protocolVersion: '2025-03-26',
+    capabilities: {},
+    clientInfo: { name: 'safire-reserved-path-test', version: '1.0.0' },
+  });
+  client.notify('notifications/initialized');
+
+  const lockDirectory = path.join(vault, '.safire-note-mutations.lock');
+  for (const reservedPath of [
+    '.safire-note-mutations.lock/Poison.md',
+    'Nested/.safire/Poison.md',
+    'Nested/.safire-backups/Poison.md',
+  ]) {
+    const rejected = await client.request('tools/call', {
+      name: 'create_note',
+      arguments: { path: reservedPath, content: 'synthetic poison' },
+    });
+    assert.equal(rejected.result.isError, true);
+    assert.equal(rejected.result.content[0].text, 'Safire internal paths are reserved');
+    assert.equal(JSON.stringify(rejected).includes(reservedPath), false);
+    await assert.rejects(() => fs.access(path.join(vault, reservedPath)), { code: 'ENOENT' });
+    await assert.rejects(() => fs.access(lockDirectory), { code: 'ENOENT' });
+  }
+
+  if (process.platform === 'win32') {
+    for (const [toolName, reservedPath] of [
+      ['create_note', 'SAFIRE~1.LOC/Poison.md'],
+      ['update_note', '.safire-note-mutations.lock::$INDEX_ALLOCATION/Poison.md'],
+    ]) {
+      const rejected = await client.request('tools/call', {
+        name: toolName,
+        arguments: { path: reservedPath, content: 'synthetic Windows alias poison' },
+      });
+      assert.equal(rejected.result.isError, true);
+      assert.equal(rejected.result.content[0].text, 'Safire internal paths are reserved');
+      assert.equal(JSON.stringify(rejected).includes(reservedPath), false);
+      await assert.rejects(() => fs.access(path.join(vault, reservedPath)), { code: 'ENOENT' });
+      await assert.rejects(() => fs.access(lockDirectory), { code: 'ENOENT' });
+    }
+  }
+
+  const ordinary = await client.request('tools/call', {
+    name: 'create_note',
+    arguments: { path: 'After Rejection.md', content: 'ordinary success' },
+  });
+  assert.equal(ordinary.result.isError, undefined);
+  assert.equal(await fs.readFile(path.join(vault, 'After Rejection.md'), 'utf8'), 'ordinary success');
+  await assert.rejects(() => fs.access(lockDirectory), { code: 'ENOENT' });
+  assert.equal(client.stderr().includes(path.resolve(vault)), false);
+});
+
+test('Safire MCP generic indexes exclude ordinary fenced code while read_note retains it', async (t) => {
+  const vault = await fs.mkdtemp(path.join(os.tmpdir(), 'safire-mcp-ordinary-code-'));
+  const hiddenTerms = [
+    'MCP-BACKTICK-CODE',
+    'MCP-TILDE-CODE',
+    'MCP-QUOTE-CODE',
+    'MCP-LIST-CODE',
+    'MCP-INNER-TILDE-CODE',
+    'MCP-INNER-BACKTICK-CODE',
+    'MCP-INNER-DOUBLE-QUOTED-CODE',
+    'MCP-INNER-SINGLE-QUOTED-CODE',
+    'MCP-INNER-FLOW-CODE',
+  ];
+  const noteContent = [
+    '# MCP generic projection',
+    '',
+    'Visible prose #visible [[Visible Target]]',
+    '',
+    '```text',
+    'MCP-BACKTICK-CODE #backtick-code [[Backtick Destination]]',
+    '```',
+    '',
+    '~~~~text',
+    'MCP-TILDE-CODE #tilde-code [[Tilde Destination]]',
+    '~~~~',
+    '',
+    '> `````text',
+    '> MCP-QUOTE-CODE #quote-code [[Quote Destination]]',
+    '> ```',
+    '> `````',
+    '',
+    '3. ~~~~text',
+    '   MCP-LIST-CODE #list-code [[List Destination]]',
+    '   - [ ] MCP-LIST-CODE-TASK',
+    '   ~~~~',
+    '',
+    '```safire-evidence',
+    'id: public-mcp-receipt',
+    'claim: MCP-PUBLIC-EVIDENCE #public-evidence [[Public Evidence Destination]]',
+    'status: verified',
+    'private_notes: MCP-PRIVATE-EVIDENCE #private-evidence [[Private Evidence Destination]]',
+    '```',
+    '',
+    '````safire-evidence',
+    'id: nested-mcp-tilde',
+    'claim: |',
+    '  ~~~text',
+    '  MCP-INNER-TILDE-CODE #inner-tilde-code [[Inner Tilde Destination]]',
+    '  ~~~',
+    'status: verified',
+    '````',
+    '',
+    '~~~~safire-evidence',
+    'id: nested-mcp-backtick',
+    'claim: |',
+    '  ```text',
+    '  MCP-INNER-BACKTICK-CODE #inner-backtick-code [[Inner Backtick Destination]]',
+    '  ```',
+    'status: verified',
+    '~~~~',
+    '',
+    '````safire-evidence',
+    'id: nested-mcp-double-quoted',
+    'claim: "Visible double-quoted claim',
+    '~~~text',
+    'MCP-INNER-DOUBLE-QUOTED-CODE #inner-double-code [[Inner Double Destination]]',
+    '~~~',
+    '"',
+    'status: verified',
+    '````',
+    '',
+    '~~~~safire-evidence',
+    'id: nested-mcp-single-quoted',
+    "claim: 'Visible single-quoted claim",
+    '```text',
+    'MCP-INNER-SINGLE-QUOTED-CODE #inner-single-code [[Inner Single Destination]]',
+    '```',
+    "'",
+    'status: verified',
+    '~~~~',
+    '',
+    '````safire-evidence',
+    'id: nested-mcp-flow',
+    'claim: [',
+    '  Visible flow claim,',
+    '  ~~~text,',
+    '  MCP-INNER-FLOW-CODE #inner-flow-code [[Inner Flow Destination]],',
+    '  ~~~',
+    ']',
+    'status: verified',
+    '````',
+  ].join('\n');
+  await fs.writeFile(path.join(vault, 'Ordinary Code.md'), noteContent, 'utf8');
+
+  const client = createClient({ vaultDir: vault });
+  t.after(async () => {
+    await client.close();
+    await fs.rm(vault, { recursive: true, force: true });
+  });
+  await client.request('initialize', {
+    protocolVersion: '2025-03-26',
+    capabilities: {},
+    clientInfo: { name: 'safire-ordinary-code-test', version: '1.0.0' },
+  });
+  client.notify('notifications/initialized');
+
+  const listed = await client.request('tools/call', { name: 'list_notes', arguments: {} });
+  const listedPayload = JSON.parse(listed.result.content[0].text);
+  const metadata = listedPayload.notes.find(note => note.path === 'Ordinary Code.md');
+  assert.deepEqual(metadata.tags, ['public-evidence', 'visible']);
+  assert.deepEqual(metadata.links, ['Visible Target', 'Public Evidence Destination']);
+
+  for (const hidden of hiddenTerms) {
+    const searched = await client.request('tools/call', { name: 'list_notes', arguments: { query: hidden } });
+    assert.deepEqual(JSON.parse(searched.result.content[0].text).results, [], `${hidden} must not be searchable`);
+  }
+  const tasks = await client.request('tools/call', { name: 'list_tasks', arguments: { state: 'all' } });
+  assert.equal(JSON.stringify(tasks).includes('MCP-LIST-CODE-TASK'), false);
+  const health = await client.request('tools/call', { name: 'vault_health', arguments: {} });
+  const publicSearch = await client.request('tools/call', {
+    name: 'list_notes',
+    arguments: { query: 'MCP-PUBLIC-EVIDENCE' },
+  });
+  const visibleSearch = await client.request('tools/call', {
+    name: 'list_notes',
+    arguments: { query: 'Visible prose' },
+  });
+  assert.equal(JSON.parse(visibleSearch.result.content[0].text).results.some(result => result.path === 'Ordinary Code.md'), true);
+  const genericOutput = JSON.stringify({ listed, tasks, health, publicSearch, visibleSearch });
+  assert.doesNotMatch(genericOutput, /MCP-(?:BACKTICK|TILDE|QUOTE|LIST|INNER-TILDE|INNER-BACKTICK|INNER-DOUBLE-QUOTED|INNER-SINGLE-QUOTED|INNER-FLOW)-CODE|(?:backtick|tilde|quote|list|inner-tilde|inner-backtick|inner-double|inner-single|inner-flow)-code|(?:Backtick|Tilde|Quote|List|Inner Tilde|Inner Backtick|Inner Double|Inner Single|Inner Flow) Destination|MCP-PRIVATE-EVIDENCE|private-evidence|Private Evidence Destination/);
+  assert.match(genericOutput, /MCP-PUBLIC-EVIDENCE|public-evidence|Public Evidence Destination/);
+
+  const explicit = await client.request('tools/call', {
+    name: 'read_note',
+    arguments: { path: 'Ordinary Code.md' },
+  });
+  const explicitPayload = JSON.parse(explicit.result.content[0].text);
+  for (const hidden of hiddenTerms) assert.match(explicitPayload.content, new RegExp(hidden));
+  assert.match(explicitPayload.content, /MCP-PRIVATE-EVIDENCE/);
+  assert.equal(client.stderr().includes(path.resolve(vault)), false);
+});

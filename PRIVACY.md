@@ -35,10 +35,14 @@ information.
 
 Private `private_notes` and legacy `notes` evidence fields remain in the local
 Markdown and in explicit note or evidence reads, but are excluded fail-closed
-from generic note metadata, search, graph, and MCP list/search projections.
-Tasks inside private, malformed, or unclosed evidence are also excluded from
-generic task lists and cannot be toggled through those task APIs. Malformed or
-unclosed evidence blocks contribute no generic metadata.
+from generic note metadata, search, graph, health, and MCP list/search
+projections. Ordinary fenced code is also excluded from every generic semantic
+index. A structurally valid `safire-evidence` block contributes only its
+allowlisted public fields; malformed, ambiguous, and unclosed evidence
+contributes nothing. Tasks inside any fence are excluded from generic task
+lists and cannot be toggled through those task APIs. Explicit note reads retain
+the raw Markdown, including ordinary code and private evidence; explicit
+evidence reads retain parsed private evidence fields by design.
 
 Generic note indexes do not read an imported note body larger than 1 MiB and
 read at most 16 MiB of note bodies per operation. Such notes remain listed by
@@ -132,6 +136,15 @@ operation. Never recursively remove, rename, or clean a gate containing
 unexpected entries. Raw filesystem writes and same-user path
 replacement by other programs do not participate in this protocol and remain
 outside its protection.
+
+The exact vault components `.safire`, `.safire-backups`, and
+`.safire-note-mutations.lock` are reserved for Safire control data. Note and
+folder create, update, delete, task-toggle, restore, and rename operations reject
+any path containing one of those components before acquiring the mutation gate
+or changing the requested path. On Windows, colon-bearing alternate-stream
+spellings and DOS 8.3 short-name-shaped components are rejected conservatively
+because they can alias a control path created after validation. Other ordinary,
+non-aliasing similarly named folders remain available.
 
 A complete backup and its versioned, exact-path metadata are published before
 replacement. Current backups use a bounded filename plus a contained metadata

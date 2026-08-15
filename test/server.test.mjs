@@ -1115,3 +1115,229 @@ test('Safire web clipper saves article and recipe pages as durable Markdown', as
     assert.match(recipeNote.content, /Calories \| 320 calories/);
   });
 });
+
+test('HTTP mutations reject Safire control-directory components without poisoning the mutation gate', async (t) => {
+  await withServer(t, async ({ url, vault }) => {
+    const lockDirectory = path.join(vault, '.safire-note-mutations.lock');
+    const reservedNotePaths = [
+      '.safire-note-mutations.lock/Poison.md',
+      'Nested/.safire/Poison.md',
+      'Nested/.safire-backups/Poison.md',
+    ];
+
+    for (const reservedPath of reservedNotePaths) {
+      const rejected = await fetch(`${url}/api/note`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: reservedPath, content: 'synthetic poison' }),
+      });
+      assert.equal(rejected.status, 400);
+      const body = await rejected.json();
+      assert.deepEqual(body, { error: 'Safire internal paths are reserved' });
+      assert.equal(JSON.stringify(body).includes(reservedPath), false);
+      await assert.rejects(() => fs.access(path.join(vault, reservedPath)), { code: 'ENOENT' });
+      await assert.rejects(() => fs.access(lockDirectory), { code: 'ENOENT' });
+    }
+
+    if (process.platform === 'win32') {
+      for (const reservedPath of [
+        'SAFIRE~1.LOC/Poison.md',
+        '.safire-note-mutations.lock::$INDEX_ALLOCATION/Poison.md',
+      ]) {
+        const rejected = await fetch(`${url}/api/note`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: reservedPath, content: 'synthetic Windows alias poison' }),
+        });
+        assert.equal(rejected.status, 400);
+        const body = await rejected.json();
+        assert.deepEqual(body, { error: 'Safire internal paths are reserved' });
+        assert.equal(JSON.stringify(body).includes(reservedPath), false);
+        await assert.rejects(() => fs.access(path.join(vault, reservedPath)), { code: 'ENOENT' });
+        await assert.rejects(() => fs.access(lockDirectory), { code: 'ENOENT' });
+      }
+    }
+
+    const rejectedFolder = await fetch(`${url}/api/folder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: '.safire-note-mutations.lock/Poison Folder' }),
+    });
+    assert.equal(rejectedFolder.status, 400);
+    assert.deepEqual(await rejectedFolder.json(), { error: 'Safire internal paths are reserved' });
+
+    const sourceNote = await fetch(`${url}/api/note`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'Rename Source.md', content: 'source note' }),
+    });
+    assert.equal(sourceNote.status, 201);
+    const rejectedNoteRename = await fetch(`${url}/api/rename`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: 'Rename Source.md', to: '.safire-note-mutations.lock/Renamed.md' }),
+    });
+    assert.equal(rejectedNoteRename.status, 400);
+    assert.deepEqual(await rejectedNoteRename.json(), { error: 'Safire internal paths are reserved' });
+    assert.equal(await fs.readFile(path.join(vault, 'Rename Source.md'), 'utf8'), 'source note');
+
+    const sourceFolder = await fetch(`${url}/api/folder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'Rename Folder Source' }),
+    });
+    assert.equal(sourceFolder.status, 201);
+    const rejectedFolderRename = await fetch(`${url}/api/rename`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: 'Rename Folder Source', to: 'Nested/.safire-note-mutations.lock/Renamed Folder' }),
+    });
+    assert.equal(rejectedFolderRename.status, 400);
+    assert.deepEqual(await rejectedFolderRename.json(), { error: 'Safire internal paths are reserved' });
+    assert.equal((await fs.lstat(path.join(vault, 'Rename Folder Source'))).isDirectory(), true);
+
+    await assert.rejects(() => fs.access(lockDirectory), { code: 'ENOENT' });
+    const ordinary = await fetch(`${url}/api/note`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'After Rejection.md', content: 'ordinary success' }),
+    });
+    assert.equal(ordinary.status, 201);
+    assert.equal(await fs.readFile(path.join(vault, 'After Rejection.md'), 'utf8'), 'ordinary success');
+    await assert.rejects(() => fs.access(lockDirectory), { code: 'ENOENT' });
+  });
+});
+
+test('HTTP generic indexes exclude ordinary fenced code while explicit reads retain it', async (t) => {
+  await withServer(t, async ({ url }) => {
+    const hiddenTerms = [
+      'HTTP-BACKTICK-CODE',
+      'HTTP-TILDE-CODE',
+      'HTTP-QUOTE-CODE',
+      'HTTP-UNORDERED-CODE',
+      'HTTP-ORDERED-CODE',
+      'HTTP-INNER-TILDE-CODE',
+      'HTTP-INNER-BACKTICK-CODE',
+      'HTTP-INNER-DOUBLE-QUOTED-CODE',
+      'HTTP-INNER-SINGLE-QUOTED-CODE',
+      'HTTP-INNER-FLOW-CODE',
+    ];
+    const noteContent = [
+      '# Generic projection fixture',
+      '',
+      'Visible prose #visible [[Visible Target]]',
+      '',
+      '```text',
+      'HTTP-BACKTICK-CODE #backtick-code [[Backtick Destination]]',
+      '```',
+      '',
+      '~~~~text',
+      'HTTP-TILDE-CODE #tilde-code [[Tilde Destination]]',
+      '~~~~',
+      '',
+      '> `````text',
+      '> HTTP-QUOTE-CODE #quote-code [[Quote Destination]]',
+      '> ```',
+      '> `````',
+      '',
+      '- ~~~~text',
+      '  HTTP-UNORDERED-CODE #unordered-code [[Unordered Destination]]',
+      '  ~~~~',
+      '',
+      '7. ```text',
+      '   HTTP-ORDERED-CODE #ordered-code [[Ordered Destination]]',
+      '   ```',
+      '',
+      '```safire-evidence',
+      'id: public-http-receipt',
+      'claim: HTTP-PUBLIC-EVIDENCE #public-evidence [[Public Evidence Destination]]',
+      'status: verified',
+      'private_notes: HTTP-PRIVATE-EVIDENCE #private-evidence [[Private Evidence Destination]]',
+      '```',
+      '',
+      '````safire-evidence',
+      'id: nested-http-tilde',
+      'claim: |',
+      '  ~~~text',
+      '  HTTP-INNER-TILDE-CODE #inner-tilde-code [[Inner Tilde Destination]]',
+      '  ~~~',
+      'status: verified',
+      '````',
+      '',
+      '~~~~safire-evidence',
+      'id: nested-http-backtick',
+      'claim: |',
+      '  ```text',
+      '  HTTP-INNER-BACKTICK-CODE #inner-backtick-code [[Inner Backtick Destination]]',
+      '  ```',
+      'status: verified',
+      '~~~~',
+      '',
+      '````safire-evidence',
+      'id: nested-http-double-quoted',
+      'claim: "Visible double-quoted claim',
+      '~~~text',
+      'HTTP-INNER-DOUBLE-QUOTED-CODE #inner-double-code [[Inner Double Destination]]',
+      '~~~',
+      '"',
+      'status: verified',
+      '````',
+      '',
+      '~~~~safire-evidence',
+      'id: nested-http-single-quoted',
+      "claim: 'Visible single-quoted claim",
+      '```text',
+      'HTTP-INNER-SINGLE-QUOTED-CODE #inner-single-code [[Inner Single Destination]]',
+      '```',
+      "'",
+      'status: verified',
+      '~~~~',
+      '',
+      '````safire-evidence',
+      'id: nested-http-flow',
+      'claim: [',
+      '  Visible flow claim,',
+      '  ~~~text,',
+      '  HTTP-INNER-FLOW-CODE #inner-flow-code [[Inner Flow Destination]],',
+      '  ~~~',
+      ']',
+      'status: verified',
+      '````',
+    ].join('\r\n');
+
+    const created = await fetch(`${url}/api/note`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'Ordinary Code.md', content: noteContent }),
+    });
+    assert.equal(created.status, 201);
+
+    const listed = await fetch(`${url}/api/notes`).then(response => response.json());
+    const metadata = listed.notes.find(note => note.path === 'Ordinary Code.md');
+    assert.deepEqual(metadata.tags, ['public-evidence', 'visible']);
+    assert.deepEqual(metadata.links, ['Visible Target', 'Public Evidence Destination']);
+
+    for (const hidden of hiddenTerms) {
+      const searched = await fetch(`${url}/api/search?q=${encodeURIComponent(hidden)}`).then(response => response.json());
+      assert.deepEqual(searched.results, [], `${hidden} must not be searchable`);
+    }
+    for (const hidden of ['HTTP-PRIVATE-EVIDENCE', 'private-evidence', 'Private Evidence Destination']) {
+      const searched = await fetch(`${url}/api/search?q=${encodeURIComponent(hidden)}`).then(response => response.json());
+      assert.deepEqual(searched.results, [], `${hidden} must remain private`);
+    }
+
+    const publicSearch = await fetch(`${url}/api/search?q=${encodeURIComponent('HTTP-PUBLIC-EVIDENCE')}`).then(response => response.json());
+    assert.equal(publicSearch.results.some(result => result.path === 'Ordinary Code.md'), true);
+    const visibleSearch = await fetch(`${url}/api/search?q=${encodeURIComponent('Visible prose')}`).then(response => response.json());
+    assert.equal(visibleSearch.results.some(result => result.path === 'Ordinary Code.md'), true);
+    const health = await fetch(`${url}/api/vault-health`).then(response => response.json());
+    const graph = await fetch(`${url}/api/graph?active=${encodeURIComponent('Ordinary Code.md')}`).then(response => response.json());
+    const genericOutput = JSON.stringify({ metadata, publicSearch, visibleSearch, health, graph });
+    assert.doesNotMatch(genericOutput, /HTTP-(?:BACKTICK|TILDE|QUOTE|UNORDERED|ORDERED|INNER-TILDE|INNER-BACKTICK|INNER-DOUBLE-QUOTED|INNER-SINGLE-QUOTED|INNER-FLOW)-CODE|(?:backtick|tilde|quote|unordered|ordered|inner-tilde|inner-backtick|inner-double|inner-single|inner-flow)-code|(?:Backtick|Tilde|Quote|Unordered|Ordered|Inner Tilde|Inner Backtick|Inner Double|Inner Single|Inner Flow) Destination|HTTP-PRIVATE-EVIDENCE|private-evidence|Private Evidence Destination/);
+    assert.match(genericOutput, /HTTP-PUBLIC-EVIDENCE|public-evidence|Public Evidence Destination/);
+
+    const explicit = await fetch(`${url}/api/note?path=${encodeURIComponent('Ordinary Code.md')}`).then(response => response.json());
+    for (const hidden of hiddenTerms) assert.match(explicit.content, new RegExp(hidden));
+    assert.match(explicit.content, /HTTP-PRIVATE-EVIDENCE/);
+  });
+});

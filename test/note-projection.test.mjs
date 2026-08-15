@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  genericIndexContent,
   isPublicTaskLine,
   parseEvidenceReceipts,
   parsePublicEvidenceReceipts,
   parsePublicTasks,
   publicEvidenceContent,
   publicNoteMetadata,
+  semanticMarkdownContent,
 } from '../lib/note-projection.mjs';
 
 const PRIVATE_TERMS = [
@@ -145,7 +147,7 @@ test('nested blockquoted evidence is projected structurally and fails closed', (
   assert.deepEqual(publicNoteMetadata(markdown), {
     tags: ['outside', 'quoted-public'],
     links: ['Outside Link', 'Quoted Public Link'],
-    excerpt: 'Outside outside Outside Link',
+    excerpt: 'Outside outside Outside Link id: "quoted valid" claim: Quoted public claim quoted public Quoted Public Link',
   });
 
   const interrupted = ['> > ```safire-evidence', '> > id: "unclosed"', '> > private_notes: |', '> >   UNCLOSED-QUOTED-PRIVATE #unclosed-private [[Unclosed Private Link]]'].join('\n');
@@ -558,4 +560,200 @@ test('ordinary list-contained code fences remain byte-identical and non-task con
   assert.deepEqual(parsePublicTasks(markdown, 'Ordinary List.md').map(task => ({ line: task.line, text: task.text })), [
     { line: 5, text: 'Outside public task' },
   ]);
+});
+
+test('generic metadata excludes ordinary fenced code while the evidence-only projection preserves it', () => {
+  const markdown = [
+    '# Visible prose #visible [[Visible Link]]',
+    '',
+    '```text',
+    'SYNTH-FENCED-MARKER #fenced-private [[Fenced Private Link]]',
+    '```',
+  ].join('\n');
+
+  assert.equal(publicEvidenceContent(markdown), markdown);
+  assert.deepEqual(publicNoteMetadata(markdown), {
+    tags: ['visible'],
+    links: ['Visible Link'],
+    excerpt: 'Visible prose visible Visible Link',
+  });
+});
+
+test('generic index projection removes ordinary fences across delimiters, containers, and line endings', () => {
+  const cases = [
+    { opening: '```text', continuation: '', closing: '```', fenceLike: '``', newline: '\n' },
+    { opening: '~~~javascript', continuation: '', closing: '~~~', fenceLike: '~~', newline: '\r\n' },
+    { opening: '``````text', continuation: '', closing: '``````', fenceLike: '```', newline: '\n' },
+    { opening: '> ```text', continuation: '> ', closing: '> ```', fenceLike: '> ``', newline: '\r\n' },
+    { opening: '- ~~~~text', continuation: '  ', closing: '  ~~~~', fenceLike: '  ~~~', newline: '\n' },
+    { opening: '10. ~~~text', continuation: '    ', closing: '    ~~~', fenceLike: '    ~~', newline: '\r\n' },
+    { opening: '> 3) - `````text', continuation: `> ${' '.repeat(5)}`, closing: `> ${' '.repeat(5)}` + '`````', fenceLike: `> ${' '.repeat(5)}` + '```', newline: '\n' },
+  ];
+
+  for (const [caseIndex, item] of cases.entries()) {
+    const marker = `SYNTH-FENCED-MARKER-${caseIndex}`;
+    const nestedFence = item.opening.includes('`') ? '~~~' : '```';
+    const markdown = [
+      `Visible before ${caseIndex} #outside-${caseIndex} [[Outside ${caseIndex}]]`,
+      item.opening,
+      `${item.continuation}${marker} #fenced-${caseIndex} [[Fenced Link ${caseIndex}]]`,
+      item.fenceLike,
+      `${item.continuation}${nestedFence}safire-evidence`,
+      `${item.continuation}claim: MUST-NOT-PROMOTE-${caseIndex} #promoted-${caseIndex} [[Promoted ${caseIndex}]]`,
+      `${item.continuation}${nestedFence}`,
+      item.closing,
+      `Visible after ${caseIndex}`,
+    ].join(item.newline);
+
+    const projected = genericIndexContent(markdown);
+    assert.match(projected, new RegExp(`Visible before ${caseIndex}`));
+    assert.match(projected, new RegExp(`Visible after ${caseIndex}`));
+    assert.doesNotMatch(projected, new RegExp(`${marker}|MUST-NOT-PROMOTE-${caseIndex}|fenced-${caseIndex}|promoted-${caseIndex}|Fenced Link ${caseIndex}|Promoted ${caseIndex}`));
+    assert.deepEqual(publicNoteMetadata(markdown).tags, [`outside-${caseIndex}`]);
+    assert.deepEqual(publicNoteMetadata(markdown).links, [`Outside ${caseIndex}`]);
+    assert.doesNotMatch(semanticMarkdownContent(markdown), new RegExp(`${marker}|MUST-NOT-PROMOTE-${caseIndex}`));
+
+    // Explicit reads retain the raw input, and the evidence-only projection
+    // also leaves ordinary code byte-identical. Generic indexes see less.
+    assert.equal(publicEvidenceContent(markdown), markdown);
+    assert.match(markdown, new RegExp(marker));
+  }
+});
+
+test('generic index projection exposes only validated public evidence fields and fails closed otherwise', () => {
+  for (const newline of ['\n', '\r\n']) {
+    const markdown = [
+      '# Outside #outside [[Outside Link]]',
+      '> - ~~~~safire-evidence',
+      '>   id: public-receipt',
+      '>   claim: PUBLIC-EVIDENCE-MARKER #public-evidence [[Public Evidence Link]]',
+      '>   status: verified',
+      '>   private_notes: PRIVATE-EVIDENCE-MARKER #private-evidence [[Private Evidence Link]]',
+      '>   ~~~~',
+      '',
+      '```text',
+      'ORDINARY-CODE-MARKER #ordinary-code [[Ordinary Code Link]]',
+      '```',
+    ].join(newline);
+    const projected = genericIndexContent(markdown);
+
+    assert.match(projected, /Outside/);
+    assert.match(projected, /public-receipt|PUBLIC-EVIDENCE-MARKER|verified/);
+    assert.doesNotMatch(projected, /PRIVATE-EVIDENCE-MARKER|private-evidence|Private Evidence Link|ORDINARY-CODE-MARKER|ordinary-code|Ordinary Code Link/);
+    assert.deepEqual(publicNoteMetadata(markdown).tags, ['outside', 'public-evidence']);
+    assert.deepEqual(publicNoteMetadata(markdown).links, ['Outside Link', 'Public Evidence Link']);
+    assert.match(semanticMarkdownContent(markdown), /PUBLIC-EVIDENCE-MARKER/);
+
+    const [explicitReceipt] = parseEvidenceReceipts(markdown, 'Evidence.md');
+    assert.equal(explicitReceipt.privateNotes, 'PRIVATE-EVIDENCE-MARKER #private-evidence [[Private Evidence Link]]');
+    const [publicReceipt] = parsePublicEvidenceReceipts(markdown, 'Evidence.md');
+    assert.equal(publicReceipt.claim, 'PUBLIC-EVIDENCE-MARKER #public-evidence [[Public Evidence Link]]');
+    assert.equal(publicReceipt.privateNotes, undefined);
+  }
+
+  const failClosedCases = [
+    ['```safire-evidence extra', 'claim: MALFORMED-INFO-PUBLIC', 'private_notes: MALFORMED-INFO-PRIVATE', '```'].join('\n'),
+    ['~~~safire-evidence', 'claim: INVALID-FIELD-PUBLIC', 'unknown_private: INVALID-FIELD-PRIVATE', '~~~'].join('\r\n'),
+    ['````safire-evidence', 'claim: UNCLOSED-EVIDENCE-PUBLIC', 'private_notes: UNCLOSED-EVIDENCE-PRIVATE', '```'].join('\n'),
+  ];
+  for (const markdown of failClosedCases) {
+    const projected = genericIndexContent(`# Outside\n${markdown}`);
+    assert.equal(projected.trim(), '# Outside');
+    assert.doesNotMatch(projected, /(?:MALFORMED|INVALID|UNCLOSED)-(?:INFO|FIELD|EVIDENCE)-(?:PUBLIC|PRIVATE)/);
+  }
+});
+
+test('generic index projection strips nested fences from public evidence scalars without promoting them', () => {
+  const cases = [
+    {
+      outer: '````',
+      inner: '~~~',
+      marker: 'INNER-TILDE-CODE',
+      tag: 'inner-tilde',
+      link: 'Inner Tilde Link',
+    },
+    {
+      outer: '~~~~',
+      inner: '```',
+      marker: 'INNER-BACKTICK-CODE',
+      tag: 'inner-backtick',
+      link: 'Inner Backtick Link',
+    },
+  ];
+
+  for (const item of cases) {
+    const markdown = [
+      `${item.outer}safire-evidence`,
+      `id: public-nested-${item.marker.startsWith('INNER-TILDE') ? 'one' : 'two'}`,
+      'claim: |',
+      '  Visible claim before #claim-visible [[Visible Claim Link]]',
+      `  ${item.inner}text`,
+      `  ${item.marker} #${item.tag} [[${item.link}]]`,
+      `  ${item.inner}`,
+      '  Visible claim after',
+      'status: verified',
+      item.outer,
+    ].join('\n');
+
+    const projected = genericIndexContent(markdown);
+    assert.match(projected, /Visible claim before|Visible claim after/);
+    assert.doesNotMatch(projected, new RegExp(`${item.marker}|${item.tag}|${item.link}`));
+    assert.deepEqual(publicNoteMetadata(markdown).tags, ['claim-visible']);
+    assert.deepEqual(publicNoteMetadata(markdown).links, ['Visible Claim Link']);
+
+    const [receipt] = parsePublicEvidenceReceipts(markdown, 'Nested.md');
+    assert.equal(receipt.claim, '');
+    assert.doesNotMatch(JSON.stringify(receipt), new RegExp(`${item.marker}|${item.tag}|${item.link}`));
+  }
+
+  const foldedScalarCases = [
+    [
+      'claim: "Visible double-quoted claim',
+      '~~~text',
+      'INNER-DOUBLE-QUOTED-CODE #inner-double [[Inner Double Link]]',
+      '~~~',
+      '"',
+    ],
+    [
+      "claim: 'Visible single-quoted claim",
+      '```text',
+      'INNER-SINGLE-QUOTED-CODE #inner-single [[Inner Single Link]]',
+      '```',
+      "'",
+    ],
+    [
+      'claim: [',
+      '  Visible flow claim,',
+      '  ~~~text,',
+      '  INNER-FLOW-CODE #inner-flow [[Inner Flow Link]],',
+      '  ~~~',
+      ']',
+    ],
+  ];
+  for (const [caseIndex, scalarLines] of foldedScalarCases.entries()) {
+    const markdown = [
+      '````safire-evidence',
+      `id: folded-${caseIndex}`,
+      ...scalarLines,
+      'status: verified',
+      '````',
+    ].join('\n');
+    const generic = genericIndexContent(markdown);
+    const receipts = parsePublicEvidenceReceipts(markdown, 'Folded.md');
+    assert.doesNotMatch(generic, /INNER-(?:DOUBLE-QUOTED|SINGLE-QUOTED|FLOW)-CODE|inner-(?:double|single|flow)|Inner (?:Double|Single|Flow) Link/);
+    assert.doesNotMatch(JSON.stringify(receipts), /INNER-(?:DOUBLE-QUOTED|SINGLE-QUOTED|FLOW)-CODE|inner-(?:double|single|flow)|Inner (?:Double|Single|Flow) Link/);
+  }
+
+  const nestedEvidence = [
+    '````safire-evidence',
+    'id: outer-public',
+    'claim: |',
+    '  ```safire-evidence',
+    '  claim: MUST-NOT-BE-PROMOTED #nested-promoted [[Nested Promoted Link]]',
+    '  ```',
+    'status: verified',
+    '````',
+  ].join('\n');
+  assert.doesNotMatch(genericIndexContent(nestedEvidence), /MUST-NOT-BE-PROMOTED|nested-promoted|Nested Promoted Link/);
+  assert.doesNotMatch(JSON.stringify(parsePublicEvidenceReceipts(nestedEvidence, 'Nested.md')), /MUST-NOT-BE-PROMOTED|nested-promoted|Nested Promoted Link/);
 });

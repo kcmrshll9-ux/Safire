@@ -7,6 +7,7 @@ import { fork } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import {
+  assertUserMutationPath,
   createNoteMutator,
   listContainedFiles,
   readBackupMetadata,
@@ -155,6 +156,127 @@ test('a crashed cross-process owner leaves a fail-closed gate that is never stol
     await assert.rejects(() => contender.replace(note, 'replacement\n'), { code: 'EBUSY' });
     assert.equal(await fs.readFile(note, 'utf8'), 'protected\n');
     assert.deepEqual(await backupFiles(vault), []);
+  });
+});
+
+test('shared mutation policy reserves exact Safire control-directory components only', () => {
+  const vault = path.resolve(os.tmpdir(), 'safire-reserved-policy-fixture');
+  for (const relativePath of [
+    '.safire/Settings.md',
+    'Nested/.safire/Settings.md',
+    '.safire-backups/Backup.md',
+    'Nested/.safire-backups/Backup.md',
+    '.safire-note-mutations.lock/Owner.md',
+    'Nested/.safire-note-mutations.lock/Owner.md',
+  ]) {
+    assert.throws(
+      () => assertUserMutationPath(vault, path.join(vault, relativePath)),
+      (error) => error?.code === 'SAFIRE_RESERVED_PATH'
+        && error.message === 'Safire internal paths are reserved'
+        && !error.message.includes(relativePath),
+    );
+  }
+
+  for (const relativePath of [
+    '.safire-notes/Allowed.md',
+    '.safire-backups-old/Allowed.md',
+    '.safire-note-mutations.locked/Allowed.md',
+  ]) {
+    assert.doesNotThrow(() => assertUserMutationPath(vault, path.join(vault, relativePath)));
+  }
+
+  if (process.platform === 'win32') {
+    for (const relativePath of [
+      '.SAFIRE/Settings.md',
+      '.safire-backups./Backup.md',
+      '.SAFIRE-NOTE-MUTATIONS.LOCK /Owner.md',
+      'SAFIRE~1.LOC/Owner.md',
+      '.safire-note-mutations.lock::$INDEX_ALLOCATION/Owner.md',
+    ]) {
+      assert.throws(
+        () => assertUserMutationPath(vault, path.join(vault, relativePath)),
+        { code: 'SAFIRE_RESERVED_PATH' },
+      );
+    }
+  }
+});
+
+test('reserved Safire control paths reject every core mutation before lock acquisition', async (t) => {
+  await withVault(t, async (vault) => {
+    const lockDirectory = path.join(vault, '.safire-note-mutations.lock');
+    let lockAcquisitionAttempts = 0;
+    const observingFs = {
+      ...fs,
+      async mkdir(target, options) {
+        if (sameResolvedPath(target, lockDirectory)) lockAcquisitionAttempts += 1;
+        return fs.mkdir(target, options);
+      },
+    };
+    const mutator = createNoteMutator({
+      vaultDir: vault,
+      fsApi: observingFs,
+      lockOptions: { timeoutMs: 0 },
+    });
+
+    async function assertCleanRejection(operation, requestedPath, ordinaryName) {
+      const attemptsBefore = lockAcquisitionAttempts;
+      await assert.rejects(operation, { code: 'SAFIRE_RESERVED_PATH' });
+      assert.equal(lockAcquisitionAttempts, attemptsBefore);
+      await assert.rejects(() => fs.access(requestedPath), { code: 'ENOENT' });
+      await assert.rejects(() => fs.access(lockDirectory), { code: 'ENOENT' });
+      const ordinaryPath = path.join(vault, ordinaryName);
+      await mutator.create(ordinaryPath, 'ordinary');
+      assert.equal(lockAcquisitionAttempts, attemptsBefore + 1);
+      assert.equal(await fs.readFile(ordinaryPath, 'utf8'), 'ordinary');
+      await assert.rejects(() => fs.access(lockDirectory), { code: 'ENOENT' });
+    }
+
+    await assertCleanRejection(
+      () => mutator.create(path.join(lockDirectory, 'Poison.md'), 'synthetic'),
+      path.join(lockDirectory, 'Poison.md'),
+      'After rejected create.md',
+    );
+
+    const noteSource = path.join(vault, 'Rename source.md');
+    await fs.writeFile(noteSource, 'source', 'utf8');
+    const noteDestination = path.join(vault, 'Nested', '.safire-note-mutations.lock', 'Poison.md');
+    await assertCleanRejection(
+      () => mutator.rename(noteSource, noteDestination),
+      noteDestination,
+      'After rejected note rename.md',
+    );
+    assert.equal(await fs.readFile(noteSource, 'utf8'), 'source');
+
+    const reservedFolder = path.join(vault, 'Nested', '.safire-note-mutations.lock');
+    await assertCleanRejection(
+      () => mutator.ensureFolder(reservedFolder),
+      reservedFolder,
+      'After rejected folder create.md',
+    );
+
+    const folderSource = path.join(vault, 'Folder source');
+    await fs.mkdir(folderSource);
+    const folderDestination = path.join(vault, '.safire-note-mutations.lock', 'Poison folder');
+    await assertCleanRejection(
+      () => mutator.renameFolder(folderSource, folderDestination),
+      folderDestination,
+      'After rejected folder rename.md',
+    );
+    assert.equal((await fs.lstat(folderSource)).isDirectory(), true);
+
+    if (process.platform === 'win32') {
+      for (const unsafeAlias of [
+        path.join(vault, 'SAFIRE~1.LOC', 'Poison.md'),
+        path.join(vault, '.safire-note-mutations.lock::$INDEX_ALLOCATION', 'Poison.md'),
+      ]) {
+        await assertCleanRejection(
+          () => mutator.create(unsafeAlias, 'synthetic alias poison'),
+          unsafeAlias,
+          `After rejected Windows alias ${path.basename(path.dirname(unsafeAlias)).replaceAll(':', '-')}.md`,
+        );
+      }
+      assert.doesNotThrow(() => assertUserMutationPath(vault, path.join(vault, 'Project~2026', 'Allowed.md')));
+    }
   });
 });
 

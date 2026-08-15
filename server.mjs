@@ -9,12 +9,12 @@ import { Agent, fetch as undiciFetch } from 'undici';
 import vaultConfig from './vault-config.cjs';
 import {
   excerpt,
+  genericIndexContent,
   isPublicTaskLine,
   parseEvidenceReceipts,
   parsePublicEvidenceReceipts,
   parsePublicTasks,
   parseTags,
-  publicEvidenceContent,
   publicNoteMetadata,
   semanticMarkdownContent,
 } from './lib/note-projection.mjs';
@@ -32,6 +32,7 @@ import {
   selectGraphNotePaths,
 } from './lib/graph-policy.mjs';
 import {
+  assertUserMutationPath,
   createNoteMutator,
   listContainedFilesBounded,
   readBackupFile,
@@ -176,6 +177,18 @@ function resolveNotePath(raw) {
   return { rel, abs };
 }
 
+function resolveUserMutationFolderPath(raw = '') {
+  const resolved = resolveVaultPath(raw);
+  assertUserMutationPath(VAULT_DIR, resolved.abs);
+  return resolved;
+}
+
+function resolveUserMutationNotePath(raw) {
+  const resolved = resolveNotePath(raw);
+  assertUserMutationPath(VAULT_DIR, resolved.abs);
+  return resolved;
+}
+
 function buildBoundedTree(discovery, responseBudget) {
   const tree = [];
   const folderNodes = new Map();
@@ -236,7 +249,7 @@ function createIndexOperationState() {
 }
 
 function boundedIndexMetadata(content, state) {
-  const publicContent = publicEvidenceContent(content);
+  const publicContent = genericIndexContent(content);
   let complete = true;
 
   const tagLimit = Math.min(GENERIC_INDEX_LIMITS.tagsPerNote, state.remainingTags);
@@ -526,7 +539,7 @@ async function allTasks(state = 'open', responseBudget = createIndexResponseBudg
   return { tasks, observedTasks, tasksComplete, indexed, responseBudget };
 }
 async function toggleTaskAtLine(rawPath, rawLine) {
-  const { rel, abs } = resolveNotePath(rawPath);
+  const { rel, abs } = resolveUserMutationNotePath(rawPath);
   const lineNumber = Number(rawLine);
   if (!Number.isInteger(lineNumber) || lineNumber < 1) throw new Error('Task line must be a positive integer');
   const { backup, value: task } = await noteMutator.mutate(abs, (current) => {
@@ -610,7 +623,7 @@ function searchEvidenceReceipt(receipt) {
 }
 
 function publicSearchContent(content = '') {
-  return publicEvidenceContent(content);
+  return genericIndexContent(content);
 }
 
 function evidenceSearchFilters(query = {}) {
@@ -842,7 +855,7 @@ async function createWebClip(input = {}) {
   const content = renderWebClip(template, data);
   for (let attempt = 1; attempt <= 1000; attempt += 1) {
     const rel = attempt === 1 ? `${folder}/${baseName}.md` : `${folder}/${baseName} (${attempt}).md`;
-    const { abs } = resolveNotePath(rel);
+    const { abs } = resolveUserMutationNotePath(rel);
     try {
       await noteMutator.create(abs, content);
       return { path: rel, title: data.title, template: template.id, source: data.url, content };
@@ -930,7 +943,7 @@ app.post('/api/note', async (req, res, next) => {
   try {
     const wanted = req.body.path || req.body.title || 'Untitled';
     const safe = slash(safeFilename(wanted)).replace(/^\/+/, '') || 'Untitled';
-    const { rel, abs } = resolveNotePath(safe);
+    const { rel, abs } = resolveUserMutationNotePath(safe);
     const initial = req.body.content ?? `# ${titleFromPath(rel)}\n\n`;
     try {
       await noteMutator.create(abs, initial);
@@ -944,7 +957,7 @@ app.post('/api/note', async (req, res, next) => {
 
 app.put('/api/note', async (req, res, next) => {
   try {
-    const { rel, abs } = resolveNotePath(req.body.path);
+    const { rel, abs } = resolveUserMutationNotePath(req.body.path);
     const { backup } = await noteMutator.replace(abs, String(req.body.content ?? ''));
     res.json({ ok: true, path: rel, backup });
   } catch (err) { next(err); }
@@ -952,7 +965,7 @@ app.put('/api/note', async (req, res, next) => {
 
 app.delete('/api/note', async (req, res, next) => {
   try {
-    const { rel, abs } = resolveNotePath(req.body.path);
+    const { rel, abs } = resolveUserMutationNotePath(req.body.path);
     const { backup } = await noteMutator.remove(abs);
     res.json({ ok: true, path: rel, backup });
   } catch (err) { next(err); }
@@ -960,7 +973,7 @@ app.delete('/api/note', async (req, res, next) => {
 
 app.post('/api/folder', async (req, res, next) => {
   try {
-    const { rel, abs } = resolveVaultPath(req.body.path || 'New Folder');
+    const { rel, abs } = resolveUserMutationFolderPath(req.body.path || 'New Folder');
     if (!rel) throw new Error('Folder name required');
     await noteMutator.ensureFolder(abs);
     res.status(201).json({ path: rel });
@@ -973,8 +986,8 @@ app.post('/api/rename', async (req, res, next) => {
     const toRaw = req.body.to;
     const fromIsNote = String(fromRaw).toLowerCase().endsWith('.md');
     const toIsNote = String(toRaw).toLowerCase().endsWith('.md') || fromIsNote;
-    const from = fromIsNote ? resolveNotePath(fromRaw) : resolveVaultPath(fromRaw);
-    const to = toIsNote ? resolveNotePath(toRaw) : resolveVaultPath(toRaw);
+    const from = fromIsNote ? resolveUserMutationNotePath(fromRaw) : resolveUserMutationFolderPath(fromRaw);
+    const to = toIsNote ? resolveUserMutationNotePath(toRaw) : resolveUserMutationFolderPath(toRaw);
     if (fromIsNote) {
       try {
         await noteMutator.rename(from.abs, to.abs);
@@ -999,7 +1012,7 @@ app.post('/api/rename', async (req, res, next) => {
 app.post('/api/daily', async (_req, res, next) => {
   try {
     const rel = `Daily Notes/${todayName()}.md`;
-    const { abs } = resolveNotePath(rel);
+    const { abs } = resolveUserMutationNotePath(rel);
     try {
       await noteMutator.create(abs, `# ${todayName()}\n\n## Notes\n\n## Tasks\n\n- [ ] \n\n#daily\n`);
     } catch (error) {
@@ -1017,7 +1030,7 @@ app.post('/api/capture', async (req, res, next) => {
     const tag = safeCaptureTag(req.body?.tag);
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const rel = `Inbox/${stamp}-${Math.random().toString(36).slice(2, 6)}.md`;
-    const { abs } = resolveNotePath(rel);
+    const { abs } = resolveUserMutationNotePath(rel);
     const content = `# Quick capture\n\n${text}\n${tag ? `\n#${tag}\n` : ''}`;
     await noteMutator.create(abs, content);
     res.status(201).json({ path: rel, content });
@@ -1072,7 +1085,7 @@ app.post('/api/template/instantiate', async (req, res, next) => {
     const source = await fs.readFile(template.abs, 'utf8');
     const destinationRaw = String(req.body?.destination || req.body?.title || '').trim();
     if (!destinationRaw) throw new Error('New note destination is required');
-    const destination = resolveNotePath(destinationRaw);
+    const destination = resolveUserMutationNotePath(destinationRaw);
     const title = String(req.body?.title || titleFromPath(destination.rel)).trim().slice(0, 200) || titleFromPath(destination.rel);
     const content = renderTemplate(source, { title });
     try {
@@ -1105,7 +1118,7 @@ app.get('/api/search', async (req, res, next) => {
       const remainingEvidence = GENERIC_INDEX_LIMITS.evidenceReceiptsPerOperation - observedEvidence;
       const receiptLimit = Math.min(GENERIC_INDEX_LIMITS.evidenceReceiptsPerNote, remainingEvidence);
       const receiptCandidates = receiptLimit > 0
-        ? parsePublicEvidenceReceipts(searchable, n.rel, { limit: receiptLimit + 1 })
+        ? parsePublicEvidenceReceipts(n.content, n.rel, { limit: receiptLimit + 1 })
         : [];
       if (receiptCandidates.length > receiptLimit || (receiptLimit === 0 && searchable.length > 0)) evidenceComplete = false;
       observedEvidence += Math.min(receiptCandidates.length, receiptLimit);
@@ -1593,7 +1606,7 @@ app.post('/api/backup/restore', async (req, res, next) => {
     const { metadata, content } = await readBackupFile(VAULT_DIR, abs);
     if (!req.body.path && !metadata.notePath) throw new Error('A restore destination is required for this legacy backup');
     const toPath = req.body.path ? normalizeNotePath(req.body.path) : normalizeNotePath(metadata.notePath);
-    const target = resolveNotePath(toPath);
+    const target = resolveUserMutationNotePath(toPath);
     const { backup: safetyBackup } = await noteMutator.put(target.abs, content);
     res.json({ ok: true, path: target.rel, restoredFrom: rel, backup: safetyBackup });
   } catch (err) { next(err); }
