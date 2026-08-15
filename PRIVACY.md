@@ -45,6 +45,17 @@ read at most 16 MiB of note bodies per operation. Such notes remain listed by
 path and basic filesystem metadata, but their body, tags, links, excerpt,
 tasks, and search matches are omitted until opened explicitly. Graph responses
 are capped at 1,000 notes, 2,000 links, and 2 MiB and visibly report truncation.
+The same 1,000-note and 2 MiB serialized-response ceilings apply to generic
+note, tree, template, search, task, backlink, backup-list, and vault-health indexes and to
+the corresponding eight-tool notes MCP list, search, task, and health output.
+Backup lists retain at most 1,000 backup entries, and task output retains at
+most 2,000 tasks. Generic backup metadata and filtered content verification
+share a 16 MiB operation-read budget; explicit backup preview and restore are
+not generic indexes. Tags, links, evidence receipts, fields,
+directories, directory entries, and nesting depth have additional fixed caps.
+When a cap is reached, completion metadata is conservative and observed counts
+are lower bounds rather than exact vault totals. Explicit single-note reads are
+not generic indexes and remain available, including for an oversized note.
 
 The agent-memory sidecar records only explicit MCP calls or deliberate host
 library calls. It does not monitor conversations, modify Hermes or another
@@ -104,11 +115,33 @@ Vault data consists of ordinary files in the selected folder. Users can view,
 copy, move, back up, encrypt, or remove those files with their normal operating
 system tools. Safire may create a backup before a note is overwritten,
 restored, task-edited, or deleted. Renaming a note does not itself create a
-backup. Mutations accepted by one Safire process are serialized per note, and
-a complete backup is published before replacement. Backup traversal rejects
-an uncontained, symbolic-link, or junctioned backup root. Deleting a note therefore may not
-delete its backup copies; backups in `.safire-backups` must be reviewed and
-removed separately when they are no longer wanted.
+backup. Mutations are serialized per note within one process, and cooperating
+Safire processes serialize note and folder mutations through the
+hidden `.safire-note-mutations.lock` directory. The gate covers the complete
+snapshot, backup, publication, and rollback interval. Safire never infers that
+an old lock is abandoned from its age or process identifier. A crash can leave
+the gate in place and block later mutations. Recovery is deliberately manual:
+stop every cooperating Safire process, independently establish that no owner is
+still operating (a PID or age alone is never sufficient), and inspect the gate
+as a plain local directory. If it contains only its sole `owner-*.json` metadata
+file, remove only that exact owner file, then remove the now-empty gate with a
+non-recursive directory operation. If independent inspection finds the gate
+already empty, including after a crash between owner-file removal and the final
+directory removal, remove only that exact empty gate with the same non-recursive
+operation. Never recursively remove, rename, or clean a gate containing
+unexpected entries. Raw filesystem writes and same-user path
+replacement by other programs do not participate in this protocol and remain
+outside its protection.
+
+A complete backup and its versioned, exact-path metadata are published before
+replacement. Current backups use a bounded filename plus a contained metadata
+sidecar, so literal `__` characters cannot be confused with folder separators.
+Older backup names containing `__` are ambiguous: Safire does not infer their
+original destination, does not include them in a note-specific backup list, and
+requires an explicit contained restore destination. Backup traversal rejects an
+uncontained, symbolic-link, or junctioned backup root. Deleting a note therefore
+may not delete its backup copies; backups in `.safire-backups` must be reviewed
+and removed separately when they are no longer wanted.
 
 Agent-memory filenames are opaque, but the JSON records themselves are not
 encrypted. Stable actor, source, profile, and vault identities support

@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { GRAPH_STORAGE_LIMITS } from '../lib/graph-policy.mjs';
+import { GENERIC_INDEX_LIMITS, GRAPH_STORAGE_LIMITS } from '../lib/graph-policy.mjs';
 import vaultConfig from '../vault-config.cjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -191,6 +191,68 @@ test('Safire MCP omits oversized imported bodies from list and search indexes bu
 
   const explicit = await client.request('tools/call', { name: 'read_note', arguments: { path: 'Oversized.md' } });
   assert.match(explicit.result.content[0].text, new RegExp(marker));
+});
+
+test('real stdio MCP generic indexes cap imported metadata and pretty-JSON response bytes', async (t) => {
+  const vault = await fs.mkdtemp(path.join(os.tmpdir(), 'safire-mcp-index-budget-'));
+  await fs.writeFile(path.join(vault, 'Task Amplifier.md'), Array(90_000).fill('- [ ] x').join('\n'), 'utf8');
+  for (let file = 0; file < 4; file += 1) {
+    const tags = Array.from(
+      { length: 75_000 },
+      (_value, index) => `#tag${file}${String(index).padStart(5, '0')}`,
+    ).join(' ');
+    await fs.writeFile(path.join(vault, `Tag Amplifier ${file}.md`), `common-mcp-index-marker\n${tags}`, 'utf8');
+  }
+  const backupRoot = path.join(vault, '.safire-backups');
+  await fs.mkdir(backupRoot, { recursive: true });
+  await Promise.all(Array.from({ length: GENERIC_INDEX_LIMITS.backups + 1 }, (_value, index) => (
+    fs.writeFile(path.join(backupRoot, `Imported${String(index).padStart(4, '0')}.md.${index}.bak`), 'legacy')
+  )));
+  const client = createClient({ vaultDir: vault });
+  t.after(async () => {
+    await client.close();
+    await fs.rm(vault, { recursive: true, force: true });
+  });
+
+  await client.request('initialize', {
+    protocolVersion: '2025-03-26',
+    capabilities: {},
+    clientInfo: { name: 'safire-index-budget-test', version: '1.0.0' },
+  });
+  client.notify('notifications/initialized');
+
+  const listedCall = await client.request('tools/call', { name: 'list_notes', arguments: {} });
+  const listedText = listedCall.result.content[0].text;
+  const listed = JSON.parse(listedText);
+  assert.equal(listed.meta.responseBytes, Buffer.byteLength(listedText, 'utf8'));
+  assert.ok(listed.meta.responseBytes <= GENERIC_INDEX_LIMITS.responseBytes);
+  assert.equal(listed.meta.truncated, true);
+
+  const searchedCall = await client.request('tools/call', {
+    name: 'list_notes',
+    arguments: { query: 'common-mcp-index-marker' },
+  });
+  const searchedText = searchedCall.result.content[0].text;
+  const searched = JSON.parse(searchedText);
+  assert.equal(searched.results.length, 4);
+  assert.equal(searched.meta.responseBytes, Buffer.byteLength(searchedText, 'utf8'));
+  assert.ok(searched.meta.responseBytes <= GENERIC_INDEX_LIMITS.responseBytes);
+
+  const taskCall = await client.request('tools/call', { name: 'list_tasks', arguments: { state: 'all' } });
+  const taskText = taskCall.result.content[0].text;
+  const tasks = JSON.parse(taskText);
+  assert.equal(tasks.tasks.length, GENERIC_INDEX_LIMITS.tasks);
+  assert.equal(tasks.meta.tasksComplete, false);
+  assert.equal(tasks.meta.responseBytes, Buffer.byteLength(taskText, 'utf8'));
+  assert.ok(tasks.meta.responseBytes <= GENERIC_INDEX_LIMITS.responseBytes);
+
+  const healthCall = await client.request('tools/call', { name: 'vault_health', arguments: {} });
+  const healthText = healthCall.result.content[0].text;
+  const health = JSON.parse(healthText);
+  assert.equal(health.meta.backupsComplete, false);
+  assert.equal(health.meta.truncated, true);
+  assert.equal(health.meta.responseBytes, Buffer.byteLength(healthText, 'utf8'));
+  assert.ok(health.meta.responseBytes <= GENERIC_INDEX_LIMITS.responseBytes);
 });
 
 test('Safire MCP follows the vault selected by the desktop app', async (t) => {
@@ -489,7 +551,7 @@ test('Safire MCP fails closed for malformed flow and evidence-like fences while 
   assert.doesNotMatch(JSON.stringify(publicPayload), /FLOW-PRIVATE|TILDE-PRIVATE|MALFORMED-INFO|Private Link/);
 });
 
-test('Safire MCP projects list-contained evidence and rejects private list-task toggles byte-for-byte', async (t) => {
+test('Safire MCP projects list-contained and malformed-family evidence and rejects private list-task toggles byte-for-byte', async (t) => {
   const vault = await fs.mkdtemp(path.join(os.tmpdir(), 'safire-mcp-list-evidence-'));
   const notePath = path.join(vault, 'List Evidence.md');
   const backupSentinel = path.join(vault, '.safire-backups', 'sentinel', 'keep.bak');
@@ -507,6 +569,11 @@ test('Safire MCP projects list-contained evidence and rejects private list-task 
     '>    private_notes: MALFORMED-LIST-PRIVATE #malformed-private [[Malformed Private Link]]',
     '>    - [ ] MALFORMED-LIST-PRIVATE-TASK',
     '>    ~~~',
+    '- ```safire-private-evidence+yaml',
+    '  claim: MCP-FAMILY-QUERY ECHO-MCP-FAMILY-PRIVATE #family-private [[Family Private Link]]',
+    '  private_notes: ECHO-MCP-FAMILY-NOTES',
+    '  - [ ] MCP-FAMILY-TASK ECHO-MCP-FAMILY-TASK-PRIVATE',
+    '  ```',
   ].join('\r\n');
   await fs.mkdir(path.dirname(backupSentinel), { recursive: true });
   await fs.writeFile(notePath, noteContent, 'utf8');
@@ -528,17 +595,19 @@ test('Safire MCP projects list-contained evidence and rejects private list-task 
   const metadata = JSON.parse(listed.result.content[0].text).notes.find(note => note.path === 'List Evidence.md');
   assert.deepEqual(metadata.tags, ['list-public']);
   assert.deepEqual(metadata.links, ['List Public Link']);
-  assert.doesNotMatch(JSON.stringify(metadata), /MCP-LIST-PRIVATE|list-private|MALFORMED-LIST|malformed-private|Private Link/);
+  assert.doesNotMatch(JSON.stringify(metadata), /MCP-LIST-PRIVATE|list-private|MALFORMED-LIST|malformed-private|ECHO-MCP-FAMILY|family-private|Private Link/);
 
-  for (const query of ['MCP-LIST-PRIVATE-TASK', 'MALFORMED-LIST-PUBLIC', 'MALFORMED-LIST-PRIVATE']) {
+  for (const query of ['MCP-LIST-PRIVATE-TASK', 'MALFORMED-LIST-PUBLIC', 'MALFORMED-LIST-PRIVATE', 'MCP-FAMILY-QUERY', 'MCP-FAMILY-TASK']) {
     const searched = await client.request('tools/call', { name: 'list_notes', arguments: { query } });
-    assert.deepEqual(JSON.parse(searched.result.content[0].text).results, []);
+    const searchedPayload = JSON.parse(searched.result.content[0].text);
+    assert.deepEqual(searchedPayload.results, []);
+    assert.doesNotMatch(JSON.stringify(searchedPayload), /ECHO-MCP-FAMILY|family-private|Family Private Link/);
   }
   const publicSearch = await client.request('tools/call', { name: 'list_notes', arguments: { query: 'Public list claim' } });
   const publicPayload = JSON.parse(publicSearch.result.content[0].text);
   assert.equal(publicPayload.results.length, 1);
   assert.equal(publicPayload.results[0].evidence.receipts[0].claim, 'Public list claim #list-public [[List Public Link]]');
-  assert.doesNotMatch(JSON.stringify(publicPayload), /MCP-LIST-PRIVATE|MALFORMED-LIST|Private Link/);
+  assert.doesNotMatch(JSON.stringify(publicPayload), /MCP-LIST-PRIVATE|MALFORMED-LIST|ECHO-MCP-FAMILY|Private Link/);
 
   const tasks = await client.request('tools/call', { name: 'list_tasks', arguments: { state: 'all' } });
   assert.deepEqual(JSON.parse(tasks.result.content[0].text).tasks.map(task => ({ line: task.line, text: task.text })), [
@@ -546,7 +615,7 @@ test('Safire MCP projects list-contained evidence and rejects private list-task 
   ]);
 
   const before = await snapshotFileTree(vault);
-  for (const privateLine of [6, 12]) {
+  for (const privateLine of [6, 12, 17]) {
     const rejected = await client.request('tools/call', {
       name: 'toggle_task',
       arguments: { path: 'List Evidence.md', line: privateLine },

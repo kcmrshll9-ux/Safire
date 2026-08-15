@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { startSafireServer } from '../server.mjs';
-import { GRAPH_STORAGE_LIMITS } from '../lib/graph-policy.mjs';
+import { GENERIC_INDEX_LIMITS, GRAPH_STORAGE_LIMITS } from '../lib/graph-policy.mjs';
 
 function sameTestPath(left, right) {
   const resolvedLeft = path.resolve(left);
@@ -100,6 +100,85 @@ test('HTTP note mutations serialize accepted writes and publish complete unique 
     });
     assert.equal(missingUpdate.status, 400);
     assert.equal((await missingUpdate.json()).error, 'The requested item was not found');
+  });
+});
+
+test('HTTP backup identities are reversible and corrupted or ambiguous mappings fail closed', async (t) => {
+  await withServer(t, async ({ url, vault }) => {
+    const notePaths = ['Folder/A__B.md', 'Folder__A__B.md'];
+    for (const notePath of notePaths) {
+      const created = await fetch(`${url}/api/note`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: notePath, content: `original ${notePath}` }),
+      });
+      assert.equal(created.status, 201);
+      const updated = await fetch(`${url}/api/note`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: notePath, content: `replacement ${notePath}` }),
+      });
+      assert.equal(updated.status, 200);
+    }
+
+    const [folderBackup, literalBackup] = await Promise.all(notePaths.map(async (notePath) => {
+      const listed = await fetch(`${url}/api/backups?path=${encodeURIComponent(notePath)}`).then((response) => response.json());
+      assert.equal(listed.backups.length, 1);
+      assert.equal(listed.backups[0].notePath, notePath);
+      assert.equal(listed.backups[0].contentVerified, true);
+      return listed.backups[0];
+    }));
+    assert.notEqual(folderBackup.id, literalBackup.id);
+
+    const restored = await fetch(`${url}/api/backup/restore`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: folderBackup.id }),
+    });
+    assert.equal(restored.status, 200);
+    assert.equal((await restored.json()).path, notePaths[0]);
+    assert.equal(await fs.readFile(path.join(vault, ...notePaths[0].split('/')), 'utf8'), `original ${notePaths[0]}`);
+
+    const corruptedPath = path.join(vault, '.safire-backups', ...literalBackup.id.split('/'));
+    const originalSize = (await fs.stat(corruptedPath)).size;
+    await fs.writeFile(corruptedPath, Buffer.alloc(originalSize, 0x78));
+    const filteredAfterCorruption = await fetch(`${url}/api/backups?path=${encodeURIComponent(notePaths[1])}`).then((response) => response.json());
+    assert.deepEqual(filteredAfterCorruption.backups, []);
+    const rejectedPreview = await fetch(`${url}/api/backup?id=${encodeURIComponent(literalBackup.id)}`);
+    assert.equal(rejectedPreview.status, 400);
+    const rejectedRestore = await fetch(`${url}/api/backup/restore`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: literalBackup.id }),
+    });
+    assert.equal(rejectedRestore.status, 400);
+    assert.equal(await fs.readFile(path.join(vault, notePaths[1]), 'utf8'), `replacement ${notePaths[1]}`);
+
+    const legacyId = '2026-08-15/legacy/Folder__A__B.md.1234.fixed.bak';
+    const legacyPath = path.join(vault, '.safire-backups', ...legacyId.split('/'));
+    await fs.mkdir(path.dirname(legacyPath), { recursive: true });
+    await fs.writeFile(legacyPath, 'legacy content', 'utf8');
+    const unfiltered = await fetch(`${url}/api/backups`).then((response) => response.json());
+    const legacy = unfiltered.backups.find((backup) => backup.id === legacyId);
+    assert.deepEqual(
+      { notePath: legacy.notePath, legacy: legacy.legacy, requiresExplicitPath: legacy.requiresExplicitPath, contentVerified: legacy.contentVerified },
+      { notePath: null, legacy: true, requiresExplicitPath: true, contentVerified: false },
+    );
+    const rejectedLegacyDefault = await fetch(`${url}/api/backup/restore`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: legacyId }),
+    });
+    assert.equal(rejectedLegacyDefault.status, 400);
+    await assert.rejects(() => fs.access(path.join(vault, 'Folder', 'A', 'B.md')), { code: 'ENOENT' });
+
+    const explicitLegacyRestore = await fetch(`${url}/api/backup/restore`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: legacyId, path: 'Explicit Legacy.md' }),
+    });
+    assert.equal(explicitLegacyRestore.status, 200);
+    assert.equal(await fs.readFile(path.join(vault, 'Explicit Legacy.md'), 'utf8'), 'legacy content');
   });
 });
 
@@ -224,6 +303,7 @@ test('Safire graph resolves paths deterministically and reports note topology me
     const graph = await fetch(`${url}/api/graph`).then(res => res.json());
     assert.deepEqual(graph.meta, {
       sourceNotes: 7,
+      sourceNotesComplete: true,
       sourceLinks: 7,
       sourceLinksComplete: true,
       returnedNotes: 7,
@@ -259,6 +339,10 @@ test('Safire graph resolves paths deterministically and reports note topology me
       { target: 'Never Created.md', resolved: false, resolution: 'missing' },
     );
     assert.equal(new Set(links.map(link => link.id)).size, links.length);
+
+    const casedActive = await fetch(`${url}/api/graph?active=${encodeURIComponent('welcome.md')}`).then(res => res.json());
+    assert.equal(casedActive.nodes.filter(node => node.id.toLowerCase() === 'welcome.md').length, 1);
+    assert.equal(casedActive.nodes.some(node => node.id === 'Welcome.md'), true);
 
     const plan = nodes.get('Projects/Plan.md');
     assert.equal(plan.label, 'Plan');
@@ -303,7 +387,8 @@ test('Safire graph response applies deterministic note and link budgets', async 
     const second = await fetch(`${url}/api/graph`).then(response => response.json());
     assert.deepEqual(first, second, 'budgeted graph selection must be deterministic');
     assert.deepEqual(first.meta, {
-      sourceNotes: 1004,
+      sourceNotes: GENERIC_INDEX_LIMITS.notes + 1,
+      sourceNotesComplete: false,
       sourceLinks: 2003,
       sourceLinksComplete: false,
       returnedNotes: 1000,
@@ -319,6 +404,15 @@ test('Safire graph response applies deterministic note and link budgets', async 
     assert.equal(first.links.some(link => link.resolved && link.target === 'Graph Budget/1001.md'), false);
     assert.equal(first.links.every(link => !link.resolved || first.nodes.some(node => node.id === link.target)), true);
     assert.ok(first.meta.responseBytes <= GRAPH_STORAGE_LIMITS.responseBytes);
+
+    const treeResponse = await fetch(`${url}/api/tree`);
+    const treeText = await treeResponse.text();
+    const tree = JSON.parse(treeText);
+    assert.equal(tree.meta.truncated, true);
+    assert.equal(tree.meta.indexComplete, false);
+    assert.ok(tree.meta.returnedNotes <= GENERIC_INDEX_LIMITS.notes);
+    assert.equal(tree.meta.responseBytes, Buffer.byteLength(treeText, 'utf8'));
+    assert.ok(tree.meta.responseBytes <= GENERIC_INDEX_LIMITS.responseBytes);
 
     const active = await fetch(`${url}/api/graph?active=${encodeURIComponent('Graph Budget/1001.md')}`).then(response => response.json());
     assert.equal(active.nodes.length, GRAPH_STORAGE_LIMITS.notes);
@@ -359,6 +453,188 @@ test('Safire index and graph omit oversized imported note bodies while explicit 
 
     const explicit = await fetch(`${url}/api/note?path=${encodeURIComponent('Oversized.md')}`).then(response => response.json());
     assert.equal(explicit.content, oversizedContent);
+  });
+});
+
+test('generic HTTP indexes cap imported-note metadata amplification and serialized response bytes', async (t) => {
+  await withServer(t, async ({ vault, url }) => {
+    const oversizedMarker = 'THREE-MEGABYTE-IMPORTED-NOTE';
+    const oversizedContent = `${oversizedMarker}\n${'Q'.repeat(3 * 1024 * 1024)}`;
+    await fs.writeFile(path.join(vault, 'Three Megabytes.md'), oversizedContent, 'utf8');
+    await fs.writeFile(path.join(vault, 'Task Amplifier.md'), Array(90_000).fill('- [ ] x').join('\n'), 'utf8');
+    for (let file = 0; file < 4; file += 1) {
+      const tags = Array.from(
+        { length: 75_000 },
+        (_value, index) => `#tag${file}${String(index).padStart(5, '0')}`,
+      ).join(' ');
+      await fs.writeFile(path.join(vault, `Tag Amplifier ${file}.md`), `common-index-marker\n${tags}`, 'utf8');
+    }
+    const backupRoot = path.join(vault, '.safire-backups');
+    await fs.mkdir(backupRoot, { recursive: true });
+    await Promise.all(Array.from({ length: GENERIC_INDEX_LIMITS.backups + 1 }, (_value, index) => (
+      fs.writeFile(path.join(backupRoot, `Imported${String(index).padStart(4, '0')}.md.${index}.bak`), 'legacy')
+    )));
+
+    const notesResponse = await fetch(`${url}/api/notes`);
+    const notesText = await notesResponse.text();
+    const listed = JSON.parse(notesText);
+    assert.equal(listed.meta.responseBytes, Buffer.byteLength(notesText, 'utf8'));
+    assert.ok(listed.meta.responseBytes <= GENERIC_INDEX_LIMITS.responseBytes);
+    assert.equal(listed.meta.truncated, true);
+    assert.equal(listed.notes.find(note => note.path === 'Three Megabytes.md').contentOmitted, true);
+    for (let file = 0; file < 4; file += 1) {
+      assert.ok(listed.notes.find(note => note.path === `Tag Amplifier ${file}.md`).tags.length <= GENERIC_INDEX_LIMITS.tagsPerNote);
+    }
+
+    const searchResponse = await fetch(`${url}/api/search?q=${encodeURIComponent('common-index-marker')}`);
+    const searchText = await searchResponse.text();
+    const searched = JSON.parse(searchText);
+    assert.equal(searched.results.length, 4);
+    assert.equal(searched.meta.responseBytes, Buffer.byteLength(searchText, 'utf8'));
+    assert.ok(searched.meta.responseBytes <= GENERIC_INDEX_LIMITS.responseBytes);
+    assert.equal(searched.meta.truncated, true);
+
+    const taskResponse = await fetch(`${url}/api/tasks?state=all`);
+    const taskText = await taskResponse.text();
+    const tasks = JSON.parse(taskText);
+    assert.equal(tasks.tasks.length, GENERIC_INDEX_LIMITS.tasks);
+    assert.equal(tasks.meta.tasksComplete, false);
+    assert.equal(tasks.meta.responseBytes, Buffer.byteLength(taskText, 'utf8'));
+    assert.ok(tasks.meta.responseBytes <= GENERIC_INDEX_LIMITS.responseBytes);
+
+    for (const endpoint of ['/api/backlinks?path=Welcome.md', '/api/vault-health']) {
+      const response = await fetch(`${url}${endpoint}`);
+      const text = await response.text();
+      const payload = JSON.parse(text);
+      assert.equal(payload.meta.responseBytes, Buffer.byteLength(text, 'utf8'));
+      assert.ok(payload.meta.responseBytes <= GENERIC_INDEX_LIMITS.responseBytes);
+      if (endpoint === '/api/vault-health') {
+        assert.equal(payload.meta.backupsComplete, false);
+        assert.equal(payload.meta.truncated, true);
+      }
+    }
+
+    const backupResponse = await fetch(`${url}/api/backups`);
+    const backupText = await backupResponse.text();
+    const backups = JSON.parse(backupText);
+    assert.equal(backups.backups.length, GENERIC_INDEX_LIMITS.backups);
+    assert.equal(backups.meta.backupsComplete, false);
+    assert.equal(backups.meta.truncated, true);
+    assert.equal(backups.meta.responseBytes, Buffer.byteLength(backupText, 'utf8'));
+    assert.ok(backups.meta.responseBytes <= GENERIC_INDEX_LIMITS.responseBytes);
+
+    const omittedSearch = await fetch(`${url}/api/search?q=${encodeURIComponent(oversizedMarker)}`).then(response => response.json());
+    assert.deepEqual(omittedSearch.results, []);
+    const explicit = await fetch(`${url}/api/note?path=${encodeURIComponent('Three Megabytes.md')}`).then(response => response.json());
+    assert.equal(explicit.content, oversizedContent);
+  });
+});
+
+test('template and deep tree indexes stop at bounded traversal and response ceilings', async (t) => {
+  await withServer(t, async ({ vault, url }) => {
+    const templates = path.join(vault, 'Templates');
+    await fs.mkdir(templates, { recursive: true });
+    await Promise.all(Array.from({ length: GENERIC_INDEX_LIMITS.notes + 1 }, (_value, index) => (
+      fs.writeFile(path.join(templates, `${String(index).padStart(4, '0')}.md`), '')
+    )));
+
+    const templateResponse = await fetch(`${url}/api/templates`);
+    const templateText = await templateResponse.text();
+    const templatePayload = JSON.parse(templateText);
+    assert.equal(templatePayload.meta.truncated, true);
+    assert.equal(templatePayload.meta.indexComplete, false);
+    assert.ok(templatePayload.templates.length <= GENERIC_INDEX_LIMITS.notes);
+    assert.equal(templatePayload.meta.responseBytes, Buffer.byteLength(templateText, 'utf8'));
+    assert.ok(templatePayload.meta.responseBytes <= GENERIC_INDEX_LIMITS.responseBytes);
+
+    let deepDirectory = path.join(vault, 'Deep Tree');
+    await fs.mkdir(deepDirectory);
+    for (let depth = 0; depth <= GENERIC_INDEX_LIMITS.directoryDepth; depth += 1) {
+      deepDirectory = path.join(deepDirectory, 'd');
+      await fs.mkdir(deepDirectory);
+    }
+    await fs.writeFile(path.join(deepDirectory, 'Beyond Depth.md'), 'not generically indexed');
+    const treeResponse = await fetch(`${url}/api/tree`);
+    const treeText = await treeResponse.text();
+    const treePayload = JSON.parse(treeText);
+    assert.equal(treePayload.meta.truncated, true);
+    assert.equal(treePayload.meta.indexComplete, false);
+    assert.equal(treePayload.meta.responseBytes, Buffer.byteLength(treeText, 'utf8'));
+    assert.ok(treePayload.meta.responseBytes <= GENERIC_INDEX_LIMITS.responseBytes);
+  });
+});
+
+test('generic backup listing enforces the aggregate metadata-read budget before verification', async (t) => {
+  await withServer(t, async ({ vault, url }) => {
+    const backupRoot = path.join(vault, '.safire-backups');
+    const oversizedInvalidMetadata = Buffer.alloc(256 * 1024, 0x78);
+    for (let index = 0; index < 65; index += 1) {
+      const namespace = path.join(backupRoot, `namespace-${String(index).padStart(2, '0')}`);
+      await fs.mkdir(namespace, { recursive: true });
+      await Promise.all([
+        fs.writeFile(path.join(namespace, 'content.bak'), ''),
+        fs.writeFile(path.join(namespace, 'metadata.json'), oversizedInvalidMetadata),
+      ]);
+    }
+
+    const response = await fetch(`${url}/api/backups`);
+    const text = await response.text();
+    const payload = JSON.parse(text);
+    assert.deepEqual(payload.backups, []);
+    assert.equal(payload.meta.observedBackups, 65);
+    assert.equal(payload.meta.backupsComplete, false);
+    assert.equal(payload.meta.truncated, true);
+    assert.equal(payload.meta.responseBytes, Buffer.byteLength(text, 'utf8'));
+    assert.ok(payload.meta.responseBytes <= GENERIC_INDEX_LIMITS.responseBytes);
+  });
+});
+
+test('template indexing rejects a junction without listing outside Markdown', async (t) => {
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'safire-template-outside-'));
+  t.after(() => fs.rm(outside, { recursive: true, force: true }));
+  await fs.writeFile(path.join(outside, 'OUTSIDE-TEMPLATE-SENTINEL.md'), 'outside');
+  await withServer(t, async ({ vault, url }) => {
+    try {
+      await fs.symlink(outside, path.join(vault, 'Templates'), process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (error) {
+      t.skip(`Directory links are unavailable in this environment: ${error.message}`);
+      return;
+    }
+    const response = await fetch(`${url}/api/templates`);
+    const text = await response.text();
+    assert.equal(response.status, 400);
+    assert.match(text, /symlinks or junctions/);
+    assert.doesNotMatch(text, /OUTSIDE-TEMPLATE-SENTINEL/);
+  });
+});
+
+test('filtered backup listing fails its remaining budget closed after repeated wrong digests', async (t) => {
+  await withServer(t, async ({ vault, url }) => {
+    const backupRoot = path.join(vault, '.safire-backups');
+    for (let index = 0; index < 2; index += 1) {
+      const namespaceName = `wrong-digest-${index}`;
+      const namespace = path.join(backupRoot, namespaceName);
+      const content = Buffer.from(`wrong digest ${index}`);
+      await fs.mkdir(namespace, { recursive: true });
+      await fs.writeFile(path.join(namespace, 'content.bak'), content);
+      await fs.writeFile(path.join(namespace, 'metadata.json'), JSON.stringify({
+        format: 'safire-note-backup/v2',
+        namespace: namespaceName,
+        notePath: 'Wrong Digest.md',
+        createdAt: index + 1,
+        byteLength: content.byteLength,
+        contentSha256: '0'.repeat(64),
+      }));
+    }
+
+    const response = await fetch(`${url}/api/backups?path=${encodeURIComponent('Wrong Digest.md')}`);
+    const text = await response.text();
+    const payload = JSON.parse(text);
+    assert.deepEqual(payload.backups, []);
+    assert.equal(payload.meta.observedBackups, 2);
+    assert.equal(payload.meta.backupsComplete, false);
+    assert.equal(payload.meta.truncated, true);
+    assert.equal(payload.meta.responseBytes, Buffer.byteLength(text, 'utf8'));
   });
 });
 
@@ -496,7 +772,7 @@ test('Safire aggregates and toggles Markdown tasks without reading fenced code',
   });
 });
 
-test('HTTP metadata, search, and task toggles fail closed for list-contained evidence', async (t) => {
+test('HTTP metadata, search, and task toggles fail closed for list-contained and malformed-family evidence', async (t) => {
   await withServer(t, async ({ url }) => {
     const noteContent = [
       '# HTTP list evidence',
@@ -512,6 +788,11 @@ test('HTTP metadata, search, and task toggles fail closed for list-contained evi
       '>   private_notes: HTTP-MALFORMED-LIST-PRIVATE #http-malformed-private [[HTTP Malformed Private]]',
       '>   - [ ] HTTP-MALFORMED-LIST-PRIVATE-TASK',
       '>   ~~~',
+      '> 1. ~~~SaFiRe-private-EvIdEnCe+yaml',
+      '>    claim: HTTP-FAMILY-QUERY ECHO-HTTP-FAMILY-PRIVATE #http-family-private [[HTTP Family Private]]',
+      '>    private_notes: ECHO-HTTP-FAMILY-NOTES',
+      '>    - [ ] HTTP-FAMILY-TASK ECHO-HTTP-FAMILY-TASK-PRIVATE',
+      '>    ~~~',
     ].join('\r\n');
     const created = await fetch(`${url}/api/note`, {
       method: 'POST',
@@ -524,23 +805,24 @@ test('HTTP metadata, search, and task toggles fail closed for list-contained evi
     const metadata = listed.notes.find(note => note.path === 'HTTP List Evidence.md');
     assert.deepEqual(metadata.tags, ['http-list-public']);
     assert.deepEqual(metadata.links, ['HTTP List Public']);
-    assert.doesNotMatch(JSON.stringify(metadata), /HTTP-LIST-PRIVATE|http-list-private|HTTP-MALFORMED-LIST|http-malformed-private|HTTP (?:List|Malformed) Private/);
+    assert.doesNotMatch(JSON.stringify(metadata), /HTTP-LIST-PRIVATE|http-list-private|HTTP-MALFORMED-LIST|http-malformed-private|ECHO-HTTP-FAMILY|http-family-private|HTTP (?:List|Malformed|Family) Private/);
 
-    for (const query of ['HTTP-LIST-PRIVATE-TASK', 'HTTP-MALFORMED-LIST-PUBLIC', 'HTTP-MALFORMED-LIST-PRIVATE']) {
+    for (const query of ['HTTP-LIST-PRIVATE-TASK', 'HTTP-MALFORMED-LIST-PUBLIC', 'HTTP-MALFORMED-LIST-PRIVATE', 'HTTP-FAMILY-QUERY', 'HTTP-FAMILY-TASK']) {
       const searched = await fetch(`${url}/api/search?q=${encodeURIComponent(query)}`).then(response => response.json());
       assert.deepEqual(searched.results, []);
+      assert.doesNotMatch(JSON.stringify(searched), /ECHO-HTTP-FAMILY|http-family-private|HTTP Family Private/);
     }
     const publicSearch = await fetch(`${url}/api/search?q=${encodeURIComponent('HTTP public list claim')}`).then(response => response.json());
     assert.equal(publicSearch.results.length, 1);
     assert.equal(publicSearch.results[0].evidence.receipts[0].claim, 'HTTP public list claim #http-list-public [[HTTP List Public]]');
-    assert.doesNotMatch(JSON.stringify(publicSearch), /HTTP-LIST-PRIVATE|HTTP-MALFORMED-LIST|HTTP (?:List|Malformed) Private/);
+    assert.doesNotMatch(JSON.stringify(publicSearch), /HTTP-LIST-PRIVATE|HTTP-MALFORMED-LIST|ECHO-HTTP-FAMILY|HTTP (?:List|Malformed|Family) Private/);
 
     const tasks = await fetch(`${url}/api/tasks?state=all`).then(response => response.json());
     assert.deepEqual(tasks.tasks.filter(task => task.path === 'HTTP List Evidence.md').map(task => ({ line: task.line, text: task.text })), [
       { line: 8, text: 'HTTP public outside task' },
     ]);
 
-    for (const privateLine of [6, 12]) {
+    for (const privateLine of [6, 12, 17]) {
       const rejected = await fetch(`${url}/api/task/toggle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

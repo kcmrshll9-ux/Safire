@@ -5,10 +5,16 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  GENERIC_INDEX_LIMITS,
   GRAPH_STORAGE_LIMITS,
+  collectBoundedMarkdownPaths,
   createGraphResponseBudget,
+  createIndexResponseBudget,
+  finalizeIndexResponse,
   indexNoteReadPolicy,
+  isBoundedIndexValue,
   readBoundedIndexNote,
+  scanBoundedIndexWikiLinks,
   scanBoundedGraphWikiLinks,
   selectGraphNotePaths,
 } from '../lib/graph-policy.mjs';
@@ -63,6 +69,88 @@ test('graph response item budget rejects a single oversized item and caps aggreg
   assert.equal(budget.truncated, true);
   assert.equal(budget.tryAppend(accepted, { label: '€'.repeat(GRAPH_STORAGE_LIMITS.linkFieldCharacters) }), false);
   assert.ok(Buffer.byteLength(JSON.stringify({ nodes: [], links: accepted, meta: {} })) <= GRAPH_STORAGE_LIMITS.responseBytes);
+});
+
+test('generic index response budgeting bounds compact and pretty serialized output', () => {
+  for (const pretty of [false, true]) {
+    const budget = createIndexResponseBudget({ pretty });
+    const items = [];
+    const ordinary = {
+      path: 'Imported.md',
+      tags: Array.from({ length: GENERIC_INDEX_LIMITS.tagsPerNote }, (_, index) => `tag-${index}`),
+      links: Array.from({ length: GENERIC_INDEX_LIMITS.linksPerNote }, (_, index) => `Target-${index}`),
+    };
+    while (budget.tryAppend(items, ordinary)) { /* fill the deterministic byte budget */ }
+    const payload = { items, meta: { responseBytes: 0, truncated: budget.truncated } };
+    finalizeIndexResponse(payload, { pretty });
+
+    const serialized = JSON.stringify(payload, null, pretty ? 2 : undefined);
+    assert.equal(payload.meta.responseBytes, Buffer.byteLength(serialized, 'utf8'));
+    assert.ok(payload.meta.responseBytes <= GENERIC_INDEX_LIMITS.responseBytes);
+    assert.equal(budget.truncated, true);
+  }
+
+  assert.equal(isBoundedIndexValue({ text: 'x'.repeat(GENERIC_INDEX_LIMITS.fieldCharacters + 1) }), false);
+});
+
+test('generic wiki-link scanning bounds unique metadata and reports incomplete observations', () => {
+  const repeated = '[[Same]]\n'.repeat(GENERIC_INDEX_LIMITS.linksPerNote + 5);
+  const unique = Array.from(
+    { length: GENERIC_INDEX_LIMITS.linksPerNote + 1 },
+    (_, index) => `[[Target-${index}]]`,
+  ).join('\n');
+  const oversized = `[[${'Z'.repeat(GENERIC_INDEX_LIMITS.fieldCharacters + 1)}]]`;
+
+  const repeatedResult = scanBoundedIndexWikiLinks(repeated);
+  assert.deepEqual(repeatedResult.links, ['Same']);
+  assert.equal(repeatedResult.complete, true);
+
+  const uniqueResult = scanBoundedIndexWikiLinks(`${unique}\n${oversized}`);
+  assert.equal(uniqueResult.links.length, GENERIC_INDEX_LIMITS.linksPerNote);
+  assert.equal(uniqueResult.complete, false);
+  assert.ok(uniqueResult.omitted >= 1);
+  assert.ok(uniqueResult.links.every(link => isBoundedIndexValue(link)));
+});
+
+test('generic Markdown discovery stops at a hard cardinality ceiling and retains a requested active note', async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'safire-index-paths-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+
+  const count = GENERIC_INDEX_LIMITS.notes + 2;
+  await Promise.all(Array.from({ length: count }, (_, index) => (
+    fs.writeFile(path.join(directory, `${String(index).padStart(4, '0')}.md`), '')
+  )));
+  await fs.writeFile(path.join(directory, 'ignored.txt'), 'not Markdown');
+
+  const result = await collectBoundedMarkdownPaths(fs, directory, { preferredPath: `${count - 1}.md` });
+  assert.equal(result.paths.length, GENERIC_INDEX_LIMITS.notes);
+  assert.ok(result.paths.includes(`${count - 1}.md`));
+  assert.equal(result.complete, false);
+  assert.equal(result.observedNotes, GENERIC_INDEX_LIMITS.notes + 1);
+  assert.ok(!result.paths.includes('ignored.txt'));
+
+  const irrelevantDirectory = path.join(directory, 'irrelevant');
+  await fs.mkdir(irrelevantDirectory);
+  await Promise.all(Array.from({ length: 5 }, (_, index) => (
+    fs.writeFile(path.join(irrelevantDirectory, `ignored-${index}.txt`), '')
+  )));
+  const entryLimited = await collectBoundedMarkdownPaths(fs, irrelevantDirectory, { entryLimit: 2 });
+  assert.equal(entryLimited.observedEntries, 3);
+  assert.equal(entryLimited.complete, false);
+  assert.deepEqual(entryLimited.paths, []);
+
+  const deepRoot = path.join(directory, 'deep-root');
+  await fs.mkdir(deepRoot);
+  let deepest = deepRoot;
+  for (let depth = 0; depth <= GENERIC_INDEX_LIMITS.directoryDepth; depth += 1) {
+    deepest = path.join(deepest, 'd');
+    await fs.mkdir(deepest);
+  }
+  await fs.writeFile(path.join(deepest, 'unreachable.md'), 'bounded traversal');
+  const depthLimited = await collectBoundedMarkdownPaths(fs, deepRoot);
+  assert.equal(depthLimited.complete, false);
+  assert.equal(depthLimited.paths.includes('unreachable.md'), false);
+  assert.ok(depthLimited.directoryPaths.length <= GENERIC_INDEX_LIMITS.directoryDepth);
 });
 
 test('graph storage limits bound imported note reads and individual response fields', () => {

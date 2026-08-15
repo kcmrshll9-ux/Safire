@@ -48,7 +48,7 @@ Safire is under active development. Version 1.4.0 adds the opt-in, agent-indepen
 - Daily notes, Markdown tasks, templates, quick capture, and saved searches
 - Command palette, quick switcher, and Markdown formatting controls
 - Drag-and-drop, paste, and file attachments
-- Serialized note mutations with complete backup-before-write publication, preview, and contained restore tools
+- Cross-process serialized note mutations with complete backup-before-write publication, exact versioned path metadata, preview, and contained restore tools
 - Web Clipper and private evidence receipts for local research workflows
 - Vault health summaries and configurable local-first settings
 - Legacy vault-scoped MCP server with a deliberately narrow eight-tool surface
@@ -67,6 +67,7 @@ Safire is local-first, but “local-first” does not mean the application never
 - The Web Clipper makes an outbound request only when the user asks it to capture a public URL.
 - Recognized YouTube links use a local-only card and contact YouTube only after the user opens the link.
 - Imported note bodies larger than 1 MiB are checked by metadata only and omitted from generic metadata, search, MCP list/search, and graph indexing; explicit note reads remain available. A single index operation reads at most 16 MiB of note bodies.
+- Generic note, tree, template, search, task, backlink, backup-list, vault-health, graph, and matching eight-tool MCP index responses retain at most 1,000 notes or backup entries and 2 MiB of serialized output. Task lists retain at most 2,000 tasks; tags, links, evidence receipts, paths, fields, traversed directories, directory entries, and nesting depth have additional fixed per-note and per-operation ceilings. Generic backup metadata and filtered content verification share a 16 MiB operation-read budget; explicit backup preview and restore remain separate explicit reads. Truncated results include conservative completion metadata: observed counts are lower bounds once traversal stops, not exact vault totals.
 - Private or structurally uncertain evidence and tasks are excluded fail-closed from generic metadata, search, graph, task aggregation, and MCP projections.
 - The desktop content policy blocks remote Markdown images; attach images to the local vault for Preview.
 - Opening an external link hands that URL to the system browser.

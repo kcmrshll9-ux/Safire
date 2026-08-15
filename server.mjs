@@ -11,7 +11,6 @@ import {
   excerpt,
   isPublicTaskLine,
   parseEvidenceReceipts,
-  parseLinks,
   parsePublicEvidenceReceipts,
   parsePublicTasks,
   parseTags,
@@ -20,16 +19,24 @@ import {
   semanticMarkdownContent,
 } from './lib/note-projection.mjs';
 import {
+  GENERIC_INDEX_LIMITS,
   GRAPH_STORAGE_LIMITS,
+  collectBoundedMarkdownPaths,
   createGraphResponseBudget,
+  createIndexResponseBudget,
+  finalizeIndexResponse,
+  isBoundedIndexValue,
   readBoundedIndexNote,
   scanBoundedGraphWikiLinks,
+  scanBoundedIndexWikiLinks,
   selectGraphNotePaths,
 } from './lib/graph-policy.mjs';
 import {
   createNoteMutator,
-  listContainedFiles,
-  readContainedFile,
+  listContainedFilesBounded,
+  readBackupFile,
+  readBackupFileForIndex,
+  readBackupMetadataForIndex,
 } from './lib/note-mutations.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -169,40 +176,110 @@ function resolveNotePath(raw) {
   return { rel, abs };
 }
 
-async function walkMarkdown(dir, base = dir) {
-  const out = [];
-  const entries = await fs.readdir(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    if (entry.name.startsWith('.')) continue;
-    const full = path.join(dir, entry.name);
-    if (entry.isSymbolicLink()) continue;
-    if (entry.isDirectory()) out.push(...await walkMarkdown(full, base));
-    else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) out.push(slash(path.relative(base, full)));
-  }
-  return out.sort((a, b) => a.localeCompare(b));
-}
+function buildBoundedTree(discovery, responseBudget) {
+  const tree = [];
+  const folderNodes = new Map();
+  const pathKey = value => process.platform === 'win32' ? value.toLowerCase() : value;
+  let returnedFolders = 0;
+  let returnedNotes = 0;
 
-async function buildTree(dir = VAULT_DIR, base = VAULT_DIR) {
-  const entries = await fs.readdir(dir, { withFileTypes: true });
-  const children = [];
-  for (const entry of entries) {
-    if (entry.name.startsWith('.')) continue;
-    const full = path.join(dir, entry.name);
-    const rel = slash(path.relative(base, full));
-    if (entry.isSymbolicLink()) continue;
-    if (entry.isDirectory()) {
-      children.push({ type: 'folder', name: entry.name, path: rel, children: await buildTree(full, base) });
-    } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
-      children.push({ type: 'note', name: entry.name, path: rel, title: titleFromPath(rel) });
+  const ensureFolder = (rawFolderPath) => {
+    const parts = slash(rawFolderPath).split('/').filter(Boolean);
+    let parentChildren = tree;
+    let currentPath = '';
+    for (const part of parts) {
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      const key = pathKey(currentPath);
+      const existing = folderNodes.get(key);
+      if (existing) {
+        parentChildren = existing.children;
+        continue;
+      }
+      const node = { type: 'folder', name: part, path: currentPath, children: [] };
+      if (!responseBudget.tryConsume(node)) return null;
+      folderNodes.set(key, node);
+      parentChildren.push(node);
+      parentChildren = node.children;
+      returnedFolders += 1;
     }
+    return parentChildren;
+  };
+
+  for (const folderPath of discovery.directoryPaths) ensureFolder(folderPath);
+  for (const notePath of discovery.paths) {
+    const folderPath = slash(path.dirname(notePath)) === '.' ? '' : slash(path.dirname(notePath));
+    const children = ensureFolder(folderPath);
+    if (!children) continue;
+    const node = { type: 'note', name: path.basename(notePath), path: notePath, title: titleFromPath(notePath) };
+    if (!responseBudget.tryConsume(node)) continue;
+    children.push(node);
+    returnedNotes += 1;
   }
-  return children.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'folder' ? -1 : 1));
+
+  const sortNodes = (nodes) => {
+    nodes.sort((left, right) => (
+      left.type === right.type ? left.name.localeCompare(right.name) : left.type === 'folder' ? -1 : 1
+    ));
+    for (const node of nodes) if (node.type === 'folder') sortNodes(node.children);
+  };
+  sortNodes(tree);
+  return { tree, returnedFolders, returnedNotes };
 }
 
-async function noteMeta(rel, byteLimit = GRAPH_STORAGE_LIMITS.noteBytes) {
+function createIndexOperationState() {
+  return {
+    remainingTags: GENERIC_INDEX_LIMITS.tagsPerOperation,
+    remainingLinkObservations: GENERIC_INDEX_LIMITS.linkObservationsPerOperation,
+    contentOmitted: 0,
+    metadataOmitted: 0,
+  };
+}
+
+function boundedIndexMetadata(content, state) {
+  const publicContent = publicEvidenceContent(content);
+  let complete = true;
+
+  const tagLimit = Math.min(GENERIC_INDEX_LIMITS.tagsPerNote, state.remainingTags);
+  const tagCandidates = tagLimit > 0 ? parseTags(publicContent, tagLimit + 1) : [];
+  const observedTags = Math.min(tagCandidates.length, tagLimit);
+  state.remainingTags = Math.max(0, state.remainingTags - observedTags);
+  let tags = tagCandidates.slice(0, tagLimit);
+  if (tagCandidates.length > tagLimit || (tagLimit === 0 && publicContent.length > 0)) complete = false;
+  const boundedTags = tags.filter(tag => isBoundedIndexValue(tag));
+  if (boundedTags.length !== tags.length) complete = false;
+  tags = boundedTags;
+
+  const linkLimit = Math.min(GENERIC_INDEX_LIMITS.linksPerNote, state.remainingLinkObservations);
+  const linkScan = linkLimit > 0
+    ? scanBoundedIndexWikiLinks(publicContent, linkLimit, state.remainingLinkObservations)
+    : { links: [], observed: 0, omitted: 0, complete: publicContent.length === 0, observationsComplete: false };
+  state.remainingLinkObservations = Math.max(0, state.remainingLinkObservations - linkScan.observed);
+  if (!linkScan.complete) complete = false;
+  if (!complete) state.metadataOmitted += 1;
+
+  return {
+    tags,
+    links: linkScan.links,
+    excerpt: excerpt(publicContent),
+    complete,
+  };
+}
+
+async function collectIndexPaths(preferredPath = '') {
+  return collectBoundedMarkdownPaths(fs, VAULT_DIR, { preferredPath });
+}
+
+async function noteMeta(rel, byteLimit = GENERIC_INDEX_LIMITS.noteBytes, state = createIndexOperationState()) {
   const { abs } = resolveNotePath(rel);
   const indexed = await readBoundedIndexNote(fs, abs, byteLimit);
-  const metadata = indexed.contentOmitted ? { tags: [], links: [], excerpt: '' } : publicNoteMetadata(indexed.content);
+  let metadata;
+  if (indexed.contentOmitted) {
+    state.contentOmitted += 1;
+    state.metadataOmitted += 1;
+    metadata = { tags: [], links: [], excerpt: '', complete: false };
+  } else {
+    metadata = boundedIndexMetadata(indexed.content, state);
+  }
   return {
     note: {
       path: rel,
@@ -211,21 +288,32 @@ async function noteMeta(rel, byteLimit = GRAPH_STORAGE_LIMITS.noteBytes) {
       size: indexed.stat.size,
       mtime: indexed.stat.mtimeMs,
       contentOmitted: indexed.contentOmitted,
-      ...metadata,
+      metadataOmitted: !metadata.complete,
+      tags: metadata.tags,
+      links: metadata.links,
+      excerpt: metadata.excerpt,
     },
     bytesConsumed: indexed.bytesConsumed,
   };
 }
 
 async function allNotesWithContent() {
-  const rels = await walkMarkdown(VAULT_DIR);
+  const discovery = await collectIndexPaths();
   const notes = [];
-  let remainingBytes = GRAPH_STORAGE_LIMITS.indexBytesPerOperation;
-  for (const rel of rels) {
+  const state = createIndexOperationState();
+  let remainingBytes = GENERIC_INDEX_LIMITS.indexBytesPerOperation;
+  for (const rel of discovery.paths) {
     const { abs } = resolveNotePath(rel);
     const indexed = await readBoundedIndexNote(fs, abs, remainingBytes);
     remainingBytes = Math.max(0, remainingBytes - indexed.bytesConsumed);
-    const semanticContent = indexed.contentOmitted ? '' : semanticMarkdownContent(indexed.content);
+    let metadata;
+    if (indexed.contentOmitted) {
+      state.contentOmitted += 1;
+      state.metadataOmitted += 1;
+      metadata = { tags: [], links: [], complete: false };
+    } else {
+      metadata = boundedIndexMetadata(indexed.content, state);
+    }
     notes.push({
       rel,
       content: indexed.content,
@@ -234,11 +322,12 @@ async function allNotesWithContent() {
       folder: slash(path.dirname(rel)) === '.' ? '' : slash(path.dirname(rel)),
       size: indexed.stat.size,
       mtime: indexed.stat.mtimeMs,
-      tags: parseTags(semanticContent),
-      links: parseLinks(semanticContent),
+      metadataOmitted: !metadata.complete,
+      tags: metadata.tags,
+      links: metadata.links,
     });
   }
-  return notes;
+  return { notes, discovery, state };
 }
 
 function wikiLinkPath(rawTarget = '') {
@@ -322,12 +411,6 @@ async function writeSettings(patch = {}) {
   if (typeof patch.fitImagesToPage === 'boolean') next.fitImagesToPage = patch.fitImagesToPage;
   await fs.writeFile(settingsPath(), JSON.stringify(next, null, 2), 'utf8');
   return next;
-}
-
-function backupNoteFromName(fileRel) {
-  const base = path.basename(fileRel).replace(/\.bak$/i, '');
-  const withoutStamp = base.replace(/\.\d+(?:\.[A-Za-z0-9_-]+)?$/, '');
-  return withoutStamp.replace(/__/g, '/');
 }
 
 function resolveBackupId(id = '') {
@@ -418,11 +501,29 @@ async function pruneWorkspace(workspace) {
   workspace.recentNotes = (await Promise.all(workspace.recentNotes.map(async item => (await exists(item.path)) ? item : null))).filter(Boolean);
   return workspace;
 }
-async function allTasks(state = 'open') {
-  const notes = await allNotesWithContent();
-  const tasks = notes.flatMap(note => parsePublicTasks(note.content, note.rel));
-  const filtered = state === 'completed' ? tasks.filter(task => task.completed) : state === 'all' ? tasks : tasks.filter(task => !task.completed);
-  return filtered.sort((a, b) => Number(a.completed) - Number(b.completed) || a.path.localeCompare(b.path) || a.line - b.line);
+async function allTasks(state = 'open', responseBudget = createIndexResponseBudget()) {
+  const indexed = await allNotesWithContent();
+  const tasks = [];
+  let observedTasks = 0;
+  let tasksComplete = true;
+  for (const note of indexed.notes) {
+    const remainingTasks = GENERIC_INDEX_LIMITS.tasks - observedTasks;
+    if (remainingTasks <= 0) {
+      tasksComplete = false;
+      break;
+    }
+    const candidates = parsePublicTasks(note.content, note.rel, { limit: remainingTasks + 1 });
+    if (candidates.length > remainingTasks) tasksComplete = false;
+    for (const task of candidates.slice(0, remainingTasks)) {
+      observedTasks += 1;
+      const matchesState = state === 'completed' ? task.completed : state === 'all' ? true : !task.completed;
+      if (!matchesState) continue;
+      if (!responseBudget.tryAppend(tasks, task)) tasksComplete = false;
+    }
+    if (!tasksComplete && (observedTasks >= GENERIC_INDEX_LIMITS.tasks || responseBudget.truncated)) break;
+  }
+  tasks.sort((a, b) => Number(a.completed) - Number(b.completed) || a.path.localeCompare(b.path) || a.line - b.line);
+  return { tasks, observedTasks, tasksComplete, indexed, responseBudget };
 }
 async function toggleTaskAtLine(rawPath, rawLine) {
   const { rel, abs } = resolveNotePath(rawPath);
@@ -759,25 +860,60 @@ function publicVaultLabel() {
 app.get('/api/health', async (_req, res) => res.json({ ok: true, app: 'Safire', vault: publicVaultLabel() }));
 
 app.get('/api/tree', async (_req, res, next) => {
-  try { res.json({ vault: publicVaultLabel(), tree: await buildTree() }); } catch (err) { next(err); }
+  try {
+    const discovery = await collectIndexPaths();
+    const responseBudget = createIndexResponseBudget();
+    const built = buildBoundedTree(discovery, responseBudget);
+    const payload = {
+      vault: publicVaultLabel(),
+      tree: built.tree,
+      meta: {
+        observedNotes: discovery.observedNotes,
+        observedFolders: Math.max(0, discovery.observedDirectories - 1),
+        indexComplete: discovery.complete,
+        returnedNotes: built.returnedNotes,
+        returnedFolders: built.returnedFolders,
+        responseBytes: 0,
+        truncated: !discovery.complete || responseBudget.truncated,
+      },
+    };
+    res.json(finalizeIndexResponse(payload));
+  } catch (err) { next(err); }
 });
 
 app.get('/api/notes', async (_req, res, next) => {
   try {
-    const rels = await walkMarkdown(VAULT_DIR);
+    const discovery = await collectIndexPaths();
+    const state = createIndexOperationState();
+    const responseBudget = createIndexResponseBudget();
     const notes = [];
-    let remainingBytes = GRAPH_STORAGE_LIMITS.indexBytesPerOperation;
-    for (const rel of rels) {
-      const indexedMetadata = await noteMeta(rel, remainingBytes);
+    let remainingBytes = GENERIC_INDEX_LIMITS.indexBytesPerOperation;
+    let responseMetadataOmitted = 0;
+    for (const rel of discovery.paths) {
+      const indexedMetadata = await noteMeta(rel, remainingBytes, state);
       const note = indexedMetadata.note;
       remainingBytes = Math.max(0, remainingBytes - indexedMetadata.bytesConsumed);
-      notes.push(note);
+      if (responseBudget.tryAppend(notes, note)) continue;
+      const statOnly = { ...note, metadataOmitted: true, tags: [], links: [], excerpt: '' };
+      if (responseBudget.tryAppend(notes, statOnly)) responseMetadataOmitted += 1;
     }
-    res.json({
+    const payload = {
       vault: publicVaultLabel(),
       notes,
-      meta: { contentOmitted: notes.filter(note => note.contentOmitted).length },
-    });
+      meta: {
+        observedNotes: discovery.observedNotes,
+        indexComplete: discovery.complete && state.contentOmitted === 0 && state.metadataOmitted === 0,
+        returnedNotes: notes.length,
+        contentOmitted: state.contentOmitted,
+        metadataOmitted: state.metadataOmitted + responseMetadataOmitted,
+        responseBytes: 0,
+        truncated: !discovery.complete
+          || state.contentOmitted > 0
+          || state.metadataOmitted > 0
+          || responseBudget.truncated,
+      },
+    };
+    res.json(finalizeIndexResponse(payload));
   } catch (err) { next(err); }
 });
 
@@ -902,9 +1038,30 @@ app.post('/api/web-clip', async (req, res, next) => {
 
 app.get('/api/templates', async (_req, res, next) => {
   try {
-    const root = path.join(VAULT_DIR, 'Templates');
-    const files = (await walkMarkdown(root).catch(() => [])).map(rel => `Templates/${rel}`);
-    res.json({ templates: files.map(file => ({ path: file, title: titleFromPath(file) })) });
+    const root = resolveVaultPath('Templates').abs;
+    const discovery = await collectBoundedMarkdownPaths(fs, root).catch(error => {
+      if (error?.code === 'ENOENT') return {
+        paths: [], observedNotes: 0, observedDirectories: 0, observedEntries: 0, complete: true,
+      };
+      throw error;
+    });
+    const responseBudget = createIndexResponseBudget();
+    const templates = [];
+    for (const relativePath of discovery.paths) {
+      const templatePath = `Templates/${relativePath}`;
+      if (!responseBudget.tryAppend(templates, { path: templatePath, title: titleFromPath(templatePath) })) break;
+    }
+    const payload = {
+      templates,
+      meta: {
+        observedTemplates: discovery.observedNotes,
+        indexComplete: discovery.complete,
+        returnedTemplates: templates.length,
+        responseBytes: 0,
+        truncated: !discovery.complete || responseBudget.truncated,
+      },
+    };
+    res.json(finalizeIndexResponse(payload));
   } catch (err) { next(err); }
 });
 
@@ -932,24 +1089,75 @@ app.get('/api/search', async (req, res, next) => {
   try {
     const q = String(req.query.q || '').toLowerCase().trim();
     const filters = evidenceSearchFilters(req.query);
+    if (!isBoundedIndexValue(q) || !isBoundedIndexValue(filters)) throw new Error('Search query is too long');
     const hasEvidenceFilter = Boolean(filters.status || filters.source || filters.state || filters.expired || filters.from !== null || filters.to !== null);
-    const notes = await allNotesWithContent();
-    const results = (!q && !hasEvidenceFilter ? [] : notes.map(n => {
+    const responseBudget = createIndexResponseBudget();
+    const results = [];
+    let observedEvidence = 0;
+    let evidenceComplete = true;
+    const indexed = !q && !hasEvidenceFilter
+      ? { notes: [], discovery: { observedNotes: 0, complete: true }, state: createIndexOperationState() }
+      : await allNotesWithContent();
+    for (const n of indexed.notes) {
       const searchable = publicSearchContent(n.content);
-      const receipts = parsePublicEvidenceReceipts(searchable, n.rel);
-      const matchingReceipts = receipts.filter(receipt => receiptMatchesFilters(receipt, filters));
       const textMatches = !q || n.rel.toLowerCase().includes(q) || searchable.toLowerCase().includes(q);
+      if (!textMatches && !hasEvidenceFilter) continue;
+      const remainingEvidence = GENERIC_INDEX_LIMITS.evidenceReceiptsPerOperation - observedEvidence;
+      const receiptLimit = Math.min(GENERIC_INDEX_LIMITS.evidenceReceiptsPerNote, remainingEvidence);
+      const receiptCandidates = receiptLimit > 0
+        ? parsePublicEvidenceReceipts(searchable, n.rel, { limit: receiptLimit + 1 })
+        : [];
+      if (receiptCandidates.length > receiptLimit || (receiptLimit === 0 && searchable.length > 0)) evidenceComplete = false;
+      observedEvidence += Math.min(receiptCandidates.length, receiptLimit);
+      const receipts = receiptCandidates.slice(0, receiptLimit).filter(receipt => {
+        const bounded = isBoundedIndexValue(receipt);
+        if (!bounded) evidenceComplete = false;
+        return bounded;
+      });
+      const matchingReceipts = receipts.filter(receipt => receiptMatchesFilters(receipt, filters));
       const evidenceMatches = !hasEvidenceFilter || matchingReceipts.length > 0;
-      if (!textMatches || !evidenceMatches) return null;
-      return {
-        path: n.rel, title: n.title, folder: slash(path.dirname(n.rel)) === '.' ? '' : slash(path.dirname(n.rel)), tags: parseTags(searchable),
-        links: parseLinks(searchable), excerpt: excerpt(searchable), evidence: {
+      if (!textMatches || !evidenceMatches) continue;
+      const result = {
+        path: n.rel,
+        title: n.title,
+        folder: n.folder,
+        contentOmitted: n.contentOmitted,
+        metadataOmitted: n.metadataOmitted,
+        tags: n.tags,
+        links: n.links,
+        excerpt: excerpt(searchable),
+        evidence: {
           ...evidenceSummary(receipts),
           receipts: (hasEvidenceFilter ? matchingReceipts : receipts).map(searchEvidenceReceipt),
         },
       };
-    }).filter(Boolean));
-    res.json({ query: q, filters, results });
+      if (responseBudget.tryAppend(results, result)) continue;
+      const minimal = { ...result, metadataOmitted: true, tags: [], links: [], evidence: { ...evidenceSummary([]), receipts: [] } };
+      if (!responseBudget.tryAppend(results, minimal)) break;
+    }
+    const payload = {
+      query: q,
+      filters,
+      results,
+      meta: {
+        observedNotes: indexed.discovery.observedNotes,
+        indexComplete: indexed.discovery.complete
+          && indexed.state.contentOmitted === 0
+          && indexed.state.metadataOmitted === 0,
+        returnedResults: results.length,
+        contentOmitted: indexed.state.contentOmitted,
+        metadataOmitted: indexed.state.metadataOmitted,
+        observedEvidence,
+        evidenceComplete,
+        responseBytes: 0,
+        truncated: !indexed.discovery.complete
+          || indexed.state.contentOmitted > 0
+          || indexed.state.metadataOmitted > 0
+          || !evidenceComplete
+          || responseBudget.truncated,
+      },
+    };
+    res.json(finalizeIndexResponse(payload));
   } catch (err) { next(err); }
 });
 
@@ -964,7 +1172,28 @@ app.get('/api/evidence', async (req, res, next) => {
 app.get('/api/tasks', async (req, res, next) => {
   try {
     const state = ['open', 'completed', 'all'].includes(String(req.query.state)) ? String(req.query.state) : 'open';
-    res.json({ state, tasks: await allTasks(state) });
+    const indexedTasks = await allTasks(state);
+    const payload = {
+      state,
+      tasks: indexedTasks.tasks,
+      meta: {
+        observedNotes: indexedTasks.indexed.discovery.observedNotes,
+        indexComplete: indexedTasks.indexed.discovery.complete
+          && indexedTasks.indexed.state.contentOmitted === 0,
+        observedTasks: indexedTasks.observedTasks,
+        tasksComplete: indexedTasks.tasksComplete
+          && indexedTasks.indexed.discovery.complete
+          && indexedTasks.indexed.state.contentOmitted === 0,
+        returnedTasks: indexedTasks.tasks.length,
+        contentOmitted: indexedTasks.indexed.state.contentOmitted,
+        responseBytes: 0,
+        truncated: !indexedTasks.tasksComplete
+          || !indexedTasks.indexed.discovery.complete
+          || indexedTasks.indexed.state.contentOmitted > 0
+          || indexedTasks.responseBudget.truncated,
+      },
+    };
+    res.json(finalizeIndexResponse(payload));
   } catch (err) { next(err); }
 });
 
@@ -974,18 +1203,25 @@ app.post('/api/task/toggle', async (req, res, next) => {
 
 app.get('/api/graph', async (req, res, next) => {
   try {
-    const notePaths = await walkMarkdown(VAULT_DIR);
     let activePath = '';
     const requestedActive = String(req.query.active || '').trim();
     if (requestedActive) {
       try {
-        const requested = resolveNotePath(requestedActive).rel.toLowerCase();
-        activePath = notePaths.find(candidate => candidate.toLowerCase() === requested) || '';
+        const requested = resolveNotePath(requestedActive);
+        const activeStat = await fs.lstat(requested.abs);
+        if (activeStat.isFile() && !activeStat.isSymbolicLink()) {
+          const canonicalAbsolute = await fs.realpath(requested.abs);
+          const canonicalRelative = slash(path.relative(VAULT_DIR, canonicalAbsolute));
+          activePath = resolveNotePath(canonicalRelative).rel;
+        }
       } catch {
         // Invalid, outside-vault, and nonexistent active paths are deliberately
         // indistinguishable and do not change the deterministic default page.
       }
     }
+    const discovery = await collectIndexPaths(activePath);
+    activePath = discovery.preferredPath || activePath;
+    const notePaths = discovery.paths;
     const returnedPaths = selectGraphNotePaths(notePaths, activePath);
     const selectedNoteIds = new Set(returnedPaths);
     const resolveWikiLink = createWikiLinkResolver(notePaths.map(rel => ({ rel })));
@@ -1105,15 +1341,23 @@ app.get('/api/graph', async (req, res, next) => {
       nodes,
       links,
       meta: {
-        sourceNotes: notePaths.length,
+        sourceNotes: discovery.observedNotes,
+        sourceNotesComplete: discovery.complete,
         sourceLinks,
-        sourceLinksComplete: !linkDiscoveryStopped && omittedNoteContent === 0 && notePaths.length === returnedPaths.length,
+        sourceLinksComplete: discovery.complete
+          && !linkDiscoveryStopped
+          && omittedNoteContent === 0
+          && notePaths.length === returnedPaths.length,
         returnedNotes: nodes.length,
         returnedLinks: links.length,
         omittedNoteContent,
         omittedLinkFields,
         responseBytes: 0,
-        truncated: notePaths.length > nodes.length || omittedLink || omittedNoteContent > 0 || responseBudget.truncated,
+        truncated: !discovery.complete
+          || notePaths.length > nodes.length
+          || omittedLink
+          || omittedNoteContent > 0
+          || responseBudget.truncated,
       },
     };
     // Include the decimal byte-count field itself in the reported total. The
@@ -1133,13 +1377,37 @@ app.get('/api/graph', async (req, res, next) => {
 app.get('/api/backlinks', async (req, res, next) => {
   try {
     const targetPath = normalizeNotePath(req.query.path || 'Welcome.md');
-    const notes = await allNotesWithContent();
-    const resolveWikiLink = createWikiLinkResolver(notes);
-    const backlinks = notes.filter(n => n.rel !== targetPath && n.links.some(link => {
-      const resolution = resolveWikiLink(link);
-      return resolution.resolved && resolution.target.toLowerCase() === targetPath.toLowerCase();
-    })).map(n => ({ path: n.rel, title: n.title, excerpt: excerpt(n.content) }));
-    res.json({ path: targetPath, backlinks });
+    if (!isBoundedIndexValue(targetPath)) throw new Error('Backlink path is too long');
+    const indexed = await allNotesWithContent();
+    const resolveWikiLink = createWikiLinkResolver(indexed.notes);
+    const responseBudget = createIndexResponseBudget();
+    const backlinks = [];
+    for (const note of indexed.notes) {
+      if (note.rel === targetPath || !note.links.some(link => {
+        const resolution = resolveWikiLink(link);
+        return resolution.resolved && resolution.target.toLowerCase() === targetPath.toLowerCase();
+      })) continue;
+      if (!responseBudget.tryAppend(backlinks, { path: note.rel, title: note.title, excerpt: excerpt(note.content) })) break;
+    }
+    const payload = {
+      path: targetPath,
+      backlinks,
+      meta: {
+        observedNotes: indexed.discovery.observedNotes,
+        indexComplete: indexed.discovery.complete
+          && indexed.state.contentOmitted === 0
+          && indexed.state.metadataOmitted === 0,
+        returnedBacklinks: backlinks.length,
+        contentOmitted: indexed.state.contentOmitted,
+        metadataOmitted: indexed.state.metadataOmitted,
+        responseBytes: 0,
+        truncated: !indexed.discovery.complete
+          || indexed.state.contentOmitted > 0
+          || indexed.state.metadataOmitted > 0
+          || responseBudget.truncated,
+      },
+    };
+    res.json(finalizeIndexResponse(payload));
   } catch (err) { next(err); }
 });
 
@@ -1207,35 +1475,125 @@ app.delete('/api/workspace/search/:id', async (req, res, next) => {
 app.get('/api/backups', async (req, res, next) => {
   try {
     const target = req.query.path ? normalizeNotePath(req.query.path) : '';
+    if (target && !isBoundedIndexValue(target)) throw new Error('Backup filter path is too long');
     const root = resolveVaultPath('.safire-backups').abs;
-    const files = (await listContainedFiles(VAULT_DIR, root)).filter(file => file.relativePath.toLowerCase().endsWith('.bak'));
+    const discovery = await listContainedFilesBounded(VAULT_DIR, root, {
+      fileLimit: GENERIC_INDEX_LIMITS.backups,
+      directoryLimit: GENERIC_INDEX_LIMITS.directories,
+      entryLimit: GENERIC_INDEX_LIMITS.directoryEntries,
+      depthLimit: GENERIC_INDEX_LIMITS.directoryDepth,
+      fieldCharacters: GENERIC_INDEX_LIMITS.fieldCharacters,
+      fieldBytes: GENERIC_INDEX_LIMITS.fieldBytes,
+      includeFile: relativePath => relativePath.toLowerCase().endsWith('.bak'),
+    });
+    const responseBudget = createIndexResponseBudget();
     const backups = [];
-    for (const file of files) {
+    let remainingBackupBytes = GENERIC_INDEX_LIMITS.indexBytesPerOperation;
+    let backupDataComplete = true;
+    let v2MetadataBudgetExhausted = false;
+    for (const file of discovery.files) {
       const id = file.relativePath;
-      const notePath = backupNoteFromName(id);
-      if (target && notePath !== target) continue;
-      const stamp = id.match(/\.(\d+)(?:\.[A-Za-z0-9_-]+)?\.bak$/)?.[1];
-      backups.push({ id, notePath, size: file.size, createdAt: stamp ? Number(stamp) : file.mtimeMs });
+      const absolutePath = path.join(root, ...id.split('/'));
+      const isVersionedContent = path.basename(absolutePath) === 'content.bak';
+      if (isVersionedContent && v2MetadataBudgetExhausted) continue;
+      let metadata;
+      const metadataReservation = isVersionedContent
+        ? Math.min(remainingBackupBytes, GENERIC_INDEX_LIMITS.backupMetadataBytes)
+        : 0;
+      if (isVersionedContent && metadataReservation === 0) {
+        backupDataComplete = false;
+        v2MetadataBudgetExhausted = true;
+        continue;
+      }
+      remainingBackupBytes -= metadataReservation;
+      try {
+        const metadataResult = await readBackupMetadataForIndex(VAULT_DIR, absolutePath, {
+          maxMetadataBytes: isVersionedContent ? metadataReservation : remainingBackupBytes,
+        });
+        if (isVersionedContent && !metadataResult.attemptFailed) {
+          remainingBackupBytes += Math.max(0, metadataReservation - metadataResult.bytesConsumed);
+        }
+        if (metadataResult.contentOmitted) {
+          backupDataComplete = false;
+          remainingBackupBytes = 0;
+          v2MetadataBudgetExhausted = true;
+          continue;
+        }
+        if (metadataResult.attemptFailed) backupDataComplete = false;
+        metadata = metadataResult.metadata;
+      } catch {
+        if (isVersionedContent) backupDataComplete = false;
+        continue;
+      }
+      if (metadata.version === 2 && !metadata.valid) continue;
+      if (target && metadata.notePath !== target) continue;
+      if (target && metadata.version === 2) {
+        if (metadata.byteLength > remainingBackupBytes) {
+          backupDataComplete = false;
+          remainingBackupBytes = 0;
+          continue;
+        }
+        try {
+          const verified = await readBackupFileForIndex(VAULT_DIR, absolutePath, undefined, {
+            maxOperationBytes: remainingBackupBytes,
+          });
+          remainingBackupBytes = Math.max(0, remainingBackupBytes - verified.bytesConsumed);
+          metadata = verified.metadata;
+        } catch {
+          backupDataComplete = false;
+          remainingBackupBytes = 0;
+          v2MetadataBudgetExhausted = true;
+          continue;
+        }
+        if (metadata.notePath !== target) continue;
+      }
+      const backup = {
+        id,
+        notePath: metadata.notePath,
+        size: file.size,
+        createdAt: metadata.createdAt ?? file.mtimeMs,
+        legacy: metadata.legacy,
+        requiresExplicitPath: metadata.requiresExplicitPath,
+        contentVerified: Boolean(target && metadata.version === 2),
+      };
+      if (!responseBudget.tryAppend(backups, backup)) break;
     }
     backups.sort((a, b) => b.createdAt - a.createdAt);
-    res.json({ backups });
+    const payload = {
+      backups,
+      meta: {
+        observedBackups: discovery.observedFiles,
+        backupsComplete: discovery.complete && backupDataComplete,
+        returnedBackups: backups.length,
+        responseBytes: 0,
+        truncated: !discovery.complete || !backupDataComplete || responseBudget.truncated,
+      },
+    };
+    res.json(finalizeIndexResponse(payload));
   } catch (err) { next(err); }
 });
 
 app.get('/api/backup', async (req, res, next) => {
   try {
     const { rel, abs } = resolveBackupId(req.query.id || '');
-    const content = await readContainedFile(VAULT_DIR, abs, 'utf8');
-    res.json({ id: rel, notePath: backupNoteFromName(rel), content });
+    const { metadata, content } = await readBackupFile(VAULT_DIR, abs, 'utf8');
+    res.json({
+      id: rel,
+      notePath: metadata.notePath,
+      legacy: metadata.legacy,
+      requiresExplicitPath: metadata.requiresExplicitPath,
+      content,
+    });
   } catch (err) { next(err); }
 });
 
 app.post('/api/backup/restore', async (req, res, next) => {
   try {
     const { rel, abs } = resolveBackupId(req.body.id || '');
-    const toPath = req.body.path ? normalizeNotePath(req.body.path) : backupNoteFromName(rel);
+    const { metadata, content } = await readBackupFile(VAULT_DIR, abs);
+    if (!req.body.path && !metadata.notePath) throw new Error('A restore destination is required for this legacy backup');
+    const toPath = req.body.path ? normalizeNotePath(req.body.path) : normalizeNotePath(metadata.notePath);
     const target = resolveNotePath(toPath);
-    const content = await readContainedFile(VAULT_DIR, abs);
     const { backup: safetyBackup } = await noteMutator.put(target.abs, content);
     res.json({ ok: true, path: target.rel, restoredFrom: rel, backup: safetyBackup });
   } catch (err) { next(err); }
@@ -1280,20 +1638,59 @@ app.get('/api/attachment', async (req, res, next) => {
 
 app.get('/api/vault-health', async (_req, res, next) => {
   try {
-    const notes = await allNotesWithContent();
-    const resolveWikiLink = createWikiLinkResolver(notes);
+    const indexed = await allNotesWithContent();
+    const resolveWikiLink = createWikiLinkResolver(indexed.notes);
+    const responseBudget = createIndexResponseBudget();
     const missingLinks = [];
     const linkedTargets = new Set();
-    for (const note of notes) for (const link of note.links) {
+    for (const note of indexed.notes) for (const link of note.links) {
       const resolution = resolveWikiLink(link);
       if (resolution.resolved) linkedTargets.add(resolution.target.toLowerCase());
-      else missingLinks.push({ from: note.rel, target: link });
+      else if (missingLinks.length < GENERIC_INDEX_LIMITS.missingLinks) {
+        responseBudget.tryAppend(missingLinks, { from: note.rel, target: link });
+      } else {
+        responseBudget.markTruncated();
+      }
     }
-    const orphanNotes = notes.filter(note => !linkedTargets.has(note.rel.toLowerCase()) && note.links.length === 0).map(note => note.rel);
+    const orphanNotes = [];
+    for (const note of indexed.notes) {
+      if (linkedTargets.has(note.rel.toLowerCase()) || note.links.length > 0) continue;
+      responseBudget.tryAppend(orphanNotes, note.rel);
+    }
     const backupRoot = resolveVaultPath('.safire-backups').abs;
-    const backups = (await listContainedFiles(VAULT_DIR, backupRoot))
-      .filter(item => item.relativePath.toLowerCase().endsWith('.bak'));
-    res.json({ noteCount: notes.length, tagCount: new Set(notes.flatMap(n => n.tags)).size, linkCount: notes.reduce((sum, n) => sum + n.links.length, 0), missingLinks, orphanNotes, backupCount: backups.length });
+    const backupDiscovery = await listContainedFilesBounded(VAULT_DIR, backupRoot, {
+      fileLimit: GENERIC_INDEX_LIMITS.backups,
+      directoryLimit: GENERIC_INDEX_LIMITS.directories,
+      entryLimit: GENERIC_INDEX_LIMITS.directoryEntries,
+      depthLimit: GENERIC_INDEX_LIMITS.directoryDepth,
+      fieldCharacters: GENERIC_INDEX_LIMITS.fieldCharacters,
+      fieldBytes: GENERIC_INDEX_LIMITS.fieldBytes,
+      includeFile: relativePath => relativePath.toLowerCase().endsWith('.bak'),
+    });
+    const payload = {
+      noteCount: indexed.notes.length,
+      tagCount: new Set(indexed.notes.flatMap(note => note.tags)).size,
+      linkCount: indexed.notes.reduce((sum, note) => sum + note.links.length, 0),
+      missingLinks,
+      orphanNotes,
+      backupCount: backupDiscovery.observedFiles,
+      meta: {
+        observedNotes: indexed.discovery.observedNotes,
+        indexComplete: indexed.discovery.complete
+          && indexed.state.contentOmitted === 0
+          && indexed.state.metadataOmitted === 0,
+        contentOmitted: indexed.state.contentOmitted,
+        metadataOmitted: indexed.state.metadataOmitted,
+        backupsComplete: backupDiscovery.complete,
+        responseBytes: 0,
+        truncated: !indexed.discovery.complete
+          || indexed.state.contentOmitted > 0
+          || indexed.state.metadataOmitted > 0
+          || !backupDiscovery.complete
+          || responseBudget.truncated,
+      },
+    };
+    res.json(finalizeIndexResponse(payload));
   } catch (err) { next(err); }
 });
 
