@@ -451,7 +451,16 @@ test('raw JWT detection requires a bounded canonical three-part signed JSON stru
 
   assert.equal(token, SYNTHETIC_RAW_JWT);
   assert.equal(maximumSignature.length, 8_192);
-  for (const candidate of [token, `(${token})`, `${token},`, `${token}.`, `.${token}`]) {
+  for (const candidate of [
+    token,
+    `(${token})`,
+    `${token},`,
+    `${token}.`,
+    `.${token}`,
+    `_${token}`,
+    `${token}_`,
+    `_${token}_`,
+  ]) {
     assert.equal(containsDisallowedSensitiveMaterial(candidate), true);
   }
   assert.equal(containsDisallowedSensitiveMaterial(`${header}.${payload}.${maximumSignature}`), true);

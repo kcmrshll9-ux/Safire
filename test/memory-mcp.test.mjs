@@ -502,9 +502,7 @@ test('memory MCP rejects impersonation, caller-controlled trust, unsafe paths, a
         source: { stream: 'feedback.synthetic', event_id: `sensitive-${family}-correction` },
       })] }),
       await callTool(client, 'memory_search', { query: value }),
-      ...(family === 'raw_jwt'
-        ? []
-        : [await callTool(client, 'memory_search', { query: `_${value}_` })]),
+      await callTool(client, 'memory_search', { query: `_${value}_` }),
       await callTool(client, 'memory_get', { id: value }),
       await callTool(client, 'memory_recall', { ids: [value] }),
     ];
