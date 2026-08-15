@@ -87,6 +87,8 @@
       "electron/**/*",
       "server.mjs",
       "safire-mcp.mjs",
+      "lib/note-projection.mjs",
+      "lib/notes-mcp-service.mjs",
       "safire-memory-mcp.mjs",
       "safire-memory-mcp.cmd",
       "lib/memory/**/*",

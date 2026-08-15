@@ -47,6 +47,9 @@ test('Safire accepts only loopback same-origin API browser requests', async () =
     assert.equal(accepted.status, 200);
     assert.equal(accepted.headers.get('cache-control'), 'no-store');
     assert.equal(accepted.headers.get('pragma'), 'no-cache');
+    const contentSecurityPolicy = accepted.headers.get('content-security-policy') || '';
+    assert.match(contentSecurityPolicy, /(?:^|;)\s*img-src\s+'self'\s*(?:;|$)/);
+    assert.doesNotMatch(contentSecurityPolicy, /img\.youtube\.com/i);
 
     assert.equal(await requestStatus(`${backend.url}/api/health`, { Host: 'notes.example' }), 403);
 
@@ -112,6 +115,29 @@ test('Safire rejects note paths that traverse an NTFS junction', async (t) => {
     }
     const response = await fetch(`${backend.url}/api/note?path=linked/outside.md`);
     assert.equal(response.status, 400);
+  });
+});
+
+test('vault health rejects an NTFS junction at the backup root without traversing it', async (t) => {
+  await withTemporaryVault(async ({ root, vault, backend }) => {
+    const outside = path.join(root, 'outside-backups');
+    const sentinel = path.join(outside, 'outside-sentinel.bak');
+    await fs.mkdir(outside);
+    await fs.writeFile(sentinel, 'outside backup sentinel', 'utf8');
+    try {
+      await fs.symlink(outside, path.join(vault, '.safire-backups'), 'junction');
+    } catch (error) {
+      t.skip(`Windows junctions are unavailable in this environment: ${error.message}`);
+      return;
+    }
+
+    const response = await fetch(`${backend.url}/api/vault-health`);
+    assert.equal(response.status, 400);
+    const body = await response.json();
+    assert.equal(body.error, 'Vault paths cannot use symlinks or junctions');
+    assert.doesNotMatch(JSON.stringify(body), /backupCount|noteCount|outside-sentinel/i);
+    assert.equal(JSON.stringify(body).includes(path.resolve(root)), false);
+    assert.equal(await fs.readFile(sentinel, 'utf8'), 'outside backup sentinel');
   });
 });
 

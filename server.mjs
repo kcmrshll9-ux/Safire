@@ -7,11 +7,24 @@ import dns from 'node:dns/promises';
 import net from 'node:net';
 import { Agent, fetch as undiciFetch } from 'undici';
 import vaultConfig from './vault-config.cjs';
+import {
+  excerpt,
+  parseLinks,
+  parseTags,
+  publicEvidenceContent,
+  publicNoteMetadata,
+  semanticMarkdownContent,
+  wikiLinkTargets,
+} from './lib/note-projection.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const { resolveVaultPath: resolveConfiguredVaultPath } = vaultConfig;
 const LOOPBACK_HOST = '127.0.0.1';
+const GRAPH_NOTE_LIMIT = 1000;
+const GRAPH_LINK_LIMIT = 2000;
+const GRAPH_LINK_SCAN_LIMIT = 4000;
+const GRAPH_TAGS_PER_NOTE_LIMIT = 32;
 function loopbackHost(candidate) {
   return ['127.0.0.1', '::1'].includes(String(candidate || '').trim()) ? String(candidate).trim() : LOOPBACK_HOST;
 }
@@ -56,7 +69,7 @@ app.disable('x-powered-by');
 app.use((req, res, next) => {
   const embeddedAttachment = req.path === '/api/attachment' && req.query.raw === '1';
   const frameAncestors = embeddedAttachment ? "'self'" : "'none'";
-  res.setHeader('Content-Security-Policy', `default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; frame-ancestors ${frameAncestors}; img-src 'self' https://img.youtube.com; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self'`);
+  res.setHeader('Content-Security-Policy', `default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; frame-ancestors ${frameAncestors}; img-src 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self'`);
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', embeddedAttachment ? 'SAMEORIGIN' : 'DENY');
@@ -170,62 +183,10 @@ async function buildTree(dir = VAULT_DIR, base = VAULT_DIR) {
   return children.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'folder' ? -1 : 1));
 }
 
-function parseLinks(content) {
-  const links = [];
-  const re = /\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]/g;
-  let m;
-  while ((m = re.exec(content))) links.push(m[1].trim());
-  return [...new Set(links)].filter(Boolean);
-}
-
-function parseTags(content) {
-  const tags = [];
-  const re = /(^|\s)#([A-Za-z0-9_/-]+)/g;
-  let m;
-  while ((m = re.exec(content))) tags.push(m[2]);
-  return [...new Set(tags)].sort();
-}
-
-function stripPrivateEvidenceFields(content = '') {
-  return String(content).replace(/^\s*```safire-evidence\s*\x0d?\n([\s\S]*?)^\s*```\s*$/gim, (block, body) => {
-    const visible = body.split('\n').filter(line => !/^\s*(?:private_notes|notes)\s*:/i.test(line)).join('\n');
-    return block.replace(body, visible);
-  });
-}
-
-function semanticMarkdownContent(content = '') {
-  const lines = stripPrivateEvidenceFields(content).split(/\r?\n/);
-  const visible = [];
-  let fenceCharacter = '';
-  let fenceLength = 0;
-  for (const line of lines) {
-    if (!fenceCharacter) {
-      const opening = line.match(/^(?:[ \t]{0,3}>[ \t]?)*[ \t]{0,3}(`{3,}|~{3,})/);
-      if (opening) {
-        fenceCharacter = opening[1][0];
-        fenceLength = opening[1].length;
-        continue;
-      }
-      visible.push(line.replace(/`[^`\r\n]*`/g, ''));
-      continue;
-    }
-    const closing = line.match(/^(?:[ \t]{0,3}>[ \t]?)*[ \t]{0,3}(`+|~+)[ \t]*$/);
-    if (closing && closing[1][0] === fenceCharacter && closing[1].length >= fenceLength) {
-      fenceCharacter = '';
-      fenceLength = 0;
-    }
-  }
-  return visible.join('\n');
-}
-
-function excerpt(content) {
-  return content.replace(/```[\s\S]*?```/g, ' ').replace(/[#>*_`\[\]()!-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
-}
-
 async function noteMeta(rel) {
   const { abs } = resolveNotePath(rel);
   const [stat, content] = await Promise.all([fs.stat(abs), fs.readFile(abs, 'utf8')]);
-  return { path: rel, title: titleFromPath(rel), folder: slash(path.dirname(rel)) === '.' ? '' : slash(path.dirname(rel)), size: stat.size, mtime: stat.mtimeMs, tags: parseTags(content), links: parseLinks(content), excerpt: excerpt(content) };
+  return { path: rel, title: titleFromPath(rel), folder: slash(path.dirname(rel)) === '.' ? '' : slash(path.dirname(rel)), size: stat.size, mtime: stat.mtimeMs, ...publicNoteMetadata(content) };
 }
 
 async function allNotesWithContent() {
@@ -598,7 +559,7 @@ function searchEvidenceReceipt(receipt) {
 }
 
 function publicSearchContent(content = '') {
-  return stripPrivateEvidenceFields(content);
+  return publicEvidenceContent(content);
 }
 
 function evidenceSearchFilters(query = {}) {
@@ -860,7 +821,8 @@ app.get('/api/note', async (req, res, next) => {
   try {
     const { rel, abs } = resolveNotePath(req.query.path || 'Welcome.md');
     const content = await fs.readFile(abs, 'utf8');
-    res.json({ path: rel, title: titleFromPath(rel), content, tags: parseTags(content), links: parseLinks(content) });
+    const metadata = publicNoteMetadata(content);
+    res.json({ path: rel, title: titleFromPath(rel), content, tags: metadata.tags, links: metadata.links });
   } catch (err) { next(err); }
 });
 
@@ -993,8 +955,8 @@ app.get('/api/search', async (req, res, next) => {
     const hasEvidenceFilter = Boolean(filters.status || filters.source || filters.state || filters.expired || filters.from !== null || filters.to !== null);
     const notes = await allNotesWithContent();
     const results = (!q && !hasEvidenceFilter ? [] : notes.map(n => {
-      const receipts = parseEvidenceReceipts(n.content, n.rel);
       const searchable = publicSearchContent(n.content);
+      const receipts = parseEvidenceReceipts(searchable, n.rel);
       const matchingReceipts = receipts.filter(receipt => receiptMatchesFilters(receipt, filters));
       const textMatches = !q || n.rel.toLowerCase().includes(q) || searchable.toLowerCase().includes(q);
       const evidenceMatches = !hasEvidenceFilter || matchingReceipts.length > 0;
@@ -1032,15 +994,46 @@ app.post('/api/task/toggle', async (req, res, next) => {
 
 app.get('/api/graph', async (_req, res, next) => {
   try {
-    const notes = await allNotesWithContent();
-    const resolveWikiLink = createWikiLinkResolver(notes);
+    const notePaths = await walkMarkdown(VAULT_DIR);
+    const returnedPaths = notePaths.slice(0, GRAPH_NOTE_LIMIT);
+    const returnedNoteIds = new Set(returnedPaths);
+    const resolveWikiLink = createWikiLinkResolver(notePaths.map(rel => ({ rel })));
+    const notes = [];
     const links = [];
-    for (const n of notes) {
-      for (const linkTitle of n.links) {
+    let sourceLinks = 0;
+    let omittedLink = false;
+    let linkDiscoveryStopped = false;
+    for (const rel of returnedPaths) {
+      const { abs } = resolveNotePath(rel);
+      const [stat, content] = await Promise.all([fs.stat(abs), fs.readFile(abs, 'utf8')]);
+      const semanticContent = semanticMarkdownContent(content);
+      notes.push({
+        rel,
+        title: titleFromPath(rel),
+        folder: slash(path.dirname(rel)) === '.' ? '' : slash(path.dirname(rel)),
+        size: stat.size,
+        mtime: stat.mtimeMs,
+        tags: parseTags(semanticContent, GRAPH_TAGS_PER_NOTE_LIMIT),
+      });
+      if (linkDiscoveryStopped) continue;
+      const retainedTargets = new Set();
+      for (const linkTitle of wikiLinkTargets(semanticContent)) {
+        sourceLinks += 1;
+        if (sourceLinks > GRAPH_LINK_SCAN_LIMIT || links.length >= GRAPH_LINK_LIMIT) {
+          omittedLink = true;
+          linkDiscoveryStopped = true;
+          break;
+        }
+        if (retainedTargets.has(linkTitle)) continue;
         const resolution = resolveWikiLink(linkTitle);
+        if (resolution.resolved && !returnedNoteIds.has(resolution.target)) {
+          omittedLink = true;
+          continue;
+        }
+        retainedTargets.add(linkTitle);
         links.push({
-          id: `link:${encodeURIComponent(n.rel)}:${encodeURIComponent(linkTitle)}`,
-          source: n.rel,
+          id: `link:${encodeURIComponent(rel)}:${encodeURIComponent(linkTitle)}`,
+          source: rel,
           target: resolution.target,
           label: linkTitle,
           resolved: resolution.resolved,
@@ -1070,7 +1063,18 @@ app.get('/api/graph', async (_req, res, next) => {
         orphan: inDegree === 0 && outDegree === 0,
       };
     });
-    res.json({ nodes, links });
+    res.json({
+      nodes,
+      links,
+      meta: {
+        sourceNotes: notePaths.length,
+        sourceLinks,
+        sourceLinksComplete: !linkDiscoveryStopped && notePaths.length === returnedPaths.length,
+        returnedNotes: nodes.length,
+        returnedLinks: links.length,
+        truncated: notePaths.length > nodes.length || omittedLink,
+      },
+    });
   } catch (err) { next(err); }
 });
 
@@ -1236,7 +1240,7 @@ app.get('/api/vault-health', async (_req, res, next) => {
       else missingLinks.push({ from: note.rel, target: link });
     }
     const orphanNotes = notes.filter(note => !linkedTargets.has(note.rel.toLowerCase()) && note.links.length === 0).map(note => note.rel);
-    const backupRoot = path.join(VAULT_DIR, '.safire-backups');
+    const backupRoot = resolveVaultPath('.safire-backups').abs;
     const backups = await walkAllFiles(backupRoot);
     res.json({ noteCount: notes.length, tagCount: new Set(notes.flatMap(n => n.tags)).size, linkCount: notes.reduce((sum, n) => sum + n.links.length, 0), missingLinks, orphanNotes, backupCount: backups.length });
   } catch (err) { next(err); }

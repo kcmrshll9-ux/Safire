@@ -4,6 +4,7 @@ import { marked, Renderer, type Tokens } from 'marked';
 import DOMPurify from 'dompurify';
 import pkg from '../package.json';
 import { GraphView } from './GraphView';
+import { renderYouTubeLinkCard } from './frontendSecurity';
 import './styles.css';
 
 const APP_VERSION = pkg.version;
@@ -12,7 +13,11 @@ type NoteMeta = { path: string; title: string; folder: string; size: number; mti
 type TreeNode = { type: 'folder'|'note'; name: string; path: string; title?: string; children?: TreeNode[] };
 type GraphNode = { id: string; label: string; tags: string[]; folder: string; size: number; mtime: number; inDegree: number; outDegree: number; degree: number; orphan: boolean };
 type GraphLink = { id: string; source: string; target: string; label: string; resolved: boolean; resolution: 'exact-path' | 'unique-title' | 'ambiguous' | 'missing' };
-type Graph = { nodes: GraphNode[]; links: GraphLink[] };
+type Graph = {
+  nodes: GraphNode[];
+  links: GraphLink[];
+  meta?: { sourceNotes: number; sourceLinks: number; sourceLinksComplete?: boolean; returnedNotes: number; returnedLinks: number; truncated: boolean };
+};
 type GraphPanel = { mode: 'preview' | 'edit' };
 type Mode = 'split'|'edit'|'preview'|'graph';
 type ThemeMode = 'dark' | 'light';
@@ -181,13 +186,7 @@ function renderMarkdown(md: string) {
     if (!videoId) return defaultLinkRenderer(token);
 
     const label = renderer.parser.parseInline(token.tokens);
-    const title = token.title ? ` title="${escapeHtml(token.title)}"` : '';
-    const safeHref = escapeHtml(token.href);
-    const safeVideoId = encodeURIComponent(videoId);
-    return `<a class="youtube-link-card" href="${safeHref}" target="_blank" rel="noopener noreferrer"${title}>
-      <span class="youtube-thumb-wrap"><img class="youtube-thumb" src="https://img.youtube.com/vi/${safeVideoId}/hqdefault.jpg" alt="" loading="lazy" /><span class="youtube-play">▶</span></span>
-      <span class="youtube-link-copy"><span class="youtube-eyebrow">YouTube video</span><span class="youtube-title">${label}</span></span>
-    </a>`;
+    return renderYouTubeLinkCard(token.href, label, token.title);
   };
 
   renderer.image = (token: Tokens.Image) => {

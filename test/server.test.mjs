@@ -59,6 +59,14 @@ test('Safire graph resolves paths deterministically and reports note topology me
     await createNote('Links.md', '# Links\n\n[[Projects/Plan]]\n[[Projects/Plan.md]]\n[[Plan.md]]\n[[Twin]]\n[[Never Created]]\n');
 
     const graph = await fetch(`${url}/api/graph`).then(res => res.json());
+    assert.deepEqual(graph.meta, {
+      sourceNotes: 7,
+      sourceLinks: 7,
+      sourceLinksComplete: true,
+      returnedNotes: 7,
+      returnedLinks: 7,
+      truncated: false,
+    });
     const nodes = new Map(graph.nodes.map(node => [node.id, node]));
     const links = graph.links.filter(link => link.source === 'Links.md');
     const linksByLabel = new Map(links.map(link => [link.label, link]));
@@ -108,6 +116,38 @@ test('Safire graph resolves paths deterministically and reports note topology me
     assert.deepEqual(health.missingLinks.map(link => link.target).sort(), ['Never Created', 'Twin']);
     assert.equal(health.orphanNotes.includes('Lonely.md'), true);
     assert.equal(health.orphanNotes.includes('Projects/Plan.md'), false);
+  });
+});
+
+test('Safire graph response applies deterministic note and link budgets', async (t) => {
+  await withServer(t, async ({ vault, url }) => {
+    const graphFolder = path.join(vault, 'Graph Budget');
+    await fs.mkdir(graphFolder, { recursive: true });
+    const unresolved = Array.from({ length: 2001 }, (_value, index) => `[[Missing ${String(index).padStart(4, '0')}]]`);
+    const tags = Array.from({ length: 40 }, (_value, index) => `#tag-${String(index).padStart(2, '0')}`).join(' ');
+    const source = ['# Budget source', tags, '[[Graph Budget/0001]]', '[[Graph Budget/1001]]', ...unresolved].join('\n');
+    const writes = [fs.writeFile(path.join(graphFolder, '0000.md'), source, 'utf8')];
+    for (let index = 1; index <= 1001; index += 1) {
+      writes.push(fs.writeFile(path.join(graphFolder, `${String(index).padStart(4, '0')}.md`), `# ${index}\n`, 'utf8'));
+    }
+    await Promise.all(writes);
+
+    const first = await fetch(`${url}/api/graph`).then(response => response.json());
+    const second = await fetch(`${url}/api/graph`).then(response => response.json());
+    assert.deepEqual(first, second, 'budgeted graph selection must be deterministic');
+    assert.deepEqual(first.meta, {
+      sourceNotes: 1004,
+      sourceLinks: 2002,
+      sourceLinksComplete: false,
+      returnedNotes: 1000,
+      returnedLinks: 2000,
+      truncated: true,
+    });
+    assert.equal(first.nodes.length, 1000);
+    assert.equal(first.links.length, 2000);
+    assert.deepEqual(first.nodes.find(node => node.id === 'Graph Budget/0000.md').tags, Array.from({ length: 32 }, (_value, index) => `tag-${String(index).padStart(2, '0')}`));
+    assert.equal(first.links.some(link => link.resolved && link.target === 'Graph Budget/1001.md'), false);
+    assert.equal(first.links.every(link => !link.resolved || first.nodes.some(node => node.id === link.target)), true);
   });
 });
 
@@ -228,6 +268,182 @@ test('Safire keeps evidence private notes out of generic search metadata', async
     assert.deepEqual(publicQuery.results[0].tags, []);
     assert.deepEqual(publicQuery.results[0].links, []);
     assert.doesNotMatch(JSON.stringify(publicQuery), /TOP-SECRET-PRIVATE-NOTE|leakedtag|Leaked Link/);
+  });
+});
+
+test('Safire excludes structural private evidence from note metadata and search', async (t) => {
+  await withServer(t, async ({ url }) => {
+    const privateTerms = [
+      'LITERAL-PRIVATE',
+      'FOLDED-PRIVATE',
+      'INDENTED-PRIVATE',
+      'QUOTED-PRIVATE',
+      'MALFORMED-PRIVATE',
+      'LEGACY-PRIVATE',
+      'RESERVED-PRIVATE-CLAIM',
+    ];
+    const content = [
+      '# Public note',
+      '',
+      '#outside [[Outside Link]]',
+      '',
+      '```safire-evidence',
+      'id: "first"',
+      'claim: >-',
+      '  Visible multiline claim #receipt-tag [[Receipt Link]]',
+      'private_notes: |',
+      '  LITERAL-PRIVATE #literal-private [[Literal Private Link]]',
+      '  claim: RESERVED-PRIVATE-CLAIM',
+      '  source_type: url',
+      '  status: conflicting',
+      'notes: >+',
+      '  FOLDED-PRIVATE #folded-private [[Folded Private Link]]',
+      'private_notes: |2-',
+      '  INDENTED-PRIVATE #indented-private [[Indented Private Link]]',
+      '```',
+      '',
+      '```safire-evidence',
+      'id: "second"',
+      'claim: "Visible quoted claim"',
+      'private_notes: "QUOTED-PRIVATE',
+      '  #quoted-private [[Quoted Private Link]]"',
+      'notes: "MALFORMED-PRIVATE',
+      '  #malformed-private [[Malformed Private Link]]',
+      'label: "Visible fallback label"',
+      '"private_notes": "LEGACY-PRIVATE #legacy-private [[Legacy Private Link]]"',
+      '```',
+    ].join('\r\n');
+    const created = await fetch(`${url}/api/note`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'Structural Privacy.md', content }),
+    });
+    assert.equal(created.status, 201);
+
+    const listed = await fetch(`${url}/api/notes`).then(response => response.json());
+    const listMetadata = listed.notes.find(note => note.path === 'Structural Privacy.md');
+    assert.deepEqual(listMetadata.tags, ['outside', 'receipt-tag']);
+    assert.deepEqual(listMetadata.links, ['Outside Link', 'Receipt Link']);
+
+    const opened = await fetch(`${url}/api/note?path=${encodeURIComponent('Structural Privacy.md')}`).then(response => response.json());
+    assert.deepEqual(opened.tags, ['outside', 'receipt-tag']);
+    assert.deepEqual(opened.links, ['Outside Link', 'Receipt Link']);
+
+    for (const privateTerm of privateTerms) {
+      const result = await fetch(`${url}/api/search?q=${encodeURIComponent(privateTerm)}`).then(response => response.json());
+      assert.deepEqual(result.results, [], `${privateTerm} must not be searchable`);
+    }
+    const publicSearch = await fetch(`${url}/api/search?q=Visible`).then(response => response.json());
+    const publicResult = publicSearch.results.find(note => note.path === 'Structural Privacy.md');
+    assert.deepEqual(publicResult.tags, ['outside', 'receipt-tag']);
+    assert.deepEqual(publicResult.links, ['Outside Link', 'Receipt Link']);
+
+    const genericOutput = JSON.stringify({ listMetadata, opened: { tags: opened.tags, links: opened.links }, publicSearch });
+    assert.doesNotMatch(genericOutput, /LITERAL-PRIVATE|FOLDED-PRIVATE|INDENTED-PRIVATE|QUOTED-PRIVATE|MALFORMED-PRIVATE|LEGACY-PRIVATE|RESERVED-PRIVATE-CLAIM/);
+    assert.doesNotMatch(genericOutput, /literal-private|folded-private|indented-private|quoted-private|malformed-private|legacy-private|Private Link/);
+  });
+});
+
+test('Safire search fails closed for malformed private quoted evidence', async (t) => {
+  await withServer(t, async ({ url }) => {
+    const content = [
+      '# Outside public text #outside [[Outside Link]]',
+      '',
+      '```safire-evidence',
+      'id: "malformed-quote"',
+      'private_notes: "PRIVATE-PREFIX',
+      'claim: PRIVATE-CONTINUATION #private-tag [[Private Link]]',
+      'status: "verified"',
+      '```',
+    ].join('\n');
+    const created = await fetch(`${url}/api/note`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'Malformed Evidence.md', content }),
+    });
+    assert.equal(created.status, 201);
+
+    for (const term of ['PRIVATE-PREFIX', 'PRIVATE-CONTINUATION', 'private-tag', 'Private Link']) {
+      const result = await fetch(`${url}/api/search?q=${encodeURIComponent(term)}`).then(response => response.json());
+      assert.deepEqual(result.results, [], `${term} must not be searchable`);
+    }
+    const listed = await fetch(`${url}/api/notes`).then(response => response.json());
+    const metadata = listed.notes.find(note => note.path === 'Malformed Evidence.md');
+    assert.deepEqual(metadata.tags, ['outside']);
+    assert.deepEqual(metadata.links, ['Outside Link']);
+    assert.doesNotMatch(metadata.excerpt, /PRIVATE|private-tag|Private Link/);
+  });
+});
+
+test('Safire generic indexes fail closed for an unclosed evidence fence', async (t) => {
+  await withServer(t, async ({ url }) => {
+    const content = [
+      '# Outside public text #outside [[Outside Link]]',
+      '',
+      '```safire-evidence',
+      'claim: "Visible but interrupted"',
+      'private_notes: |',
+      '  UNCLOSED-PRIVATE #unclosed-private [[Unclosed Private Link]]',
+    ].join('\r\n');
+    const created = await fetch(`${url}/api/note`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'Unclosed Evidence.md', content }),
+    });
+    assert.equal(created.status, 201);
+
+    for (const term of ['UNCLOSED-PRIVATE', 'unclosed-private', 'Unclosed Private Link', 'Visible but interrupted']) {
+      const result = await fetch(`${url}/api/search?q=${encodeURIComponent(term)}`).then(response => response.json());
+      assert.deepEqual(result.results, [], `${term} must not be searchable`);
+    }
+    const listed = await fetch(`${url}/api/notes`).then(response => response.json());
+    const metadata = listed.notes.find(note => note.path === 'Unclosed Evidence.md');
+    assert.deepEqual(metadata.tags, ['outside']);
+    assert.deepEqual(metadata.links, ['Outside Link']);
+    assert.doesNotMatch(metadata.excerpt, /UNCLOSED|unclosed-private|Unclosed Private Link|Visible but interrupted/);
+  });
+});
+
+test('Safire generic indexes project nested blockquoted evidence safely', async (t) => {
+  await withServer(t, async ({ url }) => {
+    const content = [
+      '# Outside blockquote text #outside [[Outside Link]]',
+      '',
+      '> > ```safire-evidence',
+      '> > id: "blockquote-valid"',
+      '> > claim: >-',
+      '> >   Blockquote public claim #quoted-public [[Quoted Public Link]]',
+      '> > private_notes: |+',
+      '> >   BLOCKQUOTE-PRIVATE #quoted-private [[Quoted Private Link]]',
+      '> > ```',
+      '',
+      '> ```safire-evidence',
+      '> id: "blockquote-malformed"',
+      '> private_notes: "MALFORMED-BLOCKQUOTE-PRIVATE',
+      '> claim: PRIVATE-PROMOTION #promoted-private [[Promoted Private Link]]',
+      '> ```',
+    ].join('\r\n');
+    const created = await fetch(`${url}/api/note`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'Blockquoted Evidence.md', content }),
+    });
+    assert.equal(created.status, 201);
+
+    for (const term of ['BLOCKQUOTE-PRIVATE', 'MALFORMED-BLOCKQUOTE-PRIVATE', 'PRIVATE-PROMOTION', 'quoted-private', 'Promoted Private Link']) {
+      const result = await fetch(`${url}/api/search?q=${encodeURIComponent(term)}`).then(response => response.json());
+      assert.deepEqual(result.results, [], `${term} must not be searchable`);
+    }
+    const publicSearch = await fetch(`${url}/api/search?q=${encodeURIComponent('Blockquote public claim')}`).then(response => response.json());
+    const publicResult = publicSearch.results.find(note => note.path === 'Blockquoted Evidence.md');
+    assert.deepEqual(publicResult.tags, ['outside', 'quoted-public']);
+    assert.deepEqual(publicResult.links, ['Outside Link', 'Quoted Public Link']);
+
+    const listed = await fetch(`${url}/api/notes`).then(response => response.json());
+    const metadata = listed.notes.find(note => note.path === 'Blockquoted Evidence.md');
+    assert.deepEqual(metadata.tags, ['outside', 'quoted-public']);
+    assert.deepEqual(metadata.links, ['Outside Link', 'Quoted Public Link']);
+    assert.doesNotMatch(JSON.stringify({ publicResult, metadata }), /BLOCKQUOTE-PRIVATE|MALFORMED-BLOCKQUOTE-PRIVATE|PRIVATE-PROMOTION|quoted-private|promoted-private|Private Link/);
   });
 });
 

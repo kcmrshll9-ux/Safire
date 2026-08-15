@@ -33,6 +33,11 @@ Safire reads vault files locally to provide editing, search, backlinks, tags,
 tasks, graph relationships, evidence features, backups, and vault-health
 information.
 
+Private `private_notes` and legacy `notes` evidence fields remain in the local
+Markdown and in explicit note or evidence reads, but are excluded fail-closed
+from generic note metadata, search, graph, and MCP list/search projections.
+Malformed or unclosed evidence blocks contribute no generic metadata.
+
 The agent-memory sidecar records only explicit MCP calls or deliberate host
 library calls. It does not monitor conversations, modify Hermes or another
 agent host, or automatically capture transcripts. The trusted-bridge library
@@ -42,13 +47,14 @@ recording callbacks remain private to that pair.
 
 ## Local server
 
-The desktop application and legacy eight-tool vault MCP integration use an
-HTTP service bound to a loopback address. It is intended for communication on
-the same device and is not bound to the local network or public internet.
-Loopback is not an authentication boundary: other software running under the
-same device or user context may be able to contact the service while it is
-running. The separate six-tool agent-memory MCP process uses stdio and local
-vault files; it does not add a network listener.
+The desktop application uses an HTTP service bound to a loopback address. It
+is intended for communication on the same device and is not bound to the local
+network or public internet. Loopback is not an authentication boundary: other
+software running under the same device or user context may be able to contact
+the desktop service while it is running. The legacy eight-tool vault MCP uses
+stdio and an in-process vault service, so it does not open an HTTP listener.
+The separate six-tool agent-memory MCP also uses stdio and local vault files;
+it does not add a network listener.
 
 ## When data leaves the device
 
@@ -61,11 +67,12 @@ directs one, including these cases:
   requested URL, timing information, and Safire's web-clipper user agent. DNS
   services may receive the destination hostname and related timing information.
   Safire blocks requests to detected local and private-network targets.
-- **YouTube previews.** Rendering a note containing a recognized YouTube link
-  may request a thumbnail from `img.youtube.com`. That service receives the
-  normal information associated with an image request, including the device's
-  network address and the video identifier in the URL. Safire sets a
-  `no-referrer` policy.
+- **YouTube links.** Rendering a recognized YouTube link creates a local-only
+  card without downloading a thumbnail or embedding a player. YouTube is
+  contacted only after the user opens that link in the system browser.
+- **Remote Markdown images.** The desktop content policy blocks HTTP and HTTPS
+  image subresources. Attach images to the local vault when they should render
+  in Preview without contacting an external image host.
 - **External links.** HTTP, HTTPS, and email links opened from the desktop app
   are handed to the system's external browser or mail application. Their data
   practices apply after the link is opened.
@@ -78,8 +85,8 @@ directs one, including these cases:
   host's own settings and privacy terms. Users should enable an integration
   only for hosts they trust and review each host's data controls.
 
-Safire does not send an entire vault to a clipping target or YouTube merely by
-running the application. Content can nevertheless leave the device when the
+Safire does not send an entire vault to a clipping target merely by running
+the application. Content can nevertheless leave the device when the
 user copies it, stores the vault in a synchronized folder, opens it with other
 software, or authorizes an integration to access it.
 

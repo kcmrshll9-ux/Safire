@@ -41,7 +41,8 @@ Safire is under active development. Version 1.4.0 adds the opt-in, agent-indepen
 - Local filesystem-backed Markdown vault with nested notes and folders
 - Split editor and preview, focused edit and reading modes, and tabbed notes
 - Search, tags, backlinks, outgoing links, and `[[wiki links]]`
-- Interactive 2D force-directed graph with global and local scopes
+- Interactive 2D force-directed graph with global and local scopes and explicit large-vault rendering limits
+- Large graph responses are limited to 1,000 notes and 2,000 links, with at most 250 unique unresolved placeholders rendered; truncation is visibly labeled
 - Graph depth, filters, folder/tag grouping, display controls, and adjustable forces
 - Node hover, drag, pan, zoom, keyboard navigation, context actions, and in-graph note panels
 - Daily notes, Markdown tasks, templates, quick capture, and saved searches
@@ -64,7 +65,8 @@ Safire is local-first, but “local-first” does not mean the application never
 - Opt-in agent memory is stored as plaintext JSON beneath the selected vault; opaque filenames do not encrypt it.
 - The memory sidecar records only explicit tool or host calls. It does not monitor transcripts or auto-capture agent activity.
 - The Web Clipper makes an outbound request only when the user asks it to capture a public URL.
-- YouTube link cards may load a thumbnail from `img.youtube.com`.
+- Recognized YouTube links use a local-only card and contact YouTube only after the user opens the link.
+- The desktop content policy blocks remote Markdown images; attach images to the local vault for Preview.
 - Opening an external link hands that URL to the system browser.
 
 The complete data-handling description is in [PRIVACY.md](PRIVACY.md).
@@ -131,7 +133,7 @@ Without `SAFIRE_VAULT_PATH`, the source server follows the saved desktop selecti
 
 Safire provides two separate, additive local stdio MCP servers. Neither server modifies Hermes or another agent host, and installing Safire does not add a transcript listener, background capture hook, or automatic memory collector.
 
-The legacy vault server, `safire-mcp.mjs`, retains its exact eight-tool surface: `list_notes`, `read_note`, `create_note`, `update_note`, `quick_capture`, `list_tasks`, `toggle_task`, and `vault_health`. It works with Markdown notes and does not expose delete, rename, attachment, backup-restore, or web-fetch tools.
+The legacy vault server, `safire-mcp.mjs`, retains its exact eight-tool surface: `list_notes`, `read_note`, `create_note`, `update_note`, `quick_capture`, `list_tasks`, `toggle_task`, and `vault_health`. It works with Markdown notes through an in-process vault service, opens no HTTP listener, and does not expose delete, rename, attachment, backup-restore, or web-fetch tools.
 
 Run the MCP server against a one-off test vault with:
 
