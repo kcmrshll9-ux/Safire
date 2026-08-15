@@ -447,9 +447,12 @@ test('raw JWT detection requires a bounded canonical three-part signed JSON stru
   const payload = segment({});
   const signature = Buffer.alloc(16, 0x5a).toString('base64url');
   const underscoreSignature = Buffer.alloc(16, 0xff).toString('base64url');
+  const alignedSignature = Buffer.alloc(18, 0x5a).toString('base64url');
+  const punctuatedSignature = `${'A'.repeat(22)}_AAA`;
   const maximumSignature = Buffer.alloc(6_144, 0x5a).toString('base64url');
   const token = `${header}.${payload}.${signature}`;
   const underscoreToken = `${header}.${payload}.${underscoreSignature}`;
+  const alignedToken = `${header}.${payload}.${alignedSignature}`;
 
   assert.equal(token, SYNTHETIC_RAW_JWT);
   assert.equal(underscoreSignature, '_____________________w');
@@ -471,6 +474,26 @@ test('raw JWT detection requires a bounded canonical three-part signed JSON stru
   ]) {
     assert.equal(containsDisallowedSensitiveMaterial(candidate), true);
   }
+  for (const candidate of [
+    `prefix_${token}`,
+    `${token}_suffix`,
+    `prefix_${token}_suffix`,
+    `prefix-${token}`,
+    `${token}-suffix`,
+    `prefix-${token}-suffix`,
+    `prefix_${token}-suffix`,
+    `prefix-${token}_suffix`,
+    `${alignedToken}__`,
+    `${alignedToken}___`,
+    `${alignedToken}_-`,
+    `${alignedToken}-_-`,
+  ]) {
+    assert.equal(containsDisallowedSensitiveMaterial(candidate), true, candidate);
+  }
+  assert.throws(
+    () => parseEventInput(validEvent({ content: `prefix_${token}_suffix` })),
+    MemorySchemaValidationError,
+  );
   assert.equal(containsDisallowedSensitiveMaterial(`${header}.${payload}.${maximumSignature}`), true);
   assert.equal(
     containsDisallowedSensitiveMaterial(`${header}.${payload}.${'A'.repeat(8_193)}`),
@@ -495,7 +518,6 @@ test('raw JWT detection requires a bounded canonical three-part signed JSON stru
     () => parseEventInput(validEvent({ content: maximumVisibleContent })),
     MemorySchemaValidationError,
   );
-
   const invalidUtf8 = Buffer.from([0xff]).toString('base64url');
   const invalidJson = Buffer.from('not-json', 'utf8').toString('base64url');
   const negatives = [
@@ -504,6 +526,9 @@ test('raw JWT detection requires a bounded canonical three-part signed JSON stru
     `${header}..${signature}`,
     `${header}.${payload}.`,
     `${header}.${payload}.${signature}=`,
+    `${header}.${payload}.${signature}BBB`,
+    `${header}.${payload}.${punctuatedSignature}=`,
+    `${header}.${payload}.${punctuatedSignature}.a`,
     `${header}.${payload}.${signature.slice(0, 5)} ${signature.slice(5)}`,
     `a.${token}`,
     `${token}.a`,
@@ -523,6 +548,17 @@ test('raw JWT detection requires a bounded canonical three-part signed JSON stru
   for (const candidate of negatives) {
     assert.equal(containsDisallowedSensitiveMaterial(candidate), false);
   }
+});
+
+test('raw JWT scanning fails closed when ambiguous candidate work exceeds its budget', () => {
+  const segment = value => Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+  const payload = segment({});
+  const signature = Buffer.alloc(16, 0x5a).toString('base64url');
+  const ambiguousHeader = `${'_A'.repeat(500)}.${payload}.${signature}`;
+  const ambiguousBodies = `x.e30A.${signature}!`.repeat(129);
+
+  assert.equal(containsDisallowedSensitiveMaterial(ambiguousHeader), true);
+  assert.equal(containsDisallowedSensitiveMaterial(ambiguousBodies), true);
 });
 
 test('over-limit values fail generically before sensitive normalization or scanning', () => {

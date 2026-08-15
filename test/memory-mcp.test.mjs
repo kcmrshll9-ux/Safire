@@ -514,12 +514,29 @@ test('memory MCP rejects impersonation, caller-controlled trust, unsafe paths, a
 
   const segment = value => Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
   const underscoreJwt = `${segment({ alg: 'HS256' })}.${segment({})}.${Buffer.alloc(16, 0xff).toString('base64url')}`;
-  for (const query of [underscoreJwt, `_${underscoreJwt}`, `${underscoreJwt}_`, `_${underscoreJwt}_`]) {
-    const attempt = await callTool(client, 'memory_search', { query });
-    assert.doesNotMatch(errorText(attempt), new RegExp(escapeRegExp(query), 'i'));
+  const embeddedUnderscoreJwt = `prefix_${underscoreJwt}_suffix`;
+  const underscoreJwtAttempts = [
+    await callTool(client, 'memory_record_events', { events: [event({
+      content: embeddedUnderscoreJwt,
+      source: { stream: 'conversation.synthetic', event_id: 'sensitive-raw-jwt-underscore-content' },
+    })] }),
+  ];
+  for (const query of [
+    underscoreJwt,
+    `_${underscoreJwt}`,
+    `${underscoreJwt}_`,
+    `_${underscoreJwt}_`,
+    embeddedUnderscoreJwt,
+  ]) {
+    underscoreJwtAttempts.push(await callTool(client, 'memory_search', { query }));
   }
+  for (const attempt of underscoreJwtAttempts) {
+    assertGenericValidationError(attempt, [underscoreJwt]);
+  }
+  assert.doesNotMatch(client.diagnostics().stderr, new RegExp(escapeRegExp(underscoreJwt), 'i'));
 
-  const hyphenJwt = `${segment({ alg: 'HS256' })}.${segment({})}.${Buffer.alloc(16, 0x5a).toString('base64url')}-`;
+  const rawHyphenJwt = `${segment({ alg: 'HS256' })}.${segment({})}.${Buffer.alloc(16, 0x5a).toString('base64url')}`;
+  const hyphenJwt = `${rawHyphenJwt}-`;
   const hyphenJwtAttempts = [
     await callTool(client, 'memory_record_events', { events: [event({
       content: hyphenJwt,
@@ -533,8 +550,9 @@ test('memory MCP rejects impersonation, caller-controlled trust, unsafe paths, a
     await callTool(client, 'memory_search', { query: hyphenJwt }),
   ];
   for (const attempt of hyphenJwtAttempts) {
-    assert.doesNotMatch(errorText(attempt), new RegExp(escapeRegExp(hyphenJwt), 'i'));
+    assertGenericValidationError(attempt, [hyphenJwt]);
   }
+  assert.doesNotMatch(client.diagnostics().stderr, new RegExp(escapeRegExp(rawHyphenJwt), 'i'));
 
   const oversizedSensitiveQuery = `${SYNTHETIC_SENSITIVE_FIXTURES[0].value} ${'x'.repeat(2_001)}`;
   const oversizedQueryAttempt = await callTool(client, 'memory_search', { query: oversizedSensitiveQuery });
