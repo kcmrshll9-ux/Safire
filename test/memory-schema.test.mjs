@@ -446,10 +446,13 @@ test('raw JWT detection requires a bounded canonical three-part signed JSON stru
   const header = segment({ alg: 'HS256' });
   const payload = segment({});
   const signature = Buffer.alloc(16, 0x5a).toString('base64url');
+  const underscoreSignature = Buffer.alloc(16, 0xff).toString('base64url');
   const maximumSignature = Buffer.alloc(6_144, 0x5a).toString('base64url');
   const token = `${header}.${payload}.${signature}`;
+  const underscoreToken = `${header}.${payload}.${underscoreSignature}`;
 
   assert.equal(token, SYNTHETIC_RAW_JWT);
+  assert.equal(underscoreSignature, '_____________________w');
   assert.equal(maximumSignature.length, 8_192);
   for (const candidate of [
     token,
@@ -464,6 +467,27 @@ test('raw JWT detection requires a bounded canonical three-part signed JSON stru
     assert.equal(containsDisallowedSensitiveMaterial(candidate), true);
   }
   assert.equal(containsDisallowedSensitiveMaterial(`${header}.${payload}.${maximumSignature}`), true);
+  assert.equal(
+    containsDisallowedSensitiveMaterial(`${header}.${payload}.${'A'.repeat(8_193)}`),
+    true,
+  );
+  for (const candidate of [
+    underscoreToken,
+    `_${underscoreToken}`,
+    `${underscoreToken}_`,
+    `_${underscoreToken}_`,
+  ]) {
+    assert.equal(containsDisallowedSensitiveMaterial(candidate), true);
+  }
+  const maximumVisibleContent = `${underscoreToken}${'x'.repeat(
+    SCHEMA_LIMITS.visibleContentLength - underscoreToken.length
+  )}`;
+  assert.equal(maximumVisibleContent.length, SCHEMA_LIMITS.visibleContentLength);
+  assert.equal(containsDisallowedSensitiveMaterial(maximumVisibleContent), true);
+  assert.throws(
+    () => parseEventInput(validEvent({ content: maximumVisibleContent })),
+    MemorySchemaValidationError,
+  );
 
   const invalidUtf8 = Buffer.from([0xff]).toString('base64url');
   const invalidJson = Buffer.from('not-json', 'utf8').toString('base64url');
@@ -488,7 +512,6 @@ test('raw JWT detection requires a bounded canonical three-part signed JSON stru
     `${header}.${payload}.${Buffer.alloc(15, 0x5a).toString('base64url')}`,
     `${'A'.repeat(1_025)}.${payload}.${signature}`,
     `${header}.${'A'.repeat(16_385)}.${signature}`,
-    `${header}.${payload}.${'A'.repeat(8_193)}`,
   ];
   for (const candidate of negatives) {
     assert.equal(containsDisallowedSensitiveMaterial(candidate), false);
