@@ -49,6 +49,12 @@ jobs:
       - name: Build unpacked Windows artifact
         run: npx electron-builder --win --x64 --dir
 
+      - name: Verify packaged Markdown renderer isolation
+        shell: pwsh
+        run: |
+          $env:SAFIRE_PACKAGED_APP = Join-Path $PWD 'release\win-unpacked\Safire.exe'
+          node test-support/packaged-renderer-security.mjs
+
       - name: Verify packaged memory runtime
         shell: pwsh
         run: |
