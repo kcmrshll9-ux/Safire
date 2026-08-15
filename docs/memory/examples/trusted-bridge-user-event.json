@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "namespace": "examples/invented",
+  "kind": "visible_user_message",
+  "speech_act": "request",
+  "content": "Please summarize the invented project status.",
+  "occurred_at": "2026-08-14T12:00:00.000Z",
+  "context": {
+    "conversation_id": "invented_conversation_01",
+    "message_id": "invented_message_01"
+  },
+  "source": {
+    "stream": "simulator:invented",
+    "event_id": "invented_source_event_01"
+  }
+}

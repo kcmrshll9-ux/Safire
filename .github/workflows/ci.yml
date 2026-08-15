@@ -43,3 +43,12 @@ jobs:
 
       - name: Build application
         run: npm run build
+
+      - name: Build unpacked Windows artifact
+        run: npx electron-builder --win --x64 --dir
+
+      - name: Verify packaged memory runtime
+        shell: pwsh
+        run: |
+          $env:SAFIRE_PACKAGED_MEMORY_LAUNCHER = Join-Path $PWD 'release\win-unpacked\resources\safire-memory-mcp.cmd'
+          node --test test/memory-packaging.test.mjs

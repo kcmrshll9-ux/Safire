@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "profile_id": "profile:harry-local",
+  "profile_type": "portable_mcp",
+  "principal": {
+    "id": "agent:harry",
+    "type": "agent",
+    "display_name": "Harry"
+  },
+  "agent_instance": {
+    "id": "agent_instance:harry:desktop",
+    "type": "agent_instance",
+    "display_name": "Harry desktop"
+  },
+  "ingested_by": {
+    "id": "adapter:safire-memory-mcp:harry",
+    "adapter_type": "portable_mcp",
+    "profile_id": "profile:harry-local"
+  },
+  "source_identity": "mcp:harry-local",
+  "allowed_actors": [
+    {
+      "id": "automation:moltbook",
+      "type": "automation",
+      "display_name": "Moltbook",
+      "delegated_by": "agent:harry"
+    },
+    {
+      "id": "external_service:browser",
+      "type": "external_service",
+      "display_name": "Reference browser service"
+    }
+  ],
+  "namespace_grants": [
+    {
+      "namespace": "agents/harry",
+      "read": true,
+      "write": true,
+      "descendants": true
+    },
+    {
+      "namespace": "automation/moltbook",
+      "read": true,
+      "write": true,
+      "descendants": true
+    },
+    {
+      "namespace": "shared/demo",
+      "read": true,
+      "write": true,
+      "descendants": true
+    }
+  ],
+  "trust": {
+    "accept_user_events": false
+  }
+}

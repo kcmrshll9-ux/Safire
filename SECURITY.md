@@ -32,6 +32,8 @@ Examples include:
 - unintended network access or local API exposure;
 - unsafe attachment or rendered-content handling;
 - MCP access beyond the selected vault or documented tool surface;
+- agent-memory namespace, actor, source, profile, or idempotency isolation failures;
+- acceptance of user attribution without successful trusted-bridge authentication;
 - backup, restore, or deletion behavior that risks data exposure or loss;
 - dependency vulnerabilities with a demonstrated effect on Safire; and
 - release-integrity or installer-authenticity concerns.
@@ -45,3 +47,9 @@ Please allow maintainers time to reproduce, correct, and distribute a fix before
 ## Security boundaries
 
 Safire is local-first, but the Web Clipper performs outbound requests for URLs the user submits, YouTube link cards may load thumbnails, and external links may open in the system browser. See the privacy model in [README.md](README.md) when evaluating a report.
+
+Safire's MCP integrations are separate. The legacy eight-tool server operates on Markdown notes, captures, tasks, and vault health. The additive six-tool agent-memory server writes versioned plaintext JSON beneath the selected vault. Opaque filenames and integrity digests do not encrypt memory content; use operating-system permissions and device encryption where confidentiality matters.
+
+The ordinary memory MCP process receives one fixed, operator-controlled profile. Stable principal, agent-instance, ingest-adapter, source, actor, and namespace identities constrain attribution and access, but profile files are configuration—not reusable authentication credentials. Ordinary portable profiles cannot claim user events. The trusted bridge is an in-process library seam that requires host-supplied authentication before user attribution; it is not a listener, transcript monitor, Hermes modification, or automatic capture service.
+
+Do not submit credentials, tokens, private keys, session cookies, hidden reasoning, chain-of-thought, or scratchpad content as memory. Schema validation rejects common patterns but is not a complete data-loss-prevention system. The detailed memory threat model and operator guidance are in [docs/memory/SECURITY.md](docs/memory/SECURITY.md).

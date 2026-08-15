@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "target": {
+    "type": "memory",
+    "id": "mem_11111111-1111-4111-8111-111111111111"
+  },
+  "signal": "correction",
+  "correction": "The synthetic review is scheduled for Thursday, not Friday.",
+  "actor_id": "agent:harry",
+  "source": {
+    "stream": "feedback:reference",
+    "event_id": "reference_correction_source_event_01"
+  }
+}

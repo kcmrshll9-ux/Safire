@@ -4,6 +4,26 @@ Notable changes to Safire are recorded here. Application versions follow the ver
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-08-14
+
+### Added
+
+- Added an opt-in, versioned general-agent memory sidecar that stores attributed events, append-only feedback, provenance, namespace grants, stable identities, idempotency markers, and recovery journals as local plaintext JSON beneath the selected vault.
+- Added a separate `safire-memory-mcp.mjs` entry point with exactly six tools: `memory_record_events`, `memory_search`, `memory_get`, `memory_record_feedback`, `memory_recall`, and `memory_status`. The existing `safire-mcp.mjs` Markdown-vault integration remains a separate eight-tool server.
+- Windows installer output exposes an opt-in `resources/safire-memory-mcp.cmd` launcher with the required runtime files unpacked, so an external MCP host can use installed Safire without a separate Node.js checkout. Registration remains manual; the portable EXE has no stable external launcher path.
+- Added a trusted-bridge library contract for host-authenticated user events. It is an explicit in-process seam and simulator, not a listener, transcript monitor, automatic capture service, or Hermes modification.
+- Added agent-memory architecture, security, operator, and example documentation. Harry and Moltbook are reference identities only; the subsystem is agent-general, and the reference Moltbook actor remains automation delegated by the reference Harry profile.
+
+### Security
+
+- Fixed profiles now bind stable principal, agent-instance, ingest-adapter, source, actor, and namespace identities. Ordinary portable MCP profiles cannot claim user activity, while trusted user events require host authentication and explicit trusted-bridge configuration.
+- Agent-memory records remain local plaintext. Opaque filenames and integrity digests are not encryption, and schema filtering of credentials or private reasoning is defense in depth rather than a complete data-loss-prevention system.
+
+### Not included
+
+- Safire 1.4.0 does not include automatic Hermes capture or any other installed agent-host capture integration.
+- AWS archival, fading, compression, memory encryption, reactivation, automatic local eviction, archival lifecycle automation, and permanent memory deletion are not part of Safire 1.4.0.
+
 ## [1.3.4] - 2026-08-13
 
 ### Added

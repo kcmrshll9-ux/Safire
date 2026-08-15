@@ -1,6 +1,6 @@
 # Safire privacy notice
 
-Last updated: August 13, 2026
+Last updated: August 14, 2026
 
 This notice describes the Safire application contained in this repository. It
 does not govern GitHub, an operating system, an MCP host, a web page opened or
@@ -19,6 +19,9 @@ Safire stores and processes the following locally:
   backup copies in the vault folder selected by the user.
 - Settings, pinned and recent note paths, saved searches, and custom web-clip
   templates in the vault's `.safire` folder.
+- When the separate agent-memory integration is enabled and explicitly used,
+  attributed events, feedback, provenance, namespace metadata, and recovery
+  state as plaintext JSON under `<vault>/.safire/memory/v1/`.
 - The selected vault path in a local configuration file. On a standard Windows
   installation this is under `AppData/Local/Safire/vault.json`.
 - Open tabs, view choices, autosave state, and graph preferences in application
@@ -30,13 +33,22 @@ Safire reads vault files locally to provide editing, search, backlinks, tags,
 tasks, graph relationships, evidence features, backups, and vault-health
 information.
 
+The agent-memory sidecar records only explicit MCP calls or deliberate host
+library calls. It does not monitor conversations, modify Hermes or another
+agent host, or automatically capture transcripts. The trusted-bridge library
+records nothing unless host code creates a paired bridge with an authenticator
+and explicitly invokes `bridge.ingest` or `bridge.ingestFeedback`; privileged
+recording callbacks remain private to that pair.
+
 ## Local server
 
-The desktop application and optional MCP integration start an HTTP service
-bound to a loopback address. It is intended for communication on the same
-device and is not bound to the local network or public internet. Loopback is
-not an authentication boundary: other software running under the same device
-or user context may be able to contact the service while it is running.
+The desktop application and legacy eight-tool vault MCP integration use an
+HTTP service bound to a loopback address. It is intended for communication on
+the same device and is not bound to the local network or public internet.
+Loopback is not an authentication boundary: other software running under the
+same device or user context may be able to contact the service while it is
+running. The separate six-tool agent-memory MCP process uses stdio and local
+vault files; it does not add a network listener.
 
 ## When data leaves the device
 
@@ -57,12 +69,14 @@ directs one, including these cases:
 - **External links.** HTTP, HTTPS, and email links opened from the desktop app
   are handed to the system's external browser or mail application. Their data
   practices apply after the link is opened.
-- **MCP integration.** If a user connects Safire to an MCP host, that host can
-  invoke the exposed Safire tools to read, search, create, or change vault data.
-  Information returned through MCP is delivered to that host over the MCP
-  connection and may then be processed under the host's own settings and
-  privacy terms. Users should enable this integration only for hosts they
-  trust and review each host's data controls.
+- **MCP integrations.** If a user connects either Safire MCP server to a host,
+  that host can invoke its exposed tools. The legacy server has eight tools for
+  Markdown notes, captures, tasks, and vault health. The separate memory server
+  has six tools for recording, searching, retrieving, recalling, and appending
+  feedback to attributed memory. Information returned through either MCP
+  connection is delivered to that host and may then be processed under the
+  host's own settings and privacy terms. Users should enable an integration
+  only for hosts they trust and review each host's data controls.
 
 Safire does not send an entire vault to a clipping target or YouTube merely by
 running the application. Content can nevertheless leave the device when the
@@ -78,6 +92,10 @@ restored, task-edited, or deleted. Renaming a note does not itself create a
 backup. Deleting a note therefore may not
 delete its backup copies; backups in `.safire-backups` must be reviewed and
 removed separately when they are no longer wanted.
+
+Agent-memory filenames are opaque, but the JSON records themselves are not
+encrypted. Stable actor, source, profile, and vault identities support
+attribution and idempotency; they are not credentials or encryption keys.
 
 Removing the vault does not necessarily remove the local vault-path setting,
 application browser preferences, offline application-shell cache, operating

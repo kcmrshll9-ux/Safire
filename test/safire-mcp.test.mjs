@@ -77,9 +77,19 @@ test('Safire MCP exposes a scoped note workflow over stdio', async (t) => {
   client.notify('notifications/initialized');
 
   const tools = await client.request('tools/list');
-  assert.ok(tools.result.tools.some((tool) => tool.name === 'create_note'));
-  assert.ok(tools.result.tools.some((tool) => tool.name === 'vault_health'));
-  assert.ok(!tools.result.tools.some((tool) => tool.name.includes('delete')));
+  assert.deepEqual(
+    tools.result.tools.map((tool) => tool.name).sort(),
+    [
+      'create_note',
+      'list_notes',
+      'list_tasks',
+      'quick_capture',
+      'read_note',
+      'toggle_task',
+      'update_note',
+      'vault_health',
+    ],
+  );
 
   const created = await client.request('tools/call', {
     name: 'create_note',

@@ -14,7 +14,7 @@ Safire is a privacy-focused Markdown workspace for people who want connected thi
 
 ## Launch copy
 
-Introducing Safire 1.3.4: a local-first Markdown knowledge forge for Windows. Keep your notes as portable files while exploring their connections through an interactive graph, focused writing tools, daily workflows, and recoverable edits.
+Introducing Safire 1.4.0: a local-first Markdown knowledge forge for Windows. Keep your notes as portable files while exploring their connections through an interactive graph, focused writing tools, daily workflows, and recoverable edits.
 
 ## Social copy
 

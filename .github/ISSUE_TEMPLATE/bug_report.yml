@@ -14,7 +14,7 @@ body:
     attributes:
       label: Safire version or commit
       description: Use the version shown in the application or the commit hash for a source build.
-      placeholder: 1.3.4
+      placeholder: 1.4.0
     validations:
       required: true
 
