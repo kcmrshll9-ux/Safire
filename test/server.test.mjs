@@ -6,6 +6,28 @@ import path from 'node:path';
 import { startSafireServer } from '../server.mjs';
 import { GRAPH_STORAGE_LIMITS } from '../lib/graph-policy.mjs';
 
+function sameTestPath(left, right) {
+  const resolvedLeft = path.resolve(left);
+  const resolvedRight = path.resolve(right);
+  return process.platform === 'win32'
+    ? resolvedLeft.toLocaleLowerCase('en-US') === resolvedRight.toLocaleLowerCase('en-US')
+    : resolvedLeft === resolvedRight;
+}
+
+async function waitForTestBarrier(promise, label, timeoutMs = 10_000) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timed out waiting for ${label}`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function withServer(t, run) {
   const vault = await fs.mkdtemp(path.join(os.tmpdir(), 'safire-12-test-'));
   const started = await startSafireServer({ vaultDir: vault, port: 0 });
@@ -87,7 +109,7 @@ test('HTTP create and note rename cannot both succeed for the same destination',
   const gatedFs = {
     ...fs,
     async open(target, flags, mode) {
-      if (gate && !gate.consumed && flags === 'wx' && path.resolve(target) === gate.target) {
+      if (gate && !gate.consumed && flags === 'wx' && sameTestPath(target, gate.target)) {
         gate.consumed = true;
         gate.started();
         await gate.wait;
@@ -118,7 +140,7 @@ test('HTTP create and note rename cannot both succeed for the same destination',
     gate = {
       consumed: false,
       started: markStarted,
-      target: path.resolve(vault, destinationRel),
+      target: path.resolve(started.vault, destinationRel),
       wait,
     };
     const create = () => fetch(`${started.url}/api/note`, {
@@ -132,18 +154,22 @@ test('HTTP create and note rename cannot both succeed for the same destination',
       body: JSON.stringify({ from: sourceRel, to: destinationRel }),
     });
     const first = createFirst ? create() : rename();
-    await destinationOpenStarted;
-    const second = createFirst ? rename() : create();
-    release();
-    const [firstResponse, secondResponse] = await Promise.all([first, second]);
-    assert.equal(firstResponse.status, createFirst ? 201 : 200);
-    assert.equal(secondResponse.status, 409);
-    if (createFirst) {
-      assert.equal(await fs.readFile(path.join(vault, destinationRel), 'utf8'), `created-${suffix}`);
-      assert.equal(await fs.readFile(path.join(vault, sourceRel), 'utf8'), `source-${suffix}`);
-    } else {
-      assert.equal(await fs.readFile(path.join(vault, destinationRel), 'utf8'), `source-${suffix}`);
-      await assert.rejects(() => fs.access(path.join(vault, sourceRel)), { code: 'ENOENT' });
+    try {
+      await waitForTestBarrier(destinationOpenStarted, 'the destination publication barrier');
+      const second = createFirst ? rename() : create();
+      release();
+      const [firstResponse, secondResponse] = await Promise.all([first, second]);
+      assert.equal(firstResponse.status, createFirst ? 201 : 200);
+      assert.equal(secondResponse.status, 409);
+      if (createFirst) {
+        assert.equal(await fs.readFile(path.join(vault, destinationRel), 'utf8'), `created-${suffix}`);
+        assert.equal(await fs.readFile(path.join(vault, sourceRel), 'utf8'), `source-${suffix}`);
+      } else {
+        assert.equal(await fs.readFile(path.join(vault, destinationRel), 'utf8'), `source-${suffix}`);
+        await assert.rejects(() => fs.access(path.join(vault, sourceRel)), { code: 'ENOENT' });
+      }
+    } finally {
+      release();
     }
   }
 
