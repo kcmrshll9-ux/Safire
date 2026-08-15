@@ -463,6 +463,11 @@ test('raw JWT detection requires a bounded canonical three-part signed JSON stru
     `_${token}`,
     `${token}_`,
     `_${token}_`,
+    `-${token}`,
+    `${token}-`,
+    `-${token}-`,
+    `_${token}-`,
+    `-${token}_`,
   ]) {
     assert.equal(containsDisallowedSensitiveMaterial(candidate), true);
   }
@@ -476,6 +481,8 @@ test('raw JWT detection requires a bounded canonical three-part signed JSON stru
     `_${underscoreToken}`,
     `${underscoreToken}_`,
     `_${underscoreToken}_`,
+    `${underscoreToken}-`,
+    `-${underscoreToken}-`,
   ]) {
     assert.equal(containsDisallowedSensitiveMaterial(candidate), true);
   }

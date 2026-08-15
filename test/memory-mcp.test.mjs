@@ -519,6 +519,23 @@ test('memory MCP rejects impersonation, caller-controlled trust, unsafe paths, a
     assert.doesNotMatch(errorText(attempt), new RegExp(escapeRegExp(query), 'i'));
   }
 
+  const hyphenJwt = `${segment({ alg: 'HS256' })}.${segment({})}.${Buffer.alloc(16, 0x5a).toString('base64url')}-`;
+  const hyphenJwtAttempts = [
+    await callTool(client, 'memory_record_events', { events: [event({
+      content: hyphenJwt,
+      source: { stream: 'conversation.synthetic', event_id: 'sensitive-raw-jwt-hyphen-content' },
+    })] }),
+    await callTool(client, 'memory_record_feedback', { feedback: [feedback(memoryId, {
+      signal: 'correction',
+      correction: hyphenJwt,
+      source: { stream: 'feedback.synthetic', event_id: 'sensitive-raw-jwt-hyphen-correction' },
+    })] }),
+    await callTool(client, 'memory_search', { query: hyphenJwt }),
+  ];
+  for (const attempt of hyphenJwtAttempts) {
+    assert.doesNotMatch(errorText(attempt), new RegExp(escapeRegExp(hyphenJwt), 'i'));
+  }
+
   const oversizedSensitiveQuery = `${SYNTHETIC_SENSITIVE_FIXTURES[0].value} ${'x'.repeat(2_001)}`;
   const oversizedQueryAttempt = await callTool(client, 'memory_search', { query: oversizedSensitiveQuery });
   assert.doesNotMatch(
