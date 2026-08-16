@@ -6,7 +6,7 @@
   "main": "electron/main.cjs",
   "description": "Safire - a privacy-focused, local-first Markdown knowledge forge for Windows.",
   "author": "Safire",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/kcmrshll9-ux/Safire.git"

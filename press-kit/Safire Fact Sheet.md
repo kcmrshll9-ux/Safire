@@ -8,7 +8,7 @@
 | Platform | Windows desktop; local browser/developer mode |
 | Storage | Plain `.md` files in a user-selected local vault |
 | Repository | https://github.com/kcmrshll9-ux/Safire |
-| License | Proprietary; all rights reserved |
+| License | MIT License |
 
 ## One-line description
 

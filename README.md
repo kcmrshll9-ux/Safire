@@ -12,7 +12,7 @@
   <a href="https://github.com/kcmrshll9-ux/Safire/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/kcmrshll9-ux/Safire/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Version 1.4.1" src="https://img.shields.io/badge/version-1.4.1-f97316" />
   <img alt="Windows x64" src="https://img.shields.io/badge/platform-Windows%20x64-2563eb" />
-  <img alt="Proprietary source" src="https://img.shields.io/badge/source-proprietary-7c3aed" />
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-22c55e" /></a>
 </p>
 
 Safire keeps notes as ordinary Markdown files in a vault you choose. It adds a focused desktop workspace for writing, linking, research capture, graph exploration, tasks, attachments, and recovery without requiring a cloud account.
@@ -32,7 +32,7 @@ Safire keeps notes as ordinary Markdown files in a vault you choose. It adds a f
 | Desktop target | Windows x64 |
 | Storage | Local Markdown vault selected by the user |
 | Official downloads | [GitHub Releases](https://github.com/kcmrshll9-ux/Safire/releases) |
-| License status | Proprietary; not open source |
+| License | [MIT](LICENSE) |
 
 Safire is under active development. Version 1.4.1 hardens credential and JWT boundary handling in the opt-in, agent-independent attributed-memory foundation introduced in 1.4.0. See the [changelog](CHANGELOG.md#141---2026-08-16) for details. Back up important vaults independently and review the [security policy](SECURITY.md) before using Safire with sensitive material.
 
@@ -209,10 +209,10 @@ See the [documentation index](docs/README.md) for the current documentation stat
 - Notable changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 - Third-party licenses and distribution obligations are summarized in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-## Source use and copyright
+## License and trademarks
 
-Safire is proprietary software. It is **not open source**. The controlling repository notice is [LICENSE](LICENSE), and brand use is covered by [TRADEMARKS.md](TRADEMARKS.md).
+Safire is open-source software licensed under the [MIT License](LICENSE). You may use, copy, modify, merge, publish, distribute, sublicense, and sell copies subject to the license's copyright-and-permission-notice requirement.
 
-Copyright © 2026 Safire. All rights reserved. Publication of this repository does not grant permission to copy, modify, redistribute, relicense, sell, or incorporate Safire source code or brand assets into another product. Rights provided directly by GitHub’s Terms of Service for viewing and forking on the platform, and rights that cannot lawfully be restricted, are unaffected. Contact the repository owner through GitHub for written permission before any use outside those rights.
+The MIT License does not grant permission to use the Safire name, flame mark, or other project branding in a way that suggests endorsement or affiliation. See [TRADEMARKS.md](TRADEMARKS.md).
 
-Submitting a contribution does not change the license or ownership of the rest of the project. See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution terms.
+Contributions are licensed under the same MIT terms. See [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a change.
