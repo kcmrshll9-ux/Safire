@@ -28,7 +28,17 @@ test('Safire package metadata and desktop builds include the MIT License', async
 
 test('desktop packaging ships externally launchable memory MCP runtimes and documentation', async () => {
   const packageJson = JSON.parse(await fs.readFile(path.join(projectRoot, 'package.json'), 'utf8'));
+  const ciWorkflow = await fs.readFile(path.join(projectRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
+  const releaseWorkflow = await fs.readFile(path.join(projectRoot, '.github', 'workflows', 'release.yml'), 'utf8');
   assert.equal(packageJson.scripts['mcp:memory'], 'node safire-memory-mcp.mjs');
+  for (const script of ['dist:win', 'dist:installer', 'dist:all', 'dist:linux', 'dist:mac']) {
+    assert.match(packageJson.scripts[script], /--publish never$/, script);
+  }
+  for (const workflow of [ciWorkflow, releaseWorkflow]) {
+    for (const line of workflow.split(/\r?\n/).filter(candidate => candidate.includes('electron-builder'))) {
+      assert.match(line, /--publish never$/, line.trim());
+    }
+  }
   for (const entry of [
     'safire-memory-mcp.mjs',
     'safire-memory-mcp.cmd',
@@ -71,7 +81,9 @@ test('desktop packaging ships externally launchable memory MCP runtimes and docu
     { target: 'AppImage', arch: ['x64'] },
     { target: 'deb', arch: ['x64'] },
   ]);
-  assert.equal(packageJson.build.linux.artifactName, 'Safire-${version}-linux-${arch}.${ext}');
+  assert.equal(packageJson.desktopName, 'Safire.desktop');
+  assert.equal(packageJson.build.linux.syncDesktopName, true);
+  assert.equal(packageJson.build.linux.artifactName, 'Safire-${version}-linux-x64.${ext}');
   assert.match(packageJson.build.linux.maintainer, /Safire <[^>]+@users\.noreply\.github\.com>/);
 });
 

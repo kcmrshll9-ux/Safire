@@ -181,7 +181,7 @@ jobs:
           npm run check
 
       - name: Build macOS disk image
-        run: npm run build && npx electron-builder --mac dmg --${{ matrix.arch }}
+        run: npm run build && npx electron-builder --mac dmg --${{ matrix.arch }} --publish never
 
       - name: Verify packaged Markdown renderer isolation
         run: |
