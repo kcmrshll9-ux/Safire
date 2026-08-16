@@ -1,7 +1,7 @@
 {
   "name": "Safire",
   "short_name": "Safire",
-  "description": "A privacy-focused, local-first Markdown knowledge forge for Windows.",
+  "description": "A privacy-focused, local-first Markdown knowledge forge for Windows, macOS, and Linux.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

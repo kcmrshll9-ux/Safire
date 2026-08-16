@@ -22,8 +22,10 @@ Safire stores and processes the following locally:
 - When the separate agent-memory integration is enabled and explicitly used,
   attributed events, feedback, provenance, namespace metadata, and recovery
   state as plaintext JSON under `<vault>/.safire/memory/v1/`.
-- The selected vault path in a local configuration file. On a standard Windows
-  installation this is under `AppData/Local/Safire/vault.json`.
+- The selected vault path in a local configuration file. Standard locations are
+  `AppData/Local/Safire/vault.json` on Windows,
+  `Library/Application Support/Safire/vault.json` on macOS, and
+  `${XDG_CONFIG_HOME:-~/.config}/safire/vault.json` on Linux.
 - Open tabs, view choices, autosave state, and graph preferences in application
   browser storage.
 - A small offline application-shell cache created by the service worker. API

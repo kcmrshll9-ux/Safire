@@ -111,7 +111,7 @@ function createMenu() {
       label: 'Help',
       submenu: [
         { label: 'Safire User Guide', click: () => shell.openPath(guidePath) },
-        { label: 'About Safire', click: () => dialog.showMessageBox({ type: 'info', title: 'Safire', message: 'Safire', detail: 'A privacy-focused, local-first Markdown knowledge forge for Windows. Local files. Connected thinking.' }) },
+        { label: 'About Safire', click: () => dialog.showMessageBox({ type: 'info', title: 'Safire', message: 'Safire', detail: 'A privacy-focused, local-first Markdown knowledge forge. Local files. Connected thinking.' }) },
       ],
     },
   ];
@@ -127,7 +127,7 @@ async function createWindow() {
     minWidth: 1040,
     minHeight: 680,
     title: 'Safire',
-    icon: localPath('public', 'app-icon.ico'),
+    icon: localPath('public', process.platform === 'win32' ? 'app-icon.ico' : 'fire-icon.png'),
     backgroundColor: '#070812',
     show: false,
     webPreferences: {

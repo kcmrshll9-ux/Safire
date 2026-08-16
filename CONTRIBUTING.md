@@ -14,7 +14,7 @@ The software license does not grant rights to use the Safire name or marks in a 
 
 ## Development setup
 
-Safire requires Node.js 22.19 or later and npm. Windows is required to validate packaged desktop artifacts.
+Safire requires Node.js 22.19 or later and npm. Native Windows, macOS, and Linux runners validate their corresponding desktop artifacts.
 
 ```powershell
 npm ci
@@ -37,6 +37,8 @@ Useful commands:
 | `npm run check` | Run type checks, tests, and the production build |
 | `npm run dist:installer` | Build the local Windows installer |
 | `npm run dist:win` | Build the local portable executable |
+| `npm run dist:mac` | Build macOS Intel and Apple Silicon disk images on macOS |
+| `npm run dist:linux` | Build Linux x64 AppImage and Debian packages on Linux |
 
 ## Making a change
 
@@ -60,7 +62,7 @@ npm run typecheck
 npm run build
 ```
 
-For desktop-shell, installer, file-path, attachment, or launcher changes, also perform the relevant Windows acceptance check.
+For desktop-shell, installer, file-path, attachment, or launcher changes, also perform the relevant native-platform acceptance checks. Pull requests run packaged runtime checks on Windows x64, Linux x64, macOS Intel, and macOS Apple Silicon.
 
 ## Data-safety expectations
 

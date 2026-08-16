@@ -4,6 +4,25 @@ Notable changes to Safire are recorded here. Application versions follow the ver
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-08-16
+
+### Added
+
+- Added native macOS disk images for Apple Silicon and Intel Macs.
+- Added Linux x64 AppImage and Debian packages.
+- Added a platform-native shell launcher for the optional packaged memory MCP runtime on macOS and Linux.
+- Added native CI packaging and packaged-runtime security checks for Windows x64, Linux x64, macOS Apple Silicon, and macOS Intel.
+- Added a tag-triggered release workflow that publishes verified multi-platform assets and a complete SHA-256 manifest.
+
+### Changed
+
+- Updated desktop, support, contribution, issue-reporting, and release documentation for the three supported operating systems.
+- Updated Safire and both MCP server versions to 1.5.0.
+
+### Known limitations
+
+- Windows and macOS packages are not code-signed. Windows SmartScreen or macOS Gatekeeper may display a warning.
+
 ## [1.4.2] - 2026-08-16
 
 ### Changed

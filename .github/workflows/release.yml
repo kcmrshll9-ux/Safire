@@ -1,0 +1,282 @@
+name: Multi-platform release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  provenance:
+    name: Verify release provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify annotated tag, current main, and package version
+        run: |
+          test "$(git cat-file -t "$GITHUB_REF_NAME")" = tag
+          git fetch --no-tags origin main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+          test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./package.json').version")"
+
+  windows:
+    name: Build Windows x64
+    needs: provenance
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22.19.0
+          cache: npm
+
+      - name: Verify tag and package version
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($version -ne $packageVersion) { throw "Tag and package version differ." }
+
+      - name: Install, audit, and check
+        run: |
+          npm ci
+          npm audit --audit-level=high
+          npm run check
+
+      - name: Build Windows installer and portable app
+        run: npm run dist:all
+
+      - name: Verify packaged Markdown renderer isolation
+        shell: pwsh
+        run: |
+          $env:SAFIRE_PACKAGED_APP = Join-Path $PWD 'release\win-unpacked\Safire.exe'
+          node test-support/packaged-renderer-security.mjs
+
+      - name: Verify packaged memory runtime
+        shell: pwsh
+        run: |
+          $env:SAFIRE_PACKAGED_MEMORY_LAUNCHER = Join-Path $PWD 'release\win-unpacked\resources\safire-memory-mcp.cmd'
+          node --test test/memory-packaging.test.mjs
+
+      - name: Stage exact Windows assets
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          New-Item -ItemType Directory -Path release-assets | Out-Null
+          Copy-Item -LiteralPath "release\Safire-Setup-$version.exe" -Destination release-assets
+          Copy-Item -LiteralPath "release\Safire-Portable-$version.exe" -Destination release-assets
+
+      - name: Upload Windows release assets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-windows-x64
+          if-no-files-found: error
+          path: release-assets/*
+
+  linux:
+    name: Build Linux x64
+    needs: provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22.19.0
+          cache: npm
+
+      - name: Verify tag and package version
+        run: test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./package.json').version")"
+
+      - name: Install, audit, and check
+        run: |
+          npm ci
+          npm audit --audit-level=high
+          npm run check
+
+      - name: Build Linux packages
+        run: npm run dist:linux
+
+      - name: Verify packaged Markdown renderer isolation
+        run: SAFIRE_PACKAGED_APP="$PWD/release/linux-unpacked/safire" xvfb-run --auto-servernum node test-support/packaged-renderer-security.mjs
+
+      - name: Verify packaged memory runtime
+        run: SAFIRE_PACKAGED_MEMORY_LAUNCHER="$PWD/release/linux-unpacked/resources/safire-memory-mcp.sh" node --test test/memory-packaging.test.mjs
+
+      - name: Stage exact Linux assets
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          mkdir release-assets
+          cp "release/Safire-${version}-linux-x64.AppImage" release-assets/
+          cp "release/Safire-${version}-linux-x64.deb" release-assets/
+
+      - name: Upload Linux release assets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-linux-x64
+          if-no-files-found: error
+          path: release-assets/*
+
+  macos:
+    name: Build macOS ${{ matrix.arch }}
+    needs: provenance
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: x64
+          - runner: macos-15
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22.19.0
+          cache: npm
+
+      - name: Verify tag and package version
+        run: test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./package.json').version")"
+
+      - name: Install, audit, and check
+        run: |
+          npm ci
+          npm audit --audit-level=high
+          npm run check
+
+      - name: Build macOS disk image
+        run: npm run build && npx electron-builder --mac dmg --${{ matrix.arch }}
+
+      - name: Verify packaged Markdown renderer isolation
+        run: |
+          packaged_app=$(find release -path '*/Safire.app/Contents/MacOS/Safire' -type f -print -quit)
+          test -n "$packaged_app"
+          SAFIRE_PACKAGED_APP="$packaged_app" node test-support/packaged-renderer-security.mjs
+
+      - name: Verify packaged memory runtime
+        run: |
+          packaged_launcher=$(find release -path '*/Safire.app/Contents/Resources/safire-memory-mcp.sh' -type f -print -quit)
+          test -n "$packaged_launcher"
+          SAFIRE_PACKAGED_MEMORY_LAUNCHER="$packaged_launcher" node --test test/memory-packaging.test.mjs
+
+      - name: Stage exact macOS asset
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          mkdir release-assets
+          cp "release/Safire-${version}-macos-${{ matrix.arch }}.dmg" release-assets/
+
+      - name: Upload macOS release asset
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-macos-${{ matrix.arch }}
+          if-no-files-found: error
+          path: release-assets/*
+
+  publish:
+    name: Publish verified release
+    needs:
+      - windows
+      - linux
+      - macos
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22.19.0
+
+      - name: Download verified platform artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Prepare checksums and release notes
+        run: node scripts/prepare-release-assets.mjs release-assets "${GITHUB_REF_NAME#v}" release-notes.md
+
+      - name: Create draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release-assets/* --verify-tag --draft --title "Safire ${GITHUB_REF_NAME#v}" --notes-file release-notes.md
+
+      - name: Verify published assets and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir verified-assets
+          gh release download "$GITHUB_REF_NAME" --dir verified-assets
+          cd verified-assets
+          sha256sum --check "Safire-${GITHUB_REF_NAME#v}-checksums.txt"
+          test "$(find . -maxdepth 1 -type f | wc -l)" -eq 7
+
+      - name: Label release downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" --jq .id)
+          label_asset() {
+            asset_name=$1
+            asset_label=$2
+            asset_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets" --jq ".[] | select(.name == \"${asset_name}\") | .id")
+            test -n "$asset_id"
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" -f label="$asset_label" --silent
+          }
+          version=${GITHUB_REF_NAME#v}
+          label_asset "Safire-Setup-${version}.exe" "Windows installer (recommended)"
+          label_asset "Safire-Portable-${version}.exe" "Portable Windows app"
+          label_asset "Safire-${version}-linux-x64.AppImage" "Linux AppImage"
+          label_asset "Safire-${version}-linux-x64.deb" "Debian / Ubuntu package"
+          label_asset "Safire-${version}-macos-arm64.dmg" "macOS — Apple Silicon"
+          label_asset "Safire-${version}-macos-x64.dmg" "macOS — Intel"
+          label_asset "Safire-${version}-checksums.txt" "SHA-256 checksums"
+
+      - name: Publish verified stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease=false --latest

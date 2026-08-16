@@ -1,11 +1,15 @@
 {
   "name": "safire",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
-  "description": "Safire - a privacy-focused, local-first Markdown knowledge forge for Windows.",
-  "author": "Safire",
+  "description": "Safire - a privacy-focused, local-first Markdown knowledge forge for Windows, macOS, and Linux.",
+  "author": {
+    "name": "Safire",
+    "email": "224699173+kcmrshll9-ux@users.noreply.github.com",
+    "url": "https://github.com/kcmrshll9-ux/Safire"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -23,7 +27,9 @@
     "notes",
     "personal-knowledge-management",
     "wikilinks",
-    "windows"
+    "windows",
+    "macos",
+    "linux"
   ],
   "engines": {
     "node": ">=22.19.0"
@@ -41,7 +47,9 @@
     "dist:win": "npm run build && electron-builder --win portable --x64",
     "preview": "node server.mjs",
     "dist:installer": "npm run build && electron-builder --win nsis --x64",
-    "dist:all": "npm run build && electron-builder --win nsis portable --x64"
+    "dist:all": "npm run build && electron-builder --win nsis portable --x64",
+    "dist:linux": "npm run build && electron-builder --linux AppImage deb --x64",
+    "dist:mac": "npm run build && electron-builder --mac dmg --x64 --arm64"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -78,6 +86,10 @@
         "to": "safire-memory-mcp.cmd"
       },
       {
+        "from": "safire-memory-mcp.sh",
+        "to": "safire-memory-mcp.sh"
+      },
+      {
         "from": "docs/memory",
         "to": "memory-docs"
       }
@@ -93,10 +105,13 @@
       "lib/notes-mcp-service.mjs",
       "safire-memory-mcp.mjs",
       "safire-memory-mcp.cmd",
+      "safire-memory-mcp.sh",
       "lib/memory/**/*",
       "vault-config.cjs",
       "package.json",
       "public/app-icon.ico",
+      "public/fire-icon.png",
+      "public/app-icon-1024.png",
       "public/icon.svg",
       "docs/Safire User Guide.html",
       "docs/memory/**/*",
@@ -124,6 +139,40 @@
           ]
         }
       ]
+    },
+    "mac": {
+      "icon": "public/app-icon-1024.png",
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "artifactName": "Safire-${version}-macos-${arch}.${ext}"
+    },
+    "linux": {
+      "icon": "public/app-icon-1024.png",
+      "category": "Office",
+      "maintainer": "Safire <224699173+kcmrshll9-ux@users.noreply.github.com>",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Safire-${version}-linux-${arch}.${ext}"
     },
     "portable": {
       "artifactName": "Safire-Portable-${version}.${ext}"
