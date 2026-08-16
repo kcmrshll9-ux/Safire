@@ -2,12 +2,12 @@
 set -euo pipefail
 
 # Script: create_release_v1.4.1.sh
-# Purpose: Create annotated tag v1.4.1 and publish a GitHub Release pointing at the package-bump commit.
+# Purpose: Create annotated tag v1.4.1 and publish a GitHub Release pointing at the changelog-fix commit by default.
 # Usage: Run this from a local clone of the repository (with push/release permissions).
 
 REPO="kcmrshll9-ux/Safire"
 TAG="v1.4.1"
-TARGET_COMMIT="05e48862faece80f39e500392334455aec3b30bf"  # package.json version bump
+TARGET_COMMIT="d4a85776e9a335776a51d7cc0e19aa3252ec39fd"  # changelog-fix commit
 TITLE="$TAG"
 
 read -r -d '' NOTES <<'EOF'
