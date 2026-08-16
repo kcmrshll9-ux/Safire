@@ -242,6 +242,33 @@ function packagedCopyLayout(packagedApp, scratch) {
   };
 }
 
+async function copyPackagedLayout(copyLayout) {
+  if (process.platform !== 'darwin') {
+    await fs.cp(copyLayout.sourceRoot, copyLayout.isolatedRoot, {
+      recursive: true,
+      force: false,
+      errorOnExist: true,
+    });
+    return;
+  }
+
+  await new Promise((resolve, reject) => {
+    const child = spawn('/usr/bin/ditto', [copyLayout.sourceRoot, copyLayout.isolatedRoot], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    let diagnostics = '';
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk) => {
+      diagnostics = `${diagnostics}${chunk}`.slice(-8_192);
+    });
+    child.once('error', (error) => reject(new Error(`Could not copy the packaged macOS bundle: ${error.message}`)));
+    child.once('exit', (code, signal) => {
+      if (code === 0) resolve();
+      else reject(new Error(`Could not copy the packaged macOS bundle (${code ?? signal ?? 'unknown reason'}).${diagnostics.trim() ? `\n${diagnostics.trim()}` : ''}`));
+    });
+  });
+}
+
 async function verifyPackagedBackendImport(packagedApp, environment) {
   const serverUrl = pathToFileURL(path.join(packagedResourcesDirectory(packagedApp), 'app.asar', 'server.mjs')).href;
   const source = `try { await import(process.argv[1]); } catch (error) { console.error(error?.stack || error); process.exitCode = 1; }`;
@@ -312,11 +339,7 @@ async function main() {
       path.join(attachmentDir, 'synthetic-probe.png'),
       Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'),
     );
-    await fs.cp(copyLayout.sourceRoot, copyLayout.isolatedRoot, {
-      recursive: true,
-      force: false,
-      errorOnExist: true,
-    });
+    await copyPackagedLayout(copyLayout);
     await verifyPackagedBackendImport(isolatedPackagedApp, childEnvironment);
   } catch (error) {
     await fs.rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
@@ -330,6 +353,8 @@ async function main() {
     '--remote-debugging-port=0',
     '--no-first-run',
     '--disable-extensions',
+    '--disable-gpu',
+    ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
     '--enable-logging=stderr',
   ], {
     env: childEnvironment,
