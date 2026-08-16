@@ -18,6 +18,7 @@ Notable changes to Safire are recorded here. Application versions follow the ver
 
 - Updated desktop, support, contribution, issue-reporting, and release documentation for the three supported operating systems.
 - Updated Safire and both MCP server versions to 1.5.0.
+- Disabled electron-builder's implicit CI publishing so verified artifacts are uploaded only by the checksum-gated release job, and normalized Linux package filenames to `x64`.
 
 ### Security
 

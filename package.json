@@ -19,6 +19,7 @@
     "url": "https://github.com/kcmrshll9-ux/Safire/issues"
   },
   "homepage": "https://github.com/kcmrshll9-ux/Safire#readme",
+  "desktopName": "Safire.desktop",
   "keywords": [
     "electron",
     "knowledge-graph",
@@ -44,12 +45,12 @@
     "mcp": "node safire-mcp.mjs",
     "mcp:memory": "node safire-memory-mcp.mjs",
     "desktop": "electron .",
-    "dist:win": "npm run build && electron-builder --win portable --x64",
+    "dist:win": "npm run build && electron-builder --win portable --x64 --publish never",
     "preview": "node server.mjs",
-    "dist:installer": "npm run build && electron-builder --win nsis --x64",
-    "dist:all": "npm run build && electron-builder --win nsis portable --x64",
-    "dist:linux": "npm run build && electron-builder --linux AppImage deb --x64",
-    "dist:mac": "npm run build && electron-builder --mac dmg --x64 --arm64"
+    "dist:installer": "npm run build && electron-builder --win nsis --x64 --publish never",
+    "dist:all": "npm run build && electron-builder --win nsis portable --x64 --publish never",
+    "dist:linux": "npm run build && electron-builder --linux AppImage deb --x64 --publish never",
+    "dist:mac": "npm run build && electron-builder --mac dmg --x64 --arm64 --publish never"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -158,6 +159,7 @@
       "icon": "public/app-icon-1024.png",
       "category": "Office",
       "maintainer": "Safire <224699173+kcmrshll9-ux@users.noreply.github.com>",
+      "syncDesktopName": true,
       "target": [
         {
           "target": "AppImage",
@@ -172,7 +174,7 @@
           ]
         }
       ],
-      "artifactName": "Safire-${version}-linux-${arch}.${ext}"
+      "artifactName": "Safire-${version}-linux-x64.${ext}"
     },
     "portable": {
       "artifactName": "Safire-Portable-${version}.${ext}"

@@ -47,7 +47,7 @@ jobs:
         run: npm run build
 
       - name: Build unpacked Windows artifact
-        run: npx electron-builder --win --x64 --dir
+        run: npx electron-builder --win --x64 --dir --publish never
 
       - name: Verify packaged Markdown renderer isolation
         shell: pwsh
@@ -133,7 +133,7 @@ jobs:
         run: npm run check
 
       - name: Build macOS release artifact
-        run: npm run build && npx electron-builder --mac dmg --${{ matrix.arch }}
+        run: npm run build && npx electron-builder --mac dmg --${{ matrix.arch }} --publish never
 
       - name: Verify packaged Markdown renderer isolation
         run: |
