@@ -19,3 +19,27 @@ test('Safire vault selection persists independently of the vault itself', async 
   assert.equal(vaultConfig.resolveVaultPath({ configPath }), path.resolve(chosenVault));
   assert.equal(vaultConfig.resolveVaultPath({ vaultDir: path.join(root, 'One-off Vault'), configPath }), path.resolve(root, 'One-off Vault'));
 });
+
+test('Safire stores vault selection in each platform native configuration directory', () => {
+  const syntheticHome = path.resolve('synthetic-home');
+  assert.equal(
+    vaultConfig.vaultConfigPath({ platform: 'win32', home: syntheticHome, environment: {} }),
+    path.join(syntheticHome, 'AppData', 'Local', 'Safire', 'vault.json'),
+  );
+  assert.equal(
+    vaultConfig.vaultConfigPath({ platform: 'darwin', home: syntheticHome, environment: {} }),
+    path.join(syntheticHome, 'Library', 'Application Support', 'Safire', 'vault.json'),
+  );
+  assert.equal(
+    vaultConfig.vaultConfigPath({ platform: 'linux', home: syntheticHome, environment: {} }),
+    path.join(syntheticHome, '.config', 'safire', 'vault.json'),
+  );
+  assert.equal(
+    vaultConfig.vaultConfigPath({
+      platform: 'linux',
+      home: syntheticHome,
+      environment: { XDG_CONFIG_HOME: path.join(syntheticHome, 'xdg') },
+    }),
+    path.join(syntheticHome, 'xdg', 'safire', 'vault.json'),
+  );
+});

@@ -41,7 +41,7 @@ Each enabled store instance initializes lazily once, when its first direct store
    npm run mcp:memory -- --profile-config C:/path/to/agent-memory-profile.json --vault C:/path/to/vault
    ```
 
-   A Windows installer also places an opt-in launcher at `<Safire install>/resources/safire-memory-mcp.cmd`, with its runtime dependencies unpacked beside the application. This mode needs no separate Node.js installation or source checkout. Configure that `.cmd` as the MCP command and pass the same `--profile-config` and `--vault` arguments:
+   Installed desktop packages also place an opt-in launcher beside the packaged runtime: `resources/safire-memory-mcp.cmd` on Windows and `resources/safire-memory-mcp.sh` on macOS or Linux. This mode needs no separate Node.js installation or source checkout. Configure the platform launcher as the MCP command and pass the same `--profile-config` and `--vault` arguments:
 
    ```json
    {
@@ -59,7 +59,7 @@ Each enabled store instance initializes lazily once, when its first direct store
    }
    ```
 
-   The installer permits a custom destination, so confirm the actual installed path. The standalone portable EXE does not provide a permanent externally addressable launcher path; use the installed launcher or source-checkout command for MCP hosting. Registering the launcher remains a manual, opt-in host action and does not modify Hermes or another agent automatically.
+   Confirm the actual installed application path before configuring the host. Portable Windows and AppImage builds do not provide a permanent externally addressable launcher path; use an installed package or the source-checkout command for MCP hosting. Registering the launcher remains a manual, opt-in host action and does not modify Hermes or another agent automatically.
 
    A typical MCP host entry has this shape:
 

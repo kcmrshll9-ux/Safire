@@ -7,7 +7,7 @@ Warm, focused, trustworthy, local-first, creative, and technically capable witho
 ## Preferred wording
 
 - "privacy-focused, local-first Markdown knowledge forge"
-- "local-first Markdown workspace for Windows"
+- "local-first Markdown workspace for Windows, macOS, and Linux"
 - "connected notes that remain portable files"
 
 Use "private" only for a specific, supportable claim. Safire keeps its core note workflow local, but user-requested features such as Web Clipper access public websites and external media previews may request remote assets.
@@ -25,7 +25,7 @@ Use the Safire flame mark on dark, warm, or neutral backgrounds with clear space
 
 ## Product credits
 
-Safire 1.4.0 is built with React, Vite, TypeScript, Express, Electron, marked, DOMPurify, Undici, Zod, and the Model Context Protocol SDK. Third-party components retain their own licenses; see `THIRD_PARTY_NOTICES.md`.
+Safire 1.5.0 is built with React, Vite, TypeScript, Express, Electron, marked, DOMPurify, Undici, Zod, and the Model Context Protocol SDK. Third-party components retain their own licenses; see `THIRD_PARTY_NOTICES.md`.
 
 Safire is not affiliated with Obsidian or any other third-party notes application.
 

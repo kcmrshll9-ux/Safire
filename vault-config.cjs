@@ -2,8 +2,10 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-function userHome() {
-  return process.platform === 'win32' && process.env.USERPROFILE ? process.env.USERPROFILE : os.homedir();
+function userHome(options = {}) {
+  const platform = options.platform || process.platform;
+  const environment = options.environment || process.env;
+  return options.home || (platform === 'win32' && environment.USERPROFILE ? environment.USERPROFILE : os.homedir());
 }
 
 function defaultVaultPath() {
@@ -11,8 +13,15 @@ function defaultVaultPath() {
 }
 
 function vaultConfigPath(options = {}) {
-  const configured = options.configPath || process.env.SAFIRE_VAULT_CONFIG_PATH;
-  return path.resolve(configured || path.join(userHome(), 'AppData', 'Local', 'Safire', 'vault.json'));
+  const environment = options.environment || process.env;
+  const configured = options.configPath || environment.SAFIRE_VAULT_CONFIG_PATH;
+  if (configured) return path.resolve(configured);
+  const platform = options.platform || process.platform;
+  const home = userHome({ ...options, platform, environment });
+  if (platform === 'win32') return path.join(home, 'AppData', 'Local', 'Safire', 'vault.json');
+  if (platform === 'darwin') return path.join(home, 'Library', 'Application Support', 'Safire', 'vault.json');
+  const configHome = environment.XDG_CONFIG_HOME || path.join(home, '.config');
+  return path.resolve(configHome, 'safire', 'vault.json');
 }
 
 function readVaultPath(options = {}) {

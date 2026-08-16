@@ -5,13 +5,13 @@
 <h1 align="center">Safire</h1>
 
 <p align="center">
-  A privacy-focused, local-first Markdown knowledge forge for Windows.
+  A privacy-focused, local-first Markdown knowledge forge for Windows, macOS, and Linux.
 </p>
 
 <p align="center">
   <a href="https://github.com/kcmrshll9-ux/Safire/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/kcmrshll9-ux/Safire/actions/workflows/ci.yml/badge.svg" /></a>
-  <img alt="Version 1.4.2" src="https://img.shields.io/badge/version-1.4.2-f97316" />
-  <img alt="Windows x64" src="https://img.shields.io/badge/platform-Windows%20x64-2563eb" />
+  <img alt="Version 1.5.0" src="https://img.shields.io/badge/version-1.5.0-f97316" />
+  <img alt="Windows, macOS, and Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-2563eb" />
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-22c55e" /></a>
 </p>
 
@@ -27,14 +27,14 @@ Safire keeps notes as ordinary Markdown files in a vault you choose. It adds a f
 
 | Item | Current state |
 | --- | --- |
-| Current version | 1.4.2 |
-| Current source | Safire 1.4.2 release source; see the changelog below |
-| Desktop target | Windows x64 |
+| Current version | 1.5.0 |
+| Current source | Safire 1.5.0 release source; see the changelog below |
+| Desktop targets | Windows x64, macOS Apple Silicon and Intel, Linux x64 |
 | Storage | Local Markdown vault selected by the user |
 | Official downloads | [GitHub Releases](https://github.com/kcmrshll9-ux/Safire/releases) |
 | License | [MIT](LICENSE) |
 
-Safire is under active development. Version 1.4.2 is the first MIT-licensed binary release and retains the credential and JWT boundary hardening introduced in 1.4.1. See the [changelog](CHANGELOG.md#142---2026-08-16) for details. Back up important vaults independently and review the [security policy](SECURITY.md) before using Safire with sensitive material.
+Safire is under active development. Version 1.5.0 adds native macOS and Linux packages while retaining the MIT license and security hardening from the 1.4 series. See the [changelog](CHANGELOG.md#150---2026-08-16) for details. Back up important vaults independently and review the [security policy](SECURITY.md) before using Safire with sensitive material.
 
 ## Highlights
 
@@ -77,11 +77,18 @@ The complete data-handling description is in [PRIVACY.md](PRIVACY.md).
 
 Never use a personal vault in automated tests, public bug reports, screenshots, or logs. Use a disposable vault containing invented notes.
 
-## Install on Windows
+## Install
 
-When a download is listed, use only the installer or portable executable from the official [Safire GitHub Releases](https://github.com/kcmrshll9-ux/Safire/releases) page. Builds are not code-signed by default, so Windows SmartScreen may display a warning. Do not download executables claiming to be official Safire builds from third-party sites.
+Use only downloads from the official [Safire GitHub Releases](https://github.com/kcmrshll9-ux/Safire/releases) page. Every release includes a SHA-256 checksum manifest. Windows and macOS builds are not code-signed by default, so Windows SmartScreen or macOS Gatekeeper may display a warning. Do not download applications claiming to be official Safire builds from third-party sites.
 
-An authorized local checkout can build the Windows installer with:
+| Platform | Download |
+| --- | --- |
+| Windows x64 | Setup installer or portable executable |
+| macOS Apple Silicon | `macos-arm64.dmg` |
+| macOS Intel | `macos-x64.dmg` |
+| Linux x64 | AppImage or Debian/Ubuntu `.deb` package |
+
+An authorized local checkout can build packages on the matching operating system:
 
 ```powershell
 npm ci
@@ -89,13 +96,21 @@ npm run check
 npm run dist:installer
 ```
 
-The installer is written to:
-
-```text
-release/Safire-Setup-1.4.2.exe
+```sh
+npm ci
+npm run check
+npm run dist:linux   # Linux
+npm run dist:mac     # macOS
 ```
 
-Build the portable executable with `npm run dist:win`. The selected vault remains outside the application installation directory and is not packaged into an update.
+Windows output includes:
+
+```text
+release/Safire-Setup-1.5.0.exe
+release/Safire-Portable-1.5.0.exe
+```
+
+The selected vault remains outside the application installation directory and is never packaged into an application update.
 
 ## Run from source
 
@@ -103,7 +118,7 @@ Build the portable executable with `npm run dist:win`. The selected vault remain
 
 - Node.js 22.19 or later
 - npm
-- Windows for Electron packaging and final desktop acceptance checks
+- The target operating system for native Electron packaging and final desktop acceptance checks
 
 Install the locked dependencies, verify the project, and build the application:
 
@@ -166,7 +181,7 @@ Run it with an operator-controlled version-1 profile and an explicit vault:
 npm run mcp:memory -- --profile-config "C:/path/to/agent-memory-profile.json" --vault "C:/path/to/Safire Test Vault"
 ```
 
-The Windows installer additionally exposes `<Safire install>/resources/safire-memory-mcp.cmd`. An MCP host can use that launcher with the same arguments without a separate Node.js/source installation. Connection is still manual and opt-in; see the agent-memory guide for the exact installed-host configuration. The standalone portable EXE does not expose a stable launcher path.
+Installed desktop packages expose a platform-native optional memory launcher: `resources/safire-memory-mcp.cmd` on Windows and `resources/safire-memory-mcp.sh` on macOS or Linux. An MCP host can use that launcher with the same arguments without a separate Node.js/source installation. Connection is still manual and opt-in; see the agent-memory guide for exact configuration. Portable Windows and AppImage builds do not promise a stable external launcher path.
 
 The fixed profile provides stable principal, agent-instance, ingest-adapter, source, actor, and namespace identities. Ordinary portable profiles cannot claim user activity. Authenticated user events require the separate trusted-bridge library seam and a host-supplied authenticator; that seam is not a listener or installed transport. Harry and Moltbook appear only in reference examples—Safire memory is agent-general, and Moltbook is modeled there only as automation delegated by the reference Harry profile.
 
@@ -176,9 +191,9 @@ Memory records are local plaintext JSON. Use operating-system permissions and de
 
 | Shortcut | Action |
 | --- | --- |
-| `Ctrl+K` | Command palette |
-| `Ctrl+O` | Quick switcher |
-| `Ctrl+S` | Save active note |
+| `Ctrl/Cmd+K` | Command palette |
+| `Ctrl/Cmd+O` | Quick switcher |
+| `Ctrl/Cmd+S` | Save active note |
 | `Esc` | Close the active palette, switcher, or dialog |
 
 ## Documentation
@@ -192,7 +207,7 @@ See the [documentation index](docs/README.md) for the current documentation stat
 | `src/` | React user interface and styles |
 | `src/GraphView.tsx` | Interactive 2D relationship graph |
 | `server.mjs` | Loopback HTTP API and vault operations |
-| `electron/` | Windows desktop application entry point |
+| `electron/` | Cross-platform desktop application entry point |
 | `safire-mcp.mjs` | Legacy eight-tool Markdown-vault MCP server |
 | `safire-memory-mcp.mjs` | Separate six-tool general-agent memory MCP server |
 | `lib/memory/` | Versioned local memory schemas, profiles, persistence, search, and trust seam |

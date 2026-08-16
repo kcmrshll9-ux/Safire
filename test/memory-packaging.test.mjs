@@ -10,22 +10,29 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const packageVersion = JSON.parse(await fs.readFile(path.join(projectRoot, 'package.json'), 'utf8')).version;
 
-test('Safire package metadata and Windows builds include the MIT License', async () => {
+test('Safire package metadata and desktop builds include the MIT License', async () => {
   const packageJson = JSON.parse(await fs.readFile(path.join(projectRoot, 'package.json'), 'utf8'));
   const packageLock = JSON.parse(await fs.readFile(path.join(projectRoot, 'package-lock.json'), 'utf8'));
   const license = await fs.readFile(path.join(projectRoot, 'LICENSE'), 'utf8');
   assert.equal(packageJson.license, 'MIT');
   assert.equal(packageLock.packages[''].license, 'MIT');
   assert.ok(packageJson.build.files.includes('LICENSE'));
+  assert.ok(packageJson.build.files.includes('public/app-icon-1024.png'));
   assert.match(license, /^MIT License\r?\n\r?\nCopyright \(c\) 2026 Safire\r?\n/);
+
+  const icon = await fs.readFile(path.join(projectRoot, 'public', 'app-icon-1024.png'));
+  assert.deepEqual([...icon.subarray(1, 4)], [0x50, 0x4e, 0x47]);
+  assert.equal(icon.readUInt32BE(16), 1024);
+  assert.equal(icon.readUInt32BE(20), 1024);
 });
 
-test('Windows packaging ships an externally launchable memory MCP runtime and documentation', async () => {
+test('desktop packaging ships externally launchable memory MCP runtimes and documentation', async () => {
   const packageJson = JSON.parse(await fs.readFile(path.join(projectRoot, 'package.json'), 'utf8'));
   assert.equal(packageJson.scripts['mcp:memory'], 'node safire-memory-mcp.mjs');
   for (const entry of [
     'safire-memory-mcp.mjs',
     'safire-memory-mcp.cmd',
+    'safire-memory-mcp.sh',
     'lib/memory/**/*',
     'docs/memory/**/*',
   ]) {
@@ -41,6 +48,7 @@ test('Windows packaging ships an externally launchable memory MCP runtime and do
   }
   assert.deepEqual(packageJson.build.extraResources, [
     { from: 'safire-memory-mcp.cmd', to: 'safire-memory-mcp.cmd' },
+    { from: 'safire-memory-mcp.sh', to: 'safire-memory-mcp.sh' },
     { from: 'docs/memory', to: 'memory-docs' },
   ]);
 
@@ -48,9 +56,26 @@ test('Windows packaging ships an externally launchable memory MCP runtime and do
   assert.match(launcher, /ELECTRON_RUN_AS_NODE=1/);
   assert.match(launcher, /app\.asar\.unpacked\\safire-memory-mcp\.mjs/);
   assert.doesNotMatch(launcher, /https?:|powershell|curl|invoke-webrequest/i);
+
+  const shellLauncher = await fs.readFile(path.join(projectRoot, 'safire-memory-mcp.sh'), 'utf8');
+  assert.match(shellLauncher, /^#!\/bin\/sh\r?$/m);
+  assert.match(shellLauncher, /ELECTRON_RUN_AS_NODE=1/);
+  assert.match(shellLauncher, /\.\.\/MacOS\/Safire/);
+  assert.match(shellLauncher, /\.\.\/safire/);
+  assert.match(shellLauncher, /app\.asar\.unpacked\/safire-memory-mcp\.mjs/);
+  assert.doesNotMatch(shellLauncher, /https?:|powershell|curl|invoke-webrequest/i);
+
+  assert.deepEqual(packageJson.build.mac.target, [{ target: 'dmg', arch: ['x64', 'arm64'] }]);
+  assert.equal(packageJson.build.mac.artifactName, 'Safire-${version}-macos-${arch}.${ext}');
+  assert.deepEqual(packageJson.build.linux.target, [
+    { target: 'AppImage', arch: ['x64'] },
+    { target: 'deb', arch: ['x64'] },
+  ]);
+  assert.equal(packageJson.build.linux.artifactName, 'Safire-${version}-linux-${arch}.${ext}');
+  assert.match(packageJson.build.linux.maintainer, /Safire <[^>]+@users\.noreply\.github\.com>/);
 });
 
-test('built Windows launcher serves the disabled memory MCP over stdio', {
+test('built desktop launcher serves the disabled memory MCP over stdio', {
   skip: process.env.SAFIRE_PACKAGED_MEMORY_LAUNCHER ? false : 'packaged launcher path not supplied',
 }, async () => {
   const launcher = path.resolve(process.env.SAFIRE_PACKAGED_MEMORY_LAUNCHER);
@@ -81,7 +106,7 @@ test('built Windows launcher serves the disabled memory MCP over stdio', {
   }
 });
 
-test('built Windows launcher records through its packaged runtime and installed example profile', {
+test('built desktop launcher records through its packaged runtime and installed example profile', {
   skip: process.env.SAFIRE_PACKAGED_MEMORY_LAUNCHER ? false : 'packaged launcher path not supplied',
 }, async (t) => {
   const launcher = path.resolve(process.env.SAFIRE_PACKAGED_MEMORY_LAUNCHER);

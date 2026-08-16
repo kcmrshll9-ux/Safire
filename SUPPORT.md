@@ -1,6 +1,6 @@
 # Safire support
 
-Safire is under active development. The current 1.4.x release line and current `main` branch receive best-effort community support through GitHub Issues; older releases and source snapshots may not receive fixes.
+Safire is under active development. The current 1.5.x release line and current `main` branch receive best-effort community support through GitHub Issues; older releases and source snapshots may not receive fixes.
 
 ## Before opening an issue
 
@@ -15,7 +15,7 @@ Safire is under active development. The current 1.4.x release line and current `
 Use the repository’s bug-report form and include:
 
 - Safire version or commit;
-- Windows version and run mode;
+- operating system, architecture, version, and run mode;
 - clear reproduction steps;
 - expected and actual behavior; and
 - sanitized diagnostics only when they are necessary.
@@ -32,4 +32,4 @@ Do not report vulnerabilities in a public support issue. Follow [SECURITY.md](SE
 
 ## Scope
 
-Support can cover Safire source builds, documented Windows packaging, and reproducible application behavior. General Node.js, Windows administration, third-party agent configuration, and recovery of unrelated files may require support from those projects or platforms.
+Support can cover Safire source builds, documented Windows/macOS/Linux packaging, and reproducible application behavior. General Node.js or operating-system administration, third-party agent configuration, and recovery of unrelated files may require support from those projects or platforms.

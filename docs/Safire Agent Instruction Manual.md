@@ -57,7 +57,7 @@ The memory server does not monitor conversations or auto-capture activity. The t
 
 Memory records are plaintext JSON beneath `<vault>/.safire/memory/v1/`. Do not submit credentials, tokens, private reasoning, chain-of-thought, or scratchpad material in content, identifiers, metadata, or search queries. Read the [agent-memory guide](memory/README.md) and [security model](memory/SECURITY.md) before using this separate server.
 
-From a source checkout, launch with `npm run mcp:memory`. A Windows installation also provides `<Safire install>/resources/safire-memory-mcp.cmd` for an external MCP host; it must still be registered manually with an operator-controlled profile and vault. The portable EXE does not provide a stable external launcher path.
+From a source checkout, launch with `npm run mcp:memory`. Installed desktop packages provide `resources/safire-memory-mcp.cmd` on Windows or `resources/safire-memory-mcp.sh` on macOS and Linux for an external MCP host; the launcher must still be registered manually with an operator-controlled profile and vault. Portable Windows and AppImage builds do not provide a stable external launcher path.
 
 ---
 

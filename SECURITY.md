@@ -4,7 +4,7 @@ Safire reads and writes personal Markdown vaults. Security reports must protect 
 
 ## Supported versions
 
-Security fixes are applied to the current `main` branch and the current 1.4.x release line. Official Safire 1.4.x Windows downloads are published only through this repository's GitHub Releases page.
+Security fixes are applied to the current `main` branch and the current 1.5.x release line. Official Safire 1.5.x Windows, macOS, and Linux downloads are published only through this repository's GitHub Releases page.
 
 Older release lines, source snapshots, and locally built binaries may not receive fixes.
 

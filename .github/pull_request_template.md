@@ -11,7 +11,7 @@ Explain the problem this pull request solves and link the related issue, if one 
 - [ ] `npm test`
 - [ ] `npm run typecheck`
 - [ ] `npm run build`
-- [ ] Relevant Windows behavior was checked manually, or the reason it was not is documented below.
+- [ ] Relevant native Windows, macOS, or Linux behavior was checked, or the reason it was not is documented below.
 
 Manual validation notes:
 

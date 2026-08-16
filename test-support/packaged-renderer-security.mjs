@@ -213,8 +213,64 @@ async function stopPackagedApp(child, exited) {
   if (!exited.settled) throw new Error('Packaged Safire did not exit after the security probe');
 }
 
+function packagedResourcesDirectory(packagedApp) {
+  if (process.platform === 'darwin') {
+    const contents = path.dirname(path.dirname(packagedApp));
+    assert.equal(path.basename(contents), 'Contents', `macOS executable is not inside an app bundle: ${packagedApp}`);
+    return path.join(contents, 'Resources');
+  }
+  return path.join(path.dirname(packagedApp), 'resources');
+}
+
+function packagedCopyLayout(packagedApp, scratch) {
+  if (process.platform === 'darwin') {
+    const contents = path.dirname(path.dirname(packagedApp));
+    const bundle = path.dirname(contents);
+    const isolatedBundle = path.join(scratch, path.basename(bundle));
+    return {
+      sourceRoot: bundle,
+      isolatedRoot: isolatedBundle,
+      isolatedExecutable: path.join(isolatedBundle, path.relative(bundle, packagedApp)),
+    };
+  }
+  const sourceRoot = path.dirname(packagedApp);
+  const isolatedRoot = path.join(scratch, 'packaged-app');
+  return {
+    sourceRoot,
+    isolatedRoot,
+    isolatedExecutable: path.join(isolatedRoot, path.basename(packagedApp)),
+  };
+}
+
+async function copyPackagedLayout(copyLayout) {
+  if (process.platform !== 'darwin') {
+    await fs.cp(copyLayout.sourceRoot, copyLayout.isolatedRoot, {
+      recursive: true,
+      force: false,
+      errorOnExist: true,
+    });
+    return;
+  }
+
+  await new Promise((resolve, reject) => {
+    const child = spawn('/usr/bin/ditto', [copyLayout.sourceRoot, copyLayout.isolatedRoot], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    let diagnostics = '';
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk) => {
+      diagnostics = `${diagnostics}${chunk}`.slice(-8_192);
+    });
+    child.once('error', (error) => reject(new Error(`Could not copy the packaged macOS bundle: ${error.message}`)));
+    child.once('exit', (code, signal) => {
+      if (code === 0) resolve();
+      else reject(new Error(`Could not copy the packaged macOS bundle (${code ?? signal ?? 'unknown reason'}).${diagnostics.trim() ? `\n${diagnostics.trim()}` : ''}`));
+    });
+  });
+}
+
 async function verifyPackagedBackendImport(packagedApp, environment) {
-  const serverUrl = pathToFileURL(path.join(path.dirname(packagedApp), 'resources', 'app.asar', 'server.mjs')).href;
+  const serverUrl = pathToFileURL(path.join(packagedResourcesDirectory(packagedApp), 'app.asar', 'server.mjs')).href;
   const source = `try { await import(process.argv[1]); } catch (error) { console.error(error?.stack || error); process.exitCode = 1; }`;
   await new Promise((resolve, reject) => {
     const child = spawn(packagedApp, ['--input-type=module', '-e', source, serverUrl], {
@@ -266,8 +322,8 @@ async function main() {
   const vaultDir = path.join(scratch, 'vault');
   const userDataDir = path.join(scratch, 'user-data');
   const attachmentDir = path.join(vaultDir, 'Attachments');
-  const isolatedPackageDir = path.join(scratch, 'packaged-app');
-  const isolatedPackagedApp = path.join(isolatedPackageDir, path.basename(packagedApp));
+  const copyLayout = packagedCopyLayout(packagedApp, scratch);
+  const isolatedPackagedApp = copyLayout.isolatedExecutable;
   const childEnvironment = {
     ...process.env,
     SAFIRE_VAULT_PATH: vaultDir,
@@ -283,11 +339,7 @@ async function main() {
       path.join(attachmentDir, 'synthetic-probe.png'),
       Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'),
     );
-    await fs.cp(path.dirname(packagedApp), isolatedPackageDir, {
-      recursive: true,
-      force: false,
-      errorOnExist: true,
-    });
+    await copyPackagedLayout(copyLayout);
     await verifyPackagedBackendImport(isolatedPackagedApp, childEnvironment);
   } catch (error) {
     await fs.rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
@@ -301,6 +353,8 @@ async function main() {
     '--remote-debugging-port=0',
     '--no-first-run',
     '--disable-extensions',
+    '--disable-gpu',
+    ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
     '--enable-logging=stderr',
   ], {
     env: childEnvironment,
