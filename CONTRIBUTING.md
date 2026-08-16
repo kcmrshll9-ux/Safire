@@ -1,8 +1,8 @@
 # Contributing to Safire
 
-Thank you for your interest in improving Safire. The project is proprietary; it is not open source. Repository access and participation do not grant a license to reuse Safire code or brand assets outside this project.
+Thank you for your interest in improving Safire. Safire is open-source software distributed under the [MIT License](LICENSE). Public issue reports, feature proposals, documentation improvements, and code contributions are welcome.
 
-Public issue reports and feature proposals are welcome. Code contributions are accepted only from contributors who have received written authorization from the repository owner to use and modify the source for that contribution. The development instructions below are for those authorized contributors; they do not expand the rights in [LICENSE](LICENSE).
+The software license does not grant rights to use the Safire name or marks in a way that suggests endorsement or affiliation. See [TRADEMARKS.md](TRADEMARKS.md).
 
 ## Before you begin
 
@@ -73,8 +73,6 @@ For desktop-shell, installer, file-path, attachment, or launcher changes, also p
 
 ## Contribution terms
 
-You must own the contribution or have authority to submit it. By submitting a pull request, you grant the Safire project owner a perpetual, worldwide, non-exclusive, royalty-free, irrevocable license to use, reproduce, modify, distribute, sublicense, and commercialize that contribution as part of Safire. This grant applies to your contribution only; it does not grant you rights to the rest of Safire.
+You must own the contribution or have authority to submit it. By submitting a pull request, you agree that your contribution is licensed under the project's [MIT License](LICENSE).
 
-A maintainer may request a separate written contributor agreement before merging a material contribution. If you cannot agree to these terms, do not submit code; an issue describing the problem is still welcome.
-
-All contributions are subject to review and may be declined or rewritten to preserve the project’s product direction, privacy model, and proprietary status.
+All contributions are subject to review and may be declined or rewritten to preserve the project's product direction, quality, privacy, and security model.

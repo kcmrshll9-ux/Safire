@@ -1,26 +1,21 @@
-SAFIRE PROPRIETARY NOTICE
+MIT License
 
-Copyright © 2026 Safire. All rights reserved.
+Copyright (c) 2026 Safire
 
-No license or permission is granted by the publication or availability of
-this repository. Except as stated below, you may not use, copy, reproduce,
-modify, create derivative works from, publish, distribute, sublicense, sell,
-or commercially exploit any original Safire source code, documentation,
-artwork, or other material without prior written permission from the
-applicable rights holder.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-While this repository is hosted publicly on GitHub, GitHub and GitHub users
-retain only the rights that the GitHub Terms of Service require or permit for
-content made public through GitHub's services, including viewing and forking
-through GitHub's functionality. Those platform rights do not create any
-additional license from Safire or authorize use outside their scope.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-This notice does not limit rights that cannot lawfully be restricted,
-including applicable copyright exceptions and limitations.
-
-Third-party components and materials are not relicensed by this notice. They
-remain subject to their own licenses and notices. See
-THIRD_PARTY_NOTICES.md for more information.
-
-THE ORIGINAL SAFIRE MATERIALS ARE PROVIDED FOR INSPECTION "AS IS," WITHOUT
-WARRANTY OF ANY KIND, TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

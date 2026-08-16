@@ -1,8 +1,8 @@
 # Third-party notices
 
-Safire uses third-party software. Those components remain subject to their
-respective licenses; the Safire proprietary notice does not replace, narrow,
-or extend those licenses.
+Safire is distributed under the MIT License and uses third-party software.
+Those components remain subject to their respective licenses; Safire's MIT
+License does not replace, narrow, or extend those licenses.
 
 ## Direct application components
 

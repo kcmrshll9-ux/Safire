@@ -4,6 +4,10 @@ Notable changes to Safire are recorded here. Application versions follow the ver
 
 ## [Unreleased]
 
+### Changed
+
+- Relicensed Safire under the MIT License and aligned package metadata, contribution terms, public documentation, and press materials.
+
 ## [1.4.1] - 2026-08-16
 
 ### Security

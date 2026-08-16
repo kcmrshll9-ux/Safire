@@ -21,6 +21,6 @@ Open a private security advisory for confidential security matters. For product,
 
 ## Usage
 
-Product facts and screenshots may be used for accurate editorial coverage of Safire. The Safire name, flame mark, and other brand assets remain protected; see the repository's `TRADEMARKS.md` and `LICENSE` files.
+Product facts and screenshots may be used for accurate editorial coverage of Safire. Safire software is available under the MIT License; the Safire name and flame mark remain subject to `TRADEMARKS.md`.
 
 Safire is an original product. It is not affiliated with Obsidian or any other third-party notes application.
