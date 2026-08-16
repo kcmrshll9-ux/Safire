@@ -10,6 +10,16 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const packageVersion = JSON.parse(await fs.readFile(path.join(projectRoot, 'package.json'), 'utf8')).version;
 
+test('Safire package metadata and Windows builds include the MIT License', async () => {
+  const packageJson = JSON.parse(await fs.readFile(path.join(projectRoot, 'package.json'), 'utf8'));
+  const packageLock = JSON.parse(await fs.readFile(path.join(projectRoot, 'package-lock.json'), 'utf8'));
+  const license = await fs.readFile(path.join(projectRoot, 'LICENSE'), 'utf8');
+  assert.equal(packageJson.license, 'MIT');
+  assert.equal(packageLock.packages[''].license, 'MIT');
+  assert.ok(packageJson.build.files.includes('LICENSE'));
+  assert.match(license, /^MIT License\r?\n\r?\nCopyright \(c\) 2026 Safire\r?\n/);
+});
+
 test('Windows packaging ships an externally launchable memory MCP runtime and documentation', async () => {
   const packageJson = JSON.parse(await fs.readFile(path.join(projectRoot, 'package.json'), 'utf8'));
   assert.equal(packageJson.scripts['mcp:memory'], 'node safire-memory-mcp.mjs');

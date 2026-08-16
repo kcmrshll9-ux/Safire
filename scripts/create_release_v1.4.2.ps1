@@ -7,15 +7,33 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repository = 'kcmrshll9-ux/Safire'
-$tag = 'v1.4.1'
+$tag = 'v1.4.2'
 $version = $tag.TrimStart('v')
 $releaseDate = '2026-08-16'
 $title = "Safire $version"
 $notes = @'
-Security
+Safire 1.4.2 is the first MIT-licensed Safire binary release.
 
-- Hardened memory credential detection for underscore- and hyphen-delimited credential-like values, embedded compact JWTs, JWT punctuation boundaries, and bounded adversarial scan work.
-- Added regression coverage for credential/JWT boundary handling in the memory schema and MCP ingress.
+## Highlights
+
+- Licensed Safire under the standard MIT License.
+- Aligned package metadata, contribution terms, public documentation, and press materials with the open-source license.
+- Preserved separate protection for the Safire name and marks.
+- Standardized Windows asset filenames for reliable downloads and checksum verification.
+
+## Download for Windows
+
+- **Safire-Setup-1.4.2.exe** — recommended installer for most users.
+- **Safire-Portable-1.4.2.exe** — portable application with no installation required.
+- **Safire-1.4.2-checksums.txt** — SHA-256 verification manifest.
+
+> [!IMPORTANT]
+> These executables are not code-signed. Windows SmartScreen may show a warning. Download Safire only from this official GitHub release.
+
+## More information
+
+- [MIT License](https://github.com/kcmrshll9-ux/Safire/blob/v1.4.2/LICENSE)
+- [Full changes since 1.4.1](https://github.com/kcmrshll9-ux/Safire/compare/v1.4.1...v1.4.2)
 '@
 
 function Invoke-Checked {
@@ -182,19 +200,28 @@ foreach ($declaredVersion in @($packageJson['version'], $packageLock['version'],
     throw "Release metadata is not consistently versioned as $version."
   }
 }
+foreach ($declaredLicense in @($packageJson['license'], $packageLock['packages']['']['license'])) {
+  if ($declaredLicense -ne 'MIT') {
+    throw 'Release metadata is not consistently licensed as MIT.'
+  }
+}
+$licenseText = Get-Content -Raw -LiteralPath 'LICENSE'
+if ($licenseText -notmatch '^MIT License\r?\n\r?\nCopyright \(c\) 2026 Safire\r?\n') {
+  throw 'LICENSE does not contain the expected MIT License notice.'
+}
 if (-not (Select-String -Quiet -LiteralPath 'CHANGELOG.md' -Pattern "^## \[$([regex]::Escape($version))\] - $releaseDate$")) {
   throw "CHANGELOG.md does not contain the expected $version release heading and date."
 }
 
 $releaseDirectory = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot 'release'))
 $artifacts = @(
-  Join-Path $releaseDirectory "Safire Setup $version.exe"
-  Join-Path $releaseDirectory "Safire Portable $version.exe"
+  Join-Path $releaseDirectory "Safire-Setup-$version.exe"
+  Join-Path $releaseDirectory "Safire-Portable-$version.exe"
 )
 $checksumPath = Join-Path $releaseDirectory "Safire-$version-checksums.txt"
 $generatedOutputs = @($artifacts) + @(
   $checksumPath
-  (Join-Path $releaseDirectory "Safire Setup $version.exe.blockmap")
+  (Join-Path $releaseDirectory "Safire-Setup-$version.exe.blockmap")
   (Join-Path $releaseDirectory 'latest.yml')
   (Join-Path $releaseDirectory 'win-unpacked')
 )
