@@ -60,13 +60,13 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/react": "^19.2.17",
+    "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
     "electron": "^43.0.0",
     "electron-builder": "^26.15.3",
     "marked": "^18.0.5",
-    "react": "^19.2.7",
+    "react": "^19.2.8",
     "react-dom": "^19.2.7",
     "typescript": "^6.0.3",
     "vite": "^8.1.3"
