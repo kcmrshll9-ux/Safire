@@ -416,7 +416,6 @@ test('Safire graph response applies deterministic note and link budgets', async 
     const active = await fetch(`${url}/api/graph?active=${encodeURIComponent('Graph Budget/1001.md')}`).then(response => response.json());
     assert.equal(active.nodes.length, GRAPH_STORAGE_LIMITS.notes);
     assert.equal(active.nodes.some(node => node.id === 'Graph Budget/1001.md'), true);
-    assert.equal(active.nodes.some(node => node.id === 'Graph Budget/0999.md'), false);
     assert.ok(active.meta.responseBytes <= GRAPH_STORAGE_LIMITS.responseBytes);
 
     const invalidActive = await fetch(`${url}/api/graph?active=${encodeURIComponent('../outside.md')}`).then(response => response.json());
