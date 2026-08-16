@@ -39,6 +39,8 @@ test('desktop packaging ships externally launchable memory MCP runtimes and docu
       assert.match(line, /--publish never$/, line.trim());
     }
   }
+  assert.match(releaseWorkflow, /gh release view "\$GITHUB_REF_NAME" --json databaseId --jq \.databaseId/);
+  assert.doesNotMatch(releaseWorkflow, /releases\/tags\/\$\{GITHUB_REF_NAME\}/);
   for (const entry of [
     'safire-memory-mcp.mjs',
     'safire-memory-mcp.cmd',
