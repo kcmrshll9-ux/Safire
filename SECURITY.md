@@ -4,9 +4,9 @@ Safire reads and writes personal Markdown vaults. Security reports must protect 
 
 ## Supported versions
 
-Security fixes are applied to the current `main` branch. Safire does not yet publish a supported public binary release. When public releases begin, this policy will identify the supported release line explicitly.
+Security fixes are applied to the current `main` branch and the current 1.4.x release line. Official Safire 1.4.x Windows downloads are published only through this repository's GitHub Releases page.
 
-Older source snapshots and locally built binaries may not receive fixes.
+Older release lines, source snapshots, and locally built binaries may not receive fixes.
 
 ## Report a vulnerability privately
 

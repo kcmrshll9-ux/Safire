@@ -1,6 +1,6 @@
 # Safire Press Kit
 
-Official product information and brand assets for Safire 1.4.0.
+This directory preserves the Safire 1.4.0 launch press kit. For the current supported version and release notes, see the root [README](../README.md) and [changelog](../CHANGELOG.md).
 
 ## Media inquiries
 

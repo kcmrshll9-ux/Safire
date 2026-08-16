@@ -10,6 +10,7 @@ import vaultConfig from '../vault-config.cjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const mcpEntry = path.join(projectRoot, 'safire-mcp.mjs');
+const packageVersion = JSON.parse(await fs.readFile(path.join(projectRoot, 'package.json'), 'utf8')).version;
 const denyNetworkListenFixture = path.join(projectRoot, 'test', 'fixtures', 'deny-network-listen.cjs');
 
 function createClient({ vaultDir, configPath, useVaultArgument = true, extraEnv = {} }) {
@@ -99,6 +100,7 @@ test('Safire MCP exposes a scoped note workflow over stdio', async (t) => {
     clientInfo: { name: 'safire-test', version: '1.0.0' },
   });
   assert.equal(initialized.result.serverInfo.name, 'safire');
+  assert.equal(initialized.result.serverInfo.version, packageVersion);
   client.notify('notifications/initialized');
 
   const tools = await client.request('tools/list');

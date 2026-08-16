@@ -1,6 +1,6 @@
 # Safire support
 
-Safire is under active development and does not yet have a supported public binary release. Community support is provided on a best-effort basis through GitHub Issues.
+Safire is under active development. The current 1.4.x release line and current `main` branch receive best-effort community support through GitHub Issues; older releases and source snapshots may not receive fixes.
 
 ## Before opening an issue
 
