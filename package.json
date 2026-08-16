@@ -1,6 +1,6 @@
 {
   "name": "safire",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
@@ -126,7 +126,7 @@
       ]
     },
     "portable": {
-      "artifactName": "Safire Portable ${version}.${ext}"
+      "artifactName": "Safire-Portable-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -135,7 +135,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Safire",
-      "artifactName": "Safire Setup ${version}.${ext}",
+      "artifactName": "Safire-Setup-${version}.${ext}",
       "deleteAppDataOnUninstall": false
     }
   }

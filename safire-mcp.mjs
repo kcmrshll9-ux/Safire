@@ -35,7 +35,7 @@ function registerTool(server, name, description, schema, handler) {
   });
 }
 
-const server = new McpServer({ name: 'safire', version: '1.4.1' });
+const server = new McpServer({ name: 'safire', version: '1.4.2' });
 
 registerTool(
   server,

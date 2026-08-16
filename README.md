@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/kcmrshll9-ux/Safire/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/kcmrshll9-ux/Safire/actions/workflows/ci.yml/badge.svg" /></a>
-  <img alt="Version 1.4.1" src="https://img.shields.io/badge/version-1.4.1-f97316" />
+  <img alt="Version 1.4.2" src="https://img.shields.io/badge/version-1.4.2-f97316" />
   <img alt="Windows x64" src="https://img.shields.io/badge/platform-Windows%20x64-2563eb" />
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-22c55e" /></a>
 </p>
@@ -27,14 +27,14 @@ Safire keeps notes as ordinary Markdown files in a vault you choose. It adds a f
 
 | Item | Current state |
 | --- | --- |
-| Current version | 1.4.1 |
-| Current source | Safire 1.4.1 release source; see the changelog below |
+| Current version | 1.4.2 |
+| Current source | Safire 1.4.2 release source; see the changelog below |
 | Desktop target | Windows x64 |
 | Storage | Local Markdown vault selected by the user |
 | Official downloads | [GitHub Releases](https://github.com/kcmrshll9-ux/Safire/releases) |
 | License | [MIT](LICENSE) |
 
-Safire is under active development. Version 1.4.1 hardens credential and JWT boundary handling in the opt-in, agent-independent attributed-memory foundation introduced in 1.4.0. See the [changelog](CHANGELOG.md#141---2026-08-16) for details. Back up important vaults independently and review the [security policy](SECURITY.md) before using Safire with sensitive material.
+Safire is under active development. Version 1.4.2 is the first MIT-licensed binary release and retains the credential and JWT boundary hardening introduced in 1.4.1. See the [changelog](CHANGELOG.md#142---2026-08-16) for details. Back up important vaults independently and review the [security policy](SECURITY.md) before using Safire with sensitive material.
 
 ## Highlights
 
@@ -92,7 +92,7 @@ npm run dist:installer
 The installer is written to:
 
 ```text
-release/Safire Setup 1.4.1.exe
+release/Safire-Setup-1.4.2.exe
 ```
 
 Build the portable executable with `npm run dist:win`. The selected vault remains outside the application installation directory and is not packaged into an update.
