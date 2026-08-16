@@ -19,6 +19,10 @@ Notable changes to Safire are recorded here. Application versions follow the ver
 - Updated desktop, support, contribution, issue-reporting, and release documentation for the three supported operating systems.
 - Updated Safire and both MCP server versions to 1.5.0.
 
+### Security
+
+- Strengthened cross-platform filesystem identity checks with file birth time so immediate POSIX inode reuse cannot make a replacement look like the previously opened path.
+
 ### Known limitations
 
 - Windows and macOS packages are not code-signed. Windows SmartScreen or macOS Gatekeeper may display a warning.

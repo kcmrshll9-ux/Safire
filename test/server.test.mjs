@@ -401,7 +401,6 @@ test('Safire graph response applies deterministic note and link budgets', async 
     assert.equal(first.nodes.length, 1000);
     assert.equal(first.links.length, 2000);
     assert.deepEqual(first.nodes.find(node => node.id === 'Graph Budget/0000.md').tags, Array.from({ length: 32 }, (_value, index) => `tag-${String(index).padStart(2, '0')}`));
-    assert.equal(first.links.some(link => link.resolved && link.target === 'Graph Budget/1001.md'), false);
     assert.equal(first.links.every(link => !link.resolved || first.nodes.some(node => node.id === link.target)), true);
     assert.ok(first.meta.responseBytes <= GRAPH_STORAGE_LIMITS.responseBytes);
 
