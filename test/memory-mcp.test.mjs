@@ -27,6 +27,7 @@ import {
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const mcpEntry = path.join(projectRoot, 'safire-memory-mcp.mjs');
+const packageVersion = JSON.parse(await fs.readFile(path.join(projectRoot, 'package.json'), 'utf8')).version;
 const toolNames = [
   'memory_record_events',
   'memory_search',
@@ -334,6 +335,7 @@ test('memory MCP exposes exactly six strict tools and completes the synthetic ag
 
   const initialized = await initialize(client);
   assert.equal(initialized.serverInfo.name, 'safire-memory');
+  assert.equal(initialized.serverInfo.version, packageVersion);
 
   const listed = await client.request('tools/list');
   assert.equal(listed.error, undefined);

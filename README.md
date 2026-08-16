@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/kcmrshll9-ux/Safire/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/kcmrshll9-ux/Safire/actions/workflows/ci.yml/badge.svg" /></a>
-  <img alt="Version 1.4.0" src="https://img.shields.io/badge/version-1.4.0-f97316" />
+  <img alt="Version 1.4.1" src="https://img.shields.io/badge/version-1.4.1-f97316" />
   <img alt="Windows x64" src="https://img.shields.io/badge/platform-Windows%20x64-2563eb" />
   <img alt="Proprietary source" src="https://img.shields.io/badge/source-proprietary-7c3aed" />
 </p>
@@ -27,14 +27,14 @@ Safire keeps notes as ordinary Markdown files in a vault you choose. It adds a f
 
 | Item | Current state |
 | --- | --- |
-| Current version | 1.4.0 |
-| Current source | Release candidate; see the changelog below |
+| Current version | 1.4.1 |
+| Current source | Safire 1.4.1 release source; see the changelog below |
 | Desktop target | Windows x64 |
 | Storage | Local Markdown vault selected by the user |
-| Public installer | Not yet published on GitHub |
+| Official downloads | [GitHub Releases](https://github.com/kcmrshll9-ux/Safire/releases) |
 | License status | Proprietary; not open source |
 
-Safire is under active development. Version 1.4.0 adds the opt-in, agent-independent attributed-memory foundation described in the [changelog](CHANGELOG.md#140---2026-08-14) while preserving the relationship-first Markdown workflow. Back up important vaults independently and review the [security policy](SECURITY.md) before using development builds with sensitive material.
+Safire is under active development. Version 1.4.1 hardens credential and JWT boundary handling in the opt-in, agent-independent attributed-memory foundation introduced in 1.4.0. See the [changelog](CHANGELOG.md#141---2026-08-16) for details. Back up important vaults independently and review the [security policy](SECURITY.md) before using Safire with sensitive material.
 
 ## Highlights
 
@@ -79,7 +79,7 @@ Never use a personal vault in automated tests, public bug reports, screenshots, 
 
 ## Install on Windows
 
-Safire does not currently publish an installer through GitHub Releases. Do not download executables claiming to be official Safire builds from third-party sites.
+When a download is listed, use only the installer or portable executable from the official [Safire GitHub Releases](https://github.com/kcmrshll9-ux/Safire/releases) page. Builds are not code-signed by default, so Windows SmartScreen may display a warning. Do not download executables claiming to be official Safire builds from third-party sites.
 
 An authorized local checkout can build the Windows installer with:
 
@@ -92,10 +92,10 @@ npm run dist:installer
 The installer is written to:
 
 ```text
-release/Safire Setup 1.4.0.exe
+release/Safire Setup 1.4.1.exe
 ```
 
-Build the portable executable with `npm run dist:win`. Locally produced builds are not code-signed by default, so Windows SmartScreen may display a warning. The selected vault remains outside the application installation directory and is not packaged into an update.
+Build the portable executable with `npm run dist:win`. The selected vault remains outside the application installation directory and is not packaged into an update.
 
 ## Run from source
 

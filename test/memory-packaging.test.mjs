@@ -8,6 +8,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const packageVersion = JSON.parse(await fs.readFile(path.join(projectRoot, 'package.json'), 'utf8')).version;
 
 test('Windows packaging ships an externally launchable memory MCP runtime and documentation', async () => {
   const packageJson = JSON.parse(await fs.readFile(path.join(projectRoot, 'package.json'), 'utf8'));
@@ -51,6 +52,7 @@ test('built Windows launcher serves the disabled memory MCP over stdio', {
   const client = new Client({ name: 'safire-packaging-verifier', version: '1.0.0' });
   try {
     await client.connect(transport);
+    assert.equal(client.getServerVersion()?.version, packageVersion);
     const tools = await client.listTools();
     assert.deepEqual(tools.tools.map((tool) => tool.name), [
       'memory_record_events',
