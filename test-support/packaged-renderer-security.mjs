@@ -435,6 +435,8 @@ async function main() {
         };
       });
       return {
+        visibilityState: document.visibilityState,
+        documentHidden: document.hidden,
         probes,
         privilegedClassCount: preview.querySelectorAll('.modal-backdrop,.palette,.primary-action').length,
         attackerIdsPresent: ids.filter((id) => document.getElementById(id)),
@@ -453,6 +455,8 @@ async function main() {
       };
     })()`, sessionId);
 
+    assert.equal(result.visibilityState, 'visible', 'packaged Safire finished rendering but its main window remained hidden');
+    assert.equal(result.documentHidden, false, 'packaged Safire document remained hidden after startup');
     assert.equal(result.privilegedClassCount, 0, 'attacker-controlled application classes survived in the Markdown preview');
     assert.deepEqual(result.attackerIdsPresent, [], 'attacker-controlled IDs survived in the rendered document');
     assert.equal(result.inlineStyleCount, 0, 'attacker-controlled inline styles survived in the Markdown preview');

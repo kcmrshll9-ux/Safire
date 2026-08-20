@@ -57,15 +57,15 @@ test('memory sidecars remain invisible to existing Markdown notes, search, graph
   });
 
   const notes = await fetch(`${started.url}/api/notes`).then((response) => response.json());
-  assert.deepEqual(notes.notes.map((note) => note.path), ['Ideas.md', 'Visible.md', 'Welcome.md']);
+  assert.deepEqual(notes.notes.map((note) => note.path), ['Visible.md']);
   assert.equal(notes.notes.some((note) => note.path.includes('.safire')), false);
   const ordinarySearch = await fetch(`${started.url}/api/search?q=ordinary%20phrase`).then((response) => response.json());
   assert.deepEqual(ordinarySearch.results.map((note) => note.path), ['Visible.md']);
   const sidecarSearch = await fetch(`${started.url}/api/search?q=sidecar-only`).then((response) => response.json());
   assert.deepEqual(sidecarSearch.results, []);
   const graph = await fetch(`${started.url}/api/graph`).then((response) => response.json());
-  assert.deepEqual(graph.nodes.map((node) => node.id), ['Ideas.md', 'Visible.md', 'Welcome.md']);
+  assert.deepEqual(graph.nodes.map((node) => node.id), ['Visible.md']);
   assert.equal(graph.nodes.some((node) => node.id.includes('.safire')), false);
   const health = await fetch(`${started.url}/api/vault-health`).then((response) => response.json());
-  assert.equal(health.noteCount, 3);
+  assert.equal(health.noteCount, 1);
 });

@@ -117,13 +117,22 @@ test('graph rendering retains the active note while enforcing fixed node and lin
   const limited = limitGraphForRendering({ nodes, links }, activePath);
 
   assert.equal(limited.graph.nodes.length, GRAPH_RENDER_LIMITS.notes);
-  assert.equal(limited.graph.nodes[0].id, activePath);
+  assert.equal(limited.graph.nodes.at(-1).id, activePath);
   assert.equal(limited.graph.links.length, GRAPH_RENDER_LIMITS.links);
   assert.equal(limited.truncated, true);
   assert.equal(limited.sourceNotes, nodes.length);
   assert.equal(limited.sourceLinks, links.length);
   const retainedIds = new Set(limited.graph.nodes.map(candidate => candidate.id));
   assert.ok(limited.graph.links.every(link => retainedIds.has(link.source) && retainedIds.has(link.target)));
+});
+
+test('changing the active note within a rendered project does not reorder graph layout input', () => {
+  const nodes = Array.from({ length: GRAPH_RENDER_LIMITS.notes + 20 }, (_, index) => node(`Note-${index}.md`));
+  const graph = { nodes, links: [] };
+  const first = limitGraphForRendering(graph, 'Note-10.md');
+  const second = limitGraphForRendering(graph, 'Note-500.md');
+
+  assert.deepEqual(second.graph.nodes.map(candidate => candidate.id), first.graph.nodes.map(candidate => candidate.id));
 });
 
 test('graph rendering bounds unique unresolved placeholders before SVG expansion', () => {
@@ -188,16 +197,24 @@ test('GraphView applies the defensive budget before expanding placeholders and e
   assert.ok(expansionCall > budgetCall);
   assert.doesNotMatch(source, /expandGraph\(graph\)/);
   assert.match(source, /className="graph-limit-notice" role="status"/);
-  assert.match(source, /rendering \{renderBudget\.renderedNotes\} of \{sourceNoteCount\} notes/);
+  assert.match(source, /rendering \{renderBudget\.renderedNotes\} of \{sourceNoteLabel\} notes/);
+  assert.match(source, /graph\.meta\?\.sourceNotesComplete === false \? `at least \$\{sourceNoteCount\}`/);
   assert.match(source, /graphSourceLinkCountLabel\(sourceLinkCount, graph\.meta\?\.sourceLinksComplete !== false\)/);
   assert.match(source, /Content indexing was skipped for \{omittedNoteContent\} oversized note/);
   assert.match(source, /\{omittedLinkFields\} oversized or malformed link field/);
+  assert.match(source, /useMemo\(\(\) => limitGraphForRendering\(graph, activePath\), \[graph\]\)/);
+  assert.doesNotMatch(source, /React\.useEffect\(\(\) => \{\s*if \(activePath\) setLocalRoot\(activePath\)/);
+  assert.doesNotMatch(source, /setTimeout\(\(\) => fitViewRef\.current\(\), 180\)/);
+  assert.match(source, /!initialFitCompleteRef\.current && !viewTouchedRef\.current/);
+  assert.match(source, /graphLayoutBounds\(dimensions\.width, dimensions\.height\)/);
+  assert.match(source, /Organize and color by/);
 });
 
-test('frontend identifies the active note on initial and post-navigation graph requests', async () => {
+test('frontend requests graphs only through an explicit project scope', async () => {
   const source = await fs.readFile(path.join(root, 'src', 'main.tsx'), 'utf8');
-  assert.match(source, /\/api\/graph\?active=\$\{encodeURIComponent\(activePath\)\}/);
-  assert.match(source, /\/api\/graph\?active=\$\{encodeURIComponent\(data\.path\)\}/);
+  assert.match(source, /\/api\/graph\?project=\$\{encodeURIComponent\(projectPath\)\}&active=\$\{encodeURIComponent\(projectActivePath\)\}/);
+  assert.doesNotMatch(source, /\/api\/graph\?active=/);
+  assert.doesNotMatch(source, /setMode\('graph'\)/);
 });
 
 test('incomplete server link totals are visibly labeled as lower bounds', () => {

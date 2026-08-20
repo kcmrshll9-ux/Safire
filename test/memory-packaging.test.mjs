@@ -14,11 +14,24 @@ test('Safire package metadata and desktop builds include the MIT License', async
   const packageJson = JSON.parse(await fs.readFile(path.join(projectRoot, 'package.json'), 'utf8'));
   const packageLock = JSON.parse(await fs.readFile(path.join(projectRoot, 'package-lock.json'), 'utf8'));
   const license = await fs.readFile(path.join(projectRoot, 'LICENSE'), 'utf8');
+  const frontend = await fs.readFile(path.join(projectRoot, 'src', 'HelpPanel.tsx'), 'utf8');
+  const desktop = await fs.readFile(path.join(projectRoot, 'electron', 'main.cjs'), 'utf8');
   assert.equal(packageJson.license, 'MIT');
   assert.equal(packageLock.packages[''].license, 'MIT');
   assert.ok(packageJson.build.files.includes('LICENSE'));
   assert.ok(packageJson.build.files.includes('public/app-icon-1024.png'));
   assert.match(license, /^MIT License\r?\n\r?\nCopyright \(c\) 2026 Safire\r?\n/);
+  assert.match(frontend, /import mitLicenseText from '\.\.\/LICENSE\?raw';/);
+  assert.match(frontend, /About & licenses/);
+  assert.match(frontend, /Third-party software notices/);
+  assert.match(frontend, /Copyright © 2026 Safire/);
+  assert.match(desktop, /label: 'Safire Help'/);
+  assert.match(desktop, /original project code is licensed under the MIT License/);
+  assert.match(desktop, /mainWindow\.webContents\.once\('did-finish-load', revealMainWindow\)/);
+  assert.match(desktop, /await mainWindow\.loadURL\(url\);\s+revealMainWindow\(\);/);
+  assert.match(desktop, /process\.env\.PORTABLE_EXECUTABLE_FILE/);
+  assert.match(desktop, /app\.relaunch\(\{ execPath: portableLauncher, args: process\.argv\.slice\(1\) \}\)/);
+  assert.match(desktop, /const selected = path\.resolve\(vault\);\s+fs\.mkdirSync\(selected, \{ recursive: true \}\);\s+vaultConfig\.saveVaultPath\(selected\);/);
 
   const icon = await fs.readFile(path.join(projectRoot, 'public', 'app-icon-1024.png'));
   assert.deepEqual([...icon.subarray(1, 4)], [0x50, 0x4e, 0x47]);

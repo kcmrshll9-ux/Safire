@@ -14,9 +14,9 @@ import {
 
 const input = (sourceEvent = 'turn:1') => ({
   schema_version: 1,
-  namespace: 'agents/harry',
+  namespace: 'agents/example',
   actor_type: 'agent',
-  actor_id: 'agent:harry',
+  actor_id: 'agent:example',
   kind: 'visible_agent_response',
   speech_act: 'proposal',
   content: 'Use the crimson launch checklist.',
@@ -25,11 +25,11 @@ const input = (sourceEvent = 'turn:1') => ({
 });
 
 const attribution = (sourceEvent = 'turn:1') => ({
-  actor: { type: 'agent', id: 'agent:harry', label: 'Harry' },
-  ingested_by: { adapter_id: 'safire-memory-mcp', profile_id: 'harry', trust: 'portable_mcp' },
-  agent_instance: { type: 'agent_instance', id: 'agent_instance:harry-primary' },
+  actor: { type: 'agent', id: 'agent:example', label: 'Example' },
+  ingested_by: { adapter_id: 'safire-memory-mcp', profile_id: 'example', trust: 'portable_mcp' },
+  agent_instance: { type: 'agent_instance', id: 'agent_instance:example-primary' },
   delegated_by: null,
-  source: { identity: 'mcp:harry-primary', stream: 'conversation:alpha', event_id: sourceEvent },
+  source: { identity: 'mcp:example-primary', stream: 'conversation:alpha', event_id: sourceEvent },
 });
 
 test('canonical JSON and record digests are stable across property order', () => {
@@ -52,12 +52,12 @@ test('event envelopes keep every attribution and provenance role separate', () =
     ingestedAt: '2026-08-14T17:00:01.000Z',
   });
 
-  assert.deepEqual(event.actor, { type: 'agent', id: 'agent:harry', label: 'Harry' });
-  assert.equal(event.ingested_by.profile_id, 'harry');
-  assert.equal(event.agent_instance.id, 'agent_instance:harry-primary');
+  assert.deepEqual(event.actor, { type: 'agent', id: 'agent:example', label: 'Example' });
+  assert.equal(event.ingested_by.profile_id, 'example');
+  assert.equal(event.agent_instance.id, 'agent_instance:example-primary');
   assert.equal(event.delegated_by, null);
   assert.deepEqual(event.source, {
-    identity: 'mcp:harry-primary', stream: 'conversation:alpha', event_id: 'turn:1',
+    identity: 'mcp:example-primary', stream: 'conversation:alpha', event_id: 'turn:1',
   });
   assert.equal(verifyRecordIntegrity(event), true);
 });
@@ -80,21 +80,21 @@ test('feedback envelopes preserve actor-specific signals without mutating the ev
       schema_version: 1,
       target: { type: 'memory', id: 'mem_11111111-1111-4111-8111-111111111111' },
       signal: 'useful',
-      actor_id: 'agent:harry',
+      actor_id: 'agent:example',
       source: { stream: 'feedback:alpha', event_id: 'feedback:1' },
     },
     attribution: {
       ...attribution(),
-      source: { identity: 'mcp:harry-primary', stream: 'feedback:alpha', event_id: 'feedback:1' },
+      source: { identity: 'mcp:example-primary', stream: 'feedback:alpha', event_id: 'feedback:1' },
     },
-    namespace: 'agents/harry',
+    namespace: 'agents/example',
     feedbackId: 'fbk_11111111-1111-4111-8111-111111111111',
     recordedAt: '2026-08-14T17:01:00.000Z',
   });
   assert.equal(feedback.signal, 'useful');
   assert.equal(feedback.actor.type, 'agent');
   assert.equal(feedback.target.type, 'memory');
-  assert.equal(feedback.namespace, 'agents/harry');
+  assert.equal(feedback.namespace, 'agents/example');
   assert.equal(verifyRecordIntegrity(feedback), true);
 });
 

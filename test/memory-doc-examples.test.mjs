@@ -19,14 +19,14 @@ async function example(name) {
 
 test('every published memory JSON example satisfies its strict version-1 contract', async () => {
   for (const name of [
-    'harry-portable-profile.json',
+    'example-portable-profile.json',
     'synthetic-portable-profile.json',
     'trusted-bridge-profile.json',
   ]) {
     assert.equal(validateProfile(await example(name)).version, 1, name);
   }
 
-  for (const name of ['harry-agent-event.json', 'harry-moltbook-event.json']) {
+  for (const name of ['example-agent-event.json', 'example-automation-event.json']) {
     assert.equal(parseEventInput(await example(name)).schema_version, 1, name);
   }
 

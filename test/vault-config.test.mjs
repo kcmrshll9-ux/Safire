@@ -43,3 +43,43 @@ test('Safire stores vault selection in each platform native configuration direct
     path.join(syntheticHome, 'xdg', 'safire', 'vault.json'),
   );
 });
+
+test('starter notes are seeded only on first use and never resurrect after deletion', async (t) => {
+  const vault = await fs.mkdtemp(path.join(os.tmpdir(), 'safire-starter-state-'));
+  t.after(() => fs.rm(vault, { recursive: true, force: true }));
+
+  const initialized = vaultConfig.initializeVault(vault);
+  const [initializedMetadata, vaultMetadata] = await Promise.all([fs.stat(initialized), fs.stat(vault)]);
+  assert.equal(initializedMetadata.dev, vaultMetadata.dev);
+  assert.equal(initializedMetadata.ino, vaultMetadata.ino);
+  assert.match(await fs.readFile(path.join(vault, 'Welcome.md'), 'utf8'), /^# Welcome to Safire/);
+  assert.match(await fs.readFile(path.join(vault, 'Ideas.md'), 'utf8'), /^# Ideas/);
+
+  await fs.writeFile(path.join(vault, 'Welcome.md'), '# My welcome\n', 'utf8');
+  vaultConfig.initializeVault(vault);
+  assert.equal(await fs.readFile(path.join(vault, 'Welcome.md'), 'utf8'), '# My welcome\n');
+
+  await Promise.all([
+    fs.rm(path.join(vault, 'Welcome.md')),
+    fs.rm(path.join(vault, 'Ideas.md')),
+    fs.rm(path.join(vault, 'Daily Notes'), { recursive: true }),
+  ]);
+  vaultConfig.initializeVault(vault);
+  await assert.rejects(() => fs.access(path.join(vault, 'Welcome.md')), { code: 'ENOENT' });
+  await assert.rejects(() => fs.access(path.join(vault, 'Ideas.md')), { code: 'ENOENT' });
+});
+
+test('preexisting vault content is never supplemented with starter notes', async (t) => {
+  const vault = await fs.mkdtemp(path.join(os.tmpdir(), 'safire-existing-vault-'));
+  t.after(() => fs.rm(vault, { recursive: true, force: true }));
+  await fs.writeFile(path.join(vault, 'Existing.md'), '# Existing\n', 'utf8');
+
+  vaultConfig.initializeVault(vault);
+  await assert.rejects(() => fs.access(path.join(vault, 'Welcome.md')), { code: 'ENOENT' });
+  await assert.rejects(() => fs.access(path.join(vault, 'Ideas.md')), { code: 'ENOENT' });
+
+  await fs.rm(path.join(vault, 'Existing.md'));
+  vaultConfig.initializeVault(vault);
+  await assert.rejects(() => fs.access(path.join(vault, 'Welcome.md')), { code: 'ENOENT' });
+  await assert.rejects(() => fs.access(path.join(vault, 'Ideas.md')), { code: 'ENOENT' });
+});

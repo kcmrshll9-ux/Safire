@@ -17,7 +17,7 @@ Before starting a Safire task:
 1. Confirm that Safire MCP tools are available in the current session.
 2. If tools are missing or the connection fails, tell the user rather than guessing at vault contents or paths.
 3. Treat tool output as the source of truth for current vault contents.
-4. Use vault-relative note paths such as `Projects/Plan.md`.
+4. Use vault-relative note paths such as `Website Launch/Plan.md`, where the top-level folder is the user-named project shown on Home.
 
 Safire is designed to use the same selected vault as the Safire desktop app.
 
@@ -53,7 +53,7 @@ Safire also has a separate, additive general-agent memory server, `safire-memory
 
 Use these tools only when the operator has deliberately configured the memory sidecar and the task calls for them. The fixed profile—not a tool argument—defines the principal, agent instance, ingest adapter, source identity, allowed actors, and namespace grants. Do not claim to be the user. Ordinary portable profiles cannot create user events; user attribution requires a host-authenticated trusted bridge.
 
-The memory server does not monitor conversations or auto-capture activity. The trusted bridge is a library contract, not an installed hook, listener, or Hermes modification. Harry and Moltbook are reference examples only; the feature is agent-general, and the example Moltbook identity is automation delegated by the example Harry profile.
+The memory server does not monitor conversations or auto-capture activity. The trusted bridge is a library contract, not an installed hook, listener, or Hermes modification. Published examples use neutral synthetic agent and delegated-automation identities; the feature is agent-general.
 
 Memory records are plaintext JSON beneath `<vault>/.safire/memory/v1/`. Do not submit credentials, tokens, private reasoning, chain-of-thought, or scratchpad material in content, identifiers, metadata, or search queries. Read the [agent-memory guide](memory/README.md) and [security model](memory/SECURITY.md) before using this separate server.
 
@@ -160,7 +160,7 @@ These are common Safire folders, but do not assume they exist or force content i
 
 - `Inbox/` — quick captures
 - `Daily Notes/` — daily entries
-- `Projects/` — project material
+- `<Project Name>/` — one user-named top-level project folder containing that project’s Markdown entries
 - `Templates/` — reusable Markdown templates
 - `Web Clips/` — desktop-created web captures
 - `Attachments/` — desktop-managed files
@@ -188,11 +188,11 @@ These are common Safire folders, but do not assume they exist or force content i
 
 ### Create a note
 
-> Create `Projects/Website Launch.md` with the following outline and tasks: …
+> Create `Website Launch/Overview.md` with the following outline and tasks: …
 
 ### Carefully update a note
 
-> Read `Projects/Website Launch.md`. Add this approved status update under `## Current Status`, preserving everything else.
+> Read `Website Launch/Overview.md`. Add this approved status update under `## Current Status`, preserving everything else.
 
 ### Manage tasks
 

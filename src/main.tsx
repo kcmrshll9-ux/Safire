@@ -3,8 +3,12 @@ import { createRoot } from 'react-dom/client';
 import { marked, Renderer, type Tokens } from 'marked';
 import DOMPurify from 'dompurify';
 import pkg from '../package.json';
-import { GraphView } from './GraphView';
+import { HelpPanel } from './HelpPanel';
+import { OverflowMenu } from './OverflowMenu';
+import { ProjectHome } from './ProjectHome';
 import { filterMarkdownClassName, getYouTubeVideoId, renderYouTubeLinkCard } from './frontendSecurity';
+import { selectAvailableNotePath } from './noteSelection';
+import { portableEntryNameError, projectForNotePath, projectNameError, projectSummaries } from './projectModel';
 import './styles.css';
 
 const APP_VERSION = pkg.version;
@@ -16,13 +20,14 @@ type GraphLink = { id: string; source: string; target: string; label: string; re
 type Graph = {
   nodes: GraphNode[];
   links: GraphLink[];
-  meta?: { sourceNotes: number; sourceLinks: number; sourceLinksComplete?: boolean; returnedNotes: number; returnedLinks: number; truncated: boolean; omittedNoteContent?: number; omittedLinkFields?: number; responseBytes?: number };
+  meta?: { sourceNotes: number; sourceNotesComplete?: boolean; sourceLinks: number; sourceLinksComplete?: boolean; returnedNotes: number; returnedLinks: number; truncated: boolean; omittedNoteContent?: number; omittedLinkFields?: number; responseBytes?: number };
 };
-type GraphPanel = { mode: 'preview' | 'edit' };
-type Mode = 'split'|'edit'|'preview'|'graph';
+type NoteMode = 'split'|'edit'|'preview';
+type LegacyMode = NoteMode | 'graph';
 type ThemeMode = 'dark' | 'light';
 type ImageSize = 'small' | 'medium' | 'large' | 'full' | 'original';
-type SafireSettings = { autosave: boolean; autosaveDelay: number; defaultMode: Mode; startupNote: string; dailyNotesFolder: string; backupRetentionDays: number; confirmDeletes: boolean; theme: ThemeMode; fitImagesToPage: boolean };
+type SafireSettings = { autosave: boolean; autosaveDelay: number; defaultMode: NoteMode; startupNote: string; dailyNotesFolder: string; backupRetentionDays: number; confirmDeletes: boolean; theme: ThemeMode; fitImagesToPage: boolean };
+type SafireSettingsPayload = Omit<SafireSettings, 'defaultMode'> & { defaultMode: LegacyMode };
 type WorkspaceState = { pinnedNotes: string[]; recentNotes: { path: string; openedAt: number }[]; savedSearches: { id: string; name: string; query: string; createdAt: number }[] };
 type VaultTask = { id: string; path: string; line: number; text: string; completed: boolean };
 type TemplateItem = { path: string; title: string };
@@ -242,17 +247,20 @@ function FlameMark() {
 function App() {
   const [notes, setNotes] = React.useState<NoteMeta[]>([]);
   const [tree, setTree] = React.useState<TreeNode[]>([]);
-  const [activePath, setActivePath] = React.useState('Welcome.md');
+  const [activePath, setActivePath] = React.useState('');
   const [content, setContent] = React.useState('');
   const [savedContent, setSavedContent] = React.useState('');
   const [query, setQuery] = React.useState('');
   const [searchResults, setSearchResults] = React.useState<NoteMeta[]>([]);
   const [backlinks, setBacklinks] = React.useState<NoteMeta[]>([]);
-  const [graph, setGraph] = React.useState<Graph>({ nodes: [], links: [] });
-  const [mode, setMode] = React.useState<Mode>(() => (localStorage.getItem('safireMode') as Mode) || 'split');
+  const [mode, setMode] = React.useState<NoteMode>(() => {
+    const storedMode = localStorage.getItem('safireMode') as LegacyMode | null;
+    if (storedMode === 'graph') return 'preview';
+    return storedMode === 'edit' || storedMode === 'preview' || storedMode === 'split' ? storedMode : 'split';
+  });
   const [status, setStatus] = React.useState('Ready');
   const [vaultPath, setVaultPath] = React.useState('');
-  const [tabs, setTabs] = React.useState<string[]>(() => JSON.parse(localStorage.getItem('safireTabs') || '["Welcome.md"]'));
+  const [tabs, setTabs] = React.useState<string[]>(() => JSON.parse(localStorage.getItem('safireTabs') || '[]'));
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [quickOpen, setQuickOpen] = React.useState(false);
   const [paletteQuery, setPaletteQuery] = React.useState('');
@@ -261,14 +269,20 @@ function App() {
   const [dialog, setDialog] = React.useState<SafireDialog | null>(null);
   const [settings, setSettings] = React.useState<SafireSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [helpOpen, setHelpOpen] = React.useState(false);
   const [backupsOpen, setBackupsOpen] = React.useState(false);
   const [backups, setBackups] = React.useState<BackupItem[]>([]);
   const [backupPreview, setBackupPreview] = React.useState<{ item: BackupItem; content: string } | null>(null);
   const [health, setHealth] = React.useState<VaultHealth | null>(null);
   const [workspaceState, setWorkspaceState] = React.useState<WorkspaceState>({ pinnedNotes: [], recentNotes: [], savedSearches: [] });
+  const [projectIndexComplete, setProjectIndexComplete] = React.useState(true);
   const [tasks, setTasks] = React.useState<VaultTask[]>([]);
   const [templates, setTemplates] = React.useState<TemplateItem[]>([]);
   const [workspaceView, setWorkspaceView] = React.useState<WorkspaceView>('note');
+  const [selectedProjectPath, setSelectedProjectPath] = React.useState<string | null>(null);
+  const [projectView, setProjectView] = React.useState<'entries' | 'graph'>('entries');
+  const [projectGraphPrompt, setProjectGraphPrompt] = React.useState(false);
+  const [projectGraphRevision, setProjectGraphRevision] = React.useState(0);
   const [taskState, setTaskState] = React.useState<'open'|'completed'>('open');
   const [quickCaptureOpen, setQuickCaptureOpen] = React.useState(false);
   const [templatePickerOpen, setTemplatePickerOpen] = React.useState(false);
@@ -276,15 +290,48 @@ function App() {
   const [webClipTemplates, setWebClipTemplates] = React.useState<WebClipTemplate[]>([]);
   const [attachmentViewer, setAttachmentViewer] = React.useState<AttachmentViewerState | null>(null);
   const [imageResizeMenu, setImageResizeMenu] = React.useState<ImageResizeMenuState | null>(null);
-  const [graphPanel, setGraphPanel] = React.useState<GraphPanel | null>(null);
   const [evidenceComposerOpen, setEvidenceComposerOpen] = React.useState(false);
   const [evidencePanelOpen, setEvidencePanelOpen] = React.useState(false);
   const editorRef = React.useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const workspaceRef = React.useRef<HTMLElement | null>(null);
+  const helpReturnFocusRef = React.useRef<HTMLElement | null>(null);
   const dirty = content !== savedContent;
   const activeMeta = notes.find(n => n.path === activePath);
+  const projects = React.useMemo(() => projectSummaries(tree, notes, settings?.dailyNotesFolder), [notes, settings?.dailyNotesFolder, tree]);
+  const activeNoteProject = React.useMemo(() => projectForNotePath(projects, activePath), [activePath, projects]);
+  const selectedProject = React.useMemo(() => projects.find(project => project.path === selectedProjectPath) || null, [projects, selectedProjectPath]);
   const evidenceReceipts = React.useMemo(() => parseEvidenceReceipts(content), [content]);
   const evidence = React.useMemo(() => evidenceSummary(evidenceReceipts), [evidenceReceipts]);
+
+  const openHelp = React.useCallback(() => {
+    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    helpReturnFocusRef.current = active && active !== document.body && !active.closest('.modal-backdrop, .palette')
+      ? active
+      : workspaceRef.current;
+    if (dialog) {
+      if (dialog.kind === 'confirm') (dialog.resolve as (value: boolean) => void)(false);
+      else (dialog.resolve as (value: string | null) => void)(null);
+      setDialog(null);
+    }
+    setSettingsOpen(false);
+    setBackupsOpen(false);
+    setImageResizeMenu(null);
+    setAttachmentViewer(null);
+    setQuickCaptureOpen(false);
+    setTemplatePickerOpen(false);
+    setWebClipperOpen(false);
+    setEvidenceComposerOpen(false);
+    setEvidencePanelOpen(false);
+    setPaletteOpen(false);
+    setQuickOpen(false);
+    setHelpOpen(true);
+  }, [dialog]);
+
+  React.useEffect(() => {
+    window.addEventListener('safire:open-help', openHelp);
+    return () => window.removeEventListener('safire:open-help', openHelp);
+  }, [openHelp]);
 
   const askInput = React.useCallback((options: Omit<Extract<SafireDialog, { kind: 'input' }>, 'kind' | 'resolve'>) => {
     return new Promise<string | null>((resolve) => setDialog({ kind: 'input', ...options, resolve }));
@@ -294,25 +341,67 @@ function App() {
     return new Promise<boolean>((resolve) => setDialog({ kind: 'confirm', ...options, resolve }));
   }, []);
 
+  const selectProject = React.useCallback((projectPath: string | null) => {
+    setSelectedProjectPath(projectPath);
+    setProjectGraphPrompt(false);
+  }, []);
+
+  const openProjectGraph = React.useCallback((preferredProjectPath?: string, refresh = true) => {
+    const requestedPath = preferredProjectPath
+      || (workspaceView === 'home' ? selectedProjectPath : null)
+      || (workspaceView !== 'home' ? activeNoteProject?.path : null)
+      || '';
+    const projectPath = projects.find(project => project.path === requestedPath)?.path || '';
+    if (!projectPath) {
+      setSelectedProjectPath(null);
+      setProjectView('entries');
+      setWorkspaceView('home');
+      setProjectGraphPrompt(true);
+      setStatus('Graphs belong to individual projects. Open a project, then choose Project graph.');
+      return;
+    }
+    setSelectedProjectPath(projectPath);
+    setProjectView('graph');
+    setWorkspaceView('home');
+    setProjectGraphPrompt(false);
+    if (refresh) setProjectGraphRevision(revision => revision + 1);
+    setStatus(`Opened the ${projectPath} project graph`);
+  }, [activeNoteProject?.path, projects, selectedProjectPath, workspaceView]);
+
+  React.useEffect(() => {
+    if (!selectedProjectPath || projects.some(project => project.path === selectedProjectPath)) return;
+    setSelectedProjectPath(null);
+    setProjectView('entries');
+    if (workspaceView === 'home') setProjectGraphPrompt(true);
+  }, [projects, selectedProjectPath, workspaceView]);
+
 
   const loadIndex = React.useCallback(async () => {
-    const [notesData, treeData, graphData] = await Promise.all([
-      api<{ vault: string; notes: NoteMeta[] }>('/api/notes'),
-      api<{ vault: string; tree: TreeNode[] }>('/api/tree'),
-      api<Graph>(`/api/graph?active=${encodeURIComponent(activePath)}`),
+    const [notesData, treeData] = await Promise.all([
+      api<{ vault: string; notes: NoteMeta[]; meta?: { truncated?: boolean } }>('/api/notes'),
+      api<{ vault: string; tree: TreeNode[]; meta?: { truncated?: boolean } }>('/api/tree'),
     ]);
     setNotes(notesData.notes);
     setTree(treeData.tree);
+    setProjectIndexComplete(notesData.meta?.truncated !== true && treeData.meta?.truncated !== true);
     setVaultPath(notesData.vault);
-    setGraph(graphData);
-  }, [activePath]);
+    return notesData.notes;
+  }, []);
+
+  const loadProjectGraph = React.useCallback((projectPath: string, projectActivePath: string) => (
+    api<Graph>(`/api/graph?project=${encodeURIComponent(projectPath)}&active=${encodeURIComponent(projectActivePath)}`)
+  ), []);
 
   const loadSettings = React.useCallback(async () => {
-    const data = await api<{ settings: SafireSettings }>('/api/settings');
-    setSettings(data.settings);
+    const data = await api<{ settings: SafireSettingsPayload }>('/api/settings');
+    const normalizedSettings: SafireSettings = {
+      ...data.settings,
+      defaultMode: data.settings.defaultMode === 'graph' ? 'preview' : data.settings.defaultMode,
+    };
+    setSettings(normalizedSettings);
     setAutosave(data.settings.autosave);
-    setMode(data.settings.defaultMode);
-    return data.settings;
+    setMode(normalizedSettings.defaultMode);
+    return normalizedSettings;
   }, []);
 
   const loadBackups = React.useCallback(async (path = activePath) => {
@@ -346,6 +435,15 @@ function App() {
     return data.templates;
   }, []);
 
+  const openTemplatePicker = React.useCallback(async () => {
+    try {
+      await loadTemplates();
+      setTemplatePickerOpen(true);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Could not load templates');
+    }
+  }, [loadTemplates]);
+
   const loadWebClipTemplates = React.useCallback(async () => {
     const data = await api<{ templates: WebClipTemplate[] }>('/api/web-clip/templates');
     setWebClipTemplates(data.templates);
@@ -364,47 +462,59 @@ function App() {
     setContent(data.content);
     setSavedContent(data.content);
     if (addTab) setTabs(prev => prev.includes(data.path) ? prev : [...prev, data.path]);
-    const [, graphData] = await Promise.all([
-      loadBacklinks(data.path),
-      api<Graph>(`/api/graph?active=${encodeURIComponent(data.path)}`),
-    ]);
-    setGraph(graphData);
+    await loadBacklinks(data.path);
     api<WorkspaceState>('/api/workspace/recent', { method: 'POST', body: JSON.stringify({ path: data.path }) }).then(setWorkspaceState).catch(() => null);
     setStatus(`Opened ${data.path}`);
   }, [loadBacklinks]);
 
-  const openGraphPanel = React.useCallback(async (path: string, panelMode: GraphPanel['mode']) => {
-    if (activePath === path) {
-      setGraphPanel({ mode: panelMode });
+  const openProjectEntry = React.useCallback(async (path: string, entryMode: 'preview' | 'edit') => {
+    const focusDestination = () => window.setTimeout(() => {
+      if (entryMode === 'edit') editorRef.current?.focus();
+      else workspaceRef.current?.focus();
+    }, 0);
+    if (path === activePath) {
+      setMode(entryMode);
+      setWorkspaceView('note');
+      focusDestination();
       return;
     }
     if (dirty) {
-      const proceed = await askConfirm({ title: 'Leave unsaved graph note?', message: `Your changes to "${titleFromPath(activePath)}" have not been saved. Open another note anyway?`, confirmLabel: 'Open note', danger: true });
+      const activeTitle = activeMeta?.title || titleFromPath(activePath);
+      const proceed = await askConfirm({
+        title: 'Leave unsaved note?',
+        message: `Your changes to "${activeTitle}" have not been saved. Open "${titleFromPath(path)}" anyway?`,
+        confirmLabel: 'Open note',
+        danger: true,
+      });
       if (!proceed) return;
     }
-    await openNote(path);
-    setGraphPanel({ mode: panelMode });
-  }, [activePath, askConfirm, dirty, openNote]);
-
-  const createMissingGraphNote = React.useCallback(async (title: string) => {
-    if (dirty) {
-      const proceed = await askConfirm({ title: 'Leave unsaved graph note?', message: `Your changes to "${titleFromPath(activePath)}" have not been saved. Create and open "${title}" anyway?`, confirmLabel: 'Create note', danger: true });
-      if (!proceed) return;
+    try {
+      await openNote(path);
+      setMode(entryMode);
+      setWorkspaceView('note');
+      focusDestination();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : `Could not open ${path}`);
     }
-    const data = await api<{ path: string }>('/api/note', { method: 'POST', body: JSON.stringify({ title }) });
-    await loadIndex();
-    await openNote(data.path);
-    setGraphPanel({ mode: 'edit' });
-    setStatus(`Created ${data.path} from the graph`);
-  }, [activePath, askConfirm, dirty, loadIndex, openNote]);
+  }, [activeMeta?.title, activePath, askConfirm, dirty, openNote]);
 
   React.useEffect(() => {
     (async () => {
       const appSettings = await loadSettings();
       document.documentElement.dataset.theme = appSettings.theme;
       document.documentElement.style.colorScheme = appSettings.theme;
-      await loadIndex();
-      await openNote(appSettings.startupNote || activePath).catch(() => openNote(activePath));
+      const indexedNotes = await loadIndex();
+      const selectedPath = selectAvailableNotePath(indexedNotes, [appSettings.startupNote, ...tabs]);
+      const availablePaths = new Set(indexedNotes.map(note => note.path));
+      setTabs(previous => previous.filter(notePath => availablePaths.has(notePath)));
+      if (selectedPath) await openNote(selectedPath);
+      else {
+        setActivePath('');
+        setContent('');
+        setSavedContent('');
+        setBacklinks([]);
+        setStatus('Vault is empty. Create a note to begin.');
+      }
       await Promise.all([loadHealth().catch(() => null), loadWorkspace().catch(() => null), loadTasks('open').catch(() => null), loadTemplates().catch(() => null), loadWebClipTemplates().catch(() => null)]);
     })().catch(e => setStatus(e.message));
   }, []);
@@ -427,6 +537,10 @@ function App() {
   }, [query]);
 
   const save = React.useCallback(async () => {
+    if (!activePath) {
+      setStatus('Create or open a note to save.');
+      return;
+    }
     await api('/api/note', { method: 'PUT', body: JSON.stringify({ path: activePath, content }) });
     setSavedContent(content);
     setLastSavedAt(Date.now());
@@ -452,7 +566,6 @@ function App() {
         setQuickOpen(false);
         setAttachmentViewer(null);
         setImageResizeMenu(null);
-        setGraphPanel(null);
         if (dialog) {
           if (dialog.kind === 'confirm') dialog.resolve(false);
           else dialog.resolve(null);
@@ -467,7 +580,7 @@ function App() {
   const createNote = async (prefill?: string) => {
     const title = prefill ?? await askInput({
       title: 'New note',
-      message: 'Name the note, or include a folder path such as Projects/Safire Ideas.',
+      message: 'Name the note, or include a project folder path such as Website Launch/Overview.',
       defaultValue: folderFromPath(activePath) ? `${folderFromPath(activePath)}/Untitled` : 'Untitled',
       placeholder: 'Note name or folder/path',
       confirmLabel: 'Create note',
@@ -492,6 +605,90 @@ function App() {
     setStatus(`Created folder ${name.trim()}`);
   };
 
+  const createProject = async (): Promise<string | null> => {
+    let message = 'Projects are top-level folders inside the selected vault.';
+    let defaultValue = '';
+    while (true) {
+      const value = await askInput({
+        title: 'New project',
+        message,
+        defaultValue,
+        placeholder: 'Project name',
+        confirmLabel: 'Create project',
+      });
+      if (!value) return null;
+      const name = value.trim();
+      const validationError = projectNameError(name, settings?.dailyNotesFolder);
+      if (validationError) {
+        message = validationError;
+        defaultValue = name;
+        continue;
+      }
+      const existing = projectSummaries(tree, notes, settings?.dailyNotesFolder)
+        .find(project => project.name.localeCompare(name, undefined, { sensitivity: 'base' }) === 0);
+      if (existing) {
+        selectProject(existing.path);
+        setProjectView('entries');
+        setWorkspaceView('home');
+        setStatus(`Project ${existing.name} already exists`);
+        return existing.path;
+      }
+      try {
+        const data = await api<{ path: string }>('/api/folder', { method: 'POST', body: JSON.stringify({ path: name }) });
+        await loadIndex();
+        selectProject(data.path);
+        setProjectView('entries');
+        setWorkspaceView('home');
+        setStatus(`Project ${data.path} is ready`);
+        return data.path;
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : 'Could not create project');
+        return null;
+      }
+    }
+  };
+
+  const createProjectEntry = async (projectPath: string, suggestedName = '') => {
+    let message = `Create a Markdown entry inside ${projectPath}/.`;
+    let defaultValue = suggestedName;
+    while (true) {
+      const value = await askInput({
+        title: `New entry in ${titleFromPath(projectPath)}`,
+        message,
+        defaultValue,
+        placeholder: 'Entry name',
+        confirmLabel: 'Create entry',
+      });
+      if (!value) return;
+      const name = value.trim();
+      const validationError = portableEntryNameError(name);
+      if (validationError) {
+        message = validationError;
+        defaultValue = name;
+        continue;
+      }
+      if (dirty) {
+        const activeTitle = activeMeta?.title || titleFromPath(activePath);
+        const proceed = await askConfirm({
+          title: 'Leave unsaved note?',
+          message: `Your changes to "${activeTitle}" have not been saved. Create and open "${name}" anyway?`,
+          confirmLabel: 'Create entry',
+          danger: true,
+        });
+        if (!proceed) return;
+      }
+      try {
+        await createNote(`${projectPath}/${name}`);
+        setMode('edit');
+        setWorkspaceView('note');
+        window.setTimeout(() => editorRef.current?.focus(), 0);
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : 'Could not create project entry');
+      }
+      return;
+    }
+  };
+
   const openDaily = async () => {
     const data = await api<{ path: string }>('/api/daily', { method: 'POST' });
     await loadIndex();
@@ -513,20 +710,44 @@ function App() {
     await openNote(data.to);
   };
 
-  const deleteNote = async () => {
+  const deleteNoteAtPath = async (notePath: string): Promise<boolean> => {
+    const discardsUnsavedChanges = notePath === activePath && dirty;
     const ok = await askConfirm({
       title: 'Delete note?',
-      message: `Delete ${activePath}? A backup copy will be made first.`,
+      message: discardsUnsavedChanges
+        ? `Delete ${notePath}? Unsaved editor changes will be discarded and are not included in the backup. A backup copy will be made first, using the last saved version.`
+        : `Delete ${notePath}? A backup copy will be made first.`,
       confirmLabel: 'Delete note',
       danger: true,
     });
-    if (!ok) return;
-    await api('/api/note', { method: 'DELETE', body: JSON.stringify({ path: activePath }) });
-    const remaining = notes.filter(n => n.path !== activePath);
-    const next = remaining[0]?.path || 'Welcome.md';
-    setTabs(prev => prev.filter(t => t !== activePath));
-    await loadIndex();
-    await openNote(next).catch(() => setStatus('Deleted note. Create a new note to continue.'));
+    if (!ok) return false;
+    try {
+      await api('/api/note', { method: 'DELETE', body: JSON.stringify({ path: notePath }) });
+      const indexedNotes = await loadIndex();
+      const remainingTabs = tabs.filter(tab => tab !== notePath);
+      const availablePaths = new Set(indexedNotes.map(note => note.path));
+      setTabs(remainingTabs.filter(tabPath => availablePaths.has(tabPath)));
+      if (notePath === activePath) {
+        const next = selectAvailableNotePath(indexedNotes, remainingTabs);
+        if (next) await openNote(next);
+        else {
+          setActivePath('');
+          setContent('');
+          setSavedContent('');
+          setBacklinks([]);
+        }
+      }
+      await loadHealth().catch(() => null);
+      setStatus(`Deleted ${notePath}. A backup copy was created.`);
+      return true;
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : `Could not delete ${notePath}`);
+      return false;
+    }
+  };
+
+  const deleteNote = async () => {
+    if (activePath) await deleteNoteAtPath(activePath);
   };
 
   const insertMarkdown = (before: string, after = '', placeholder = 'text') => {
@@ -609,10 +830,14 @@ function App() {
   };
 
   const saveSettings = async (next: SafireSettings) => {
-    const data = await api<{ settings: SafireSettings }>('/api/settings', { method: 'PUT', body: JSON.stringify(next) });
-    setSettings(data.settings);
+    const data = await api<{ settings: SafireSettingsPayload }>('/api/settings', { method: 'PUT', body: JSON.stringify(next) });
+    const normalizedSettings: SafireSettings = {
+      ...data.settings,
+      defaultMode: data.settings.defaultMode === 'graph' ? 'preview' : data.settings.defaultMode,
+    };
+    setSettings(normalizedSettings);
     setAutosave(data.settings.autosave);
-    setMode(data.settings.defaultMode);
+    setMode(normalizedSettings.defaultMode);
     setStatus('Settings saved');
   };
 
@@ -691,7 +916,7 @@ function App() {
 
   const closeTab = async (path: string) => {
     const nextTabs = tabs.filter(t => t !== path);
-    setTabs(nextTabs.length ? nextTabs : [activePath]);
+    setTabs(nextTabs.length ? nextTabs : activePath ? [activePath] : []);
     if (path === activePath && nextTabs[0]) await openNote(nextTabs[0], false);
   };
 
@@ -749,39 +974,59 @@ function App() {
   const readingMinutes = Math.max(1, Math.ceil(wordCount / 220));
   const goToHeading = (id: string) => {
     if (workspaceView !== 'note') setWorkspaceView('note');
-    if (mode === 'graph') setMode('preview');
     window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
   };
   const commands = [
-    { name: 'Home', hint: 'Open your practical Safire dashboard', run: () => setWorkspaceView('home') },
+    { name: 'Home', hint: 'Browse project folders in this vault', run: () => { selectProject(null); setProjectView('entries'); setWorkspaceView('home'); } },
+    { name: 'New project', hint: 'Create a named top-level project folder', run: createProject },
     { name: 'Tasks', hint: 'Review Markdown tasks across the vault', run: () => { setWorkspaceView('tasks'); loadTasks(taskState); } },
     { name: 'Quick capture', hint: 'Capture a thought to Inbox', run: () => setQuickCaptureOpen(true) },
     { name: 'Clip web page', hint: 'Save an article, recipe, reference, or paper as offline Markdown', run: () => setWebClipperOpen(true) },
-    { name: 'New from template', hint: 'Create a note from Templates', run: () => setTemplatePickerOpen(true) },
+    { name: 'New from template', hint: 'Create a note from Templates', run: () => void openTemplatePicker() },
     { name: 'New note', hint: 'Create a Markdown note', run: () => createNote() },
-    { name: 'Insert evidence receipt', hint: 'Ctrl/Cmd+Shift+E · portable local Markdown', run: () => setEvidenceComposerOpen(true) },
-    { name: 'Evidence for active note', hint: 'Review, redact, copy, or export selected receipts', run: () => setEvidencePanelOpen(true) },
     { name: 'New folder', hint: 'Create a vault folder', run: createFolder },
     { name: 'Open daily note', hint: 'Create/open today in Daily Notes', run: openDaily },
-    { name: 'Save note', hint: 'Ctrl/Cmd+S', run: () => save() },
     { name: autosave ? 'Turn autosave off' : 'Turn autosave on', hint: 'Toggle autosave', run: () => setAutosave(v => !v) },
-    { name: 'Rename/move active note', hint: 'Change file path', run: renameActive },
-    { name: 'Attach file', hint: 'Copy a file into the vault and insert a Markdown link', run: () => fileInputRef.current?.click() },
-    { name: 'Backups for active note', hint: 'Preview or restore previous saved versions', run: openBackups },
     { name: 'Settings', hint: 'Autosave, startup note, backup retention', run: () => setSettingsOpen(true) },
-    { name: 'Toggle graph view', hint: 'Show graph canvas', run: () => setMode(mode === 'graph' ? 'split' : 'graph') },
+    { name: 'Safire Help', hint: 'Full guide, examples, AI connections, and licensing', run: openHelp },
+    ...(activePath ? [
+      { name: 'Insert evidence receipt', hint: 'Ctrl/Cmd+Shift+E · portable local Markdown', run: () => setEvidenceComposerOpen(true) },
+      { name: 'Evidence for active note', hint: 'Review, redact, copy, or export selected receipts', run: () => setEvidencePanelOpen(true) },
+      { name: 'Save note', hint: 'Ctrl/Cmd+S', run: () => save() },
+      { name: 'Rename/move active note', hint: 'Change file path', run: renameActive },
+      { name: 'Attach file', hint: 'Copy a file into the vault and insert a Markdown link', run: () => fileInputRef.current?.click() },
+      { name: 'Backups for active note', hint: 'Preview or restore previous saved versions', run: openBackups },
+    ] : []),
+    { name: 'Open project graph', hint: 'Show only the active project’s notes and internal links', run: () => openProjectGraph() },
     { name: 'Split view', hint: 'Editor + preview', run: () => setMode('split') },
     { name: 'Preview only', hint: 'Rendered Markdown', run: () => setMode('preview') },
     { name: 'Edit only', hint: 'Markdown editor', run: () => setMode('edit') },
   ];
 
   return <div className="app-shell">
-    <aside className="ribbon">
-      <button title="Home" onClick={() => setWorkspaceView('home')}>⌂</button><button title="Tasks" onClick={() => { setWorkspaceView('tasks'); loadTasks(taskState); }}>☑</button><button title="Quick capture" onClick={() => setQuickCaptureOpen(true)}>＋</button><button title="Web clipper" onClick={() => setWebClipperOpen(true)}>◫</button><button title="Files" onClick={() => setWorkspaceView('note')}>▤</button><button title="Search" onClick={() => setQuickOpen(true)}>⌕</button><button title="Graph" onClick={() => { setWorkspaceView('note'); setMode('graph'); }}>◎</button><button title="Backups" onClick={openBackups}>↶</button><button title="Settings" onClick={() => setSettingsOpen(true)}>⚙</button><button title="Commands" onClick={() => setPaletteOpen(true)}>⌘</button>
-    </aside>
+    <nav className="ribbon" aria-label="Workspace">
+      <button className={workspaceView === 'home' && !selectedProjectPath ? 'active' : ''} aria-label="Home" title="Home" onClick={() => { selectProject(null); setProjectView('entries'); setWorkspaceView('home'); }}>⌂</button>
+      <button className={workspaceView === 'tasks' ? 'active' : ''} aria-label="Tasks" title="Tasks" onClick={() => { setWorkspaceView('tasks'); loadTasks(taskState); }}>☑</button>
+      <button aria-label="Quick capture" title="Quick capture" onClick={() => setQuickCaptureOpen(true)}>＋</button>
+      <button className={workspaceView === 'note' ? 'active' : ''} aria-label="Files" title="Files" onClick={() => setWorkspaceView('note')}>▤</button>
+      <button aria-label="Search" title="Search" onClick={() => setQuickOpen(true)}>⌕</button>
+      <button className={workspaceView === 'home' && selectedProjectPath !== null && projectView === 'graph' ? 'active' : ''} aria-label="Project graph" title="Project graph" onClick={() => openProjectGraph()}>◎</button>
+      <OverflowMenu className="ribbon-overflow" label="More workspace actions" items={[
+        { label: 'Web clipper', hint: 'Save a public page as local Markdown', onSelect: () => setWebClipperOpen(true) },
+        ...(activePath ? [{ label: 'Backups', hint: 'Preview or restore note versions', onSelect: openBackups }] : []),
+        { label: 'Settings', hint: 'Preferences and vault behavior', onSelect: () => setSettingsOpen(true) },
+        { label: 'Commands', hint: 'Open the command palette', onSelect: () => setPaletteOpen(true) },
+        { label: 'Safire Help', hint: 'Guide, examples, AI setup, and licenses', separator: true, onSelect: openHelp },
+      ]} />
+    </nav>
     <aside className="sidebar">
       <div className="brand"><div className="brand-logo"><FlameMark /></div><div className="brand-copy"><h1 className="brand-wordmark"><span className="brand-name">Safire</span><span className="app-version">v{APP_VERSION}</span></h1><p>Local-first knowledge forge</p></div></div>
-      <div className="toolbar-row"><button className="primary" onClick={() => createNote()}>+ Note</button><button onClick={createFolder}>+ Folder</button><button onClick={openDaily}>Today</button></div>
+      <div className="toolbar-row"><button className="primary" onClick={() => createNote()}>+ New note</button><OverflowMenu label="More creation options" items={[
+        { label: 'New project', onSelect: async () => { await createProject(); } },
+        { label: 'New folder', onSelect: createFolder },
+        { label: 'Today’s note', onSelect: openDaily },
+        { label: 'New from template', onSelect: () => void openTemplatePicker() },
+      ]} /></div>
       <input className="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search · status:verified source:url expired" />
       {query.trim() && <button className="save-search" onClick={saveSearch}>Save search</button>}
       <div className="vault-path" title={vaultPath}>{vaultPath}</div>
@@ -790,19 +1035,38 @@ function App() {
       <section><h2>Tags</h2><div className="tag-cloud">{allTags.map(t => <button key={t} onClick={() => setQuery('#'+t)}>#{t}</button>)}</div></section>
     </aside>
 
-    <main className="workspace">
-      {workspaceView === 'home' ? <HomeView notes={notes} tasks={tasks} workspace={workspaceState} health={health} openNote={(path) => { setWorkspaceView('note'); openNote(path); }} openDaily={() => { setWorkspaceView('note'); openDaily(); }} capture={() => setQuickCaptureOpen(true)} templates={() => setTemplatePickerOpen(true)} showTasks={() => { setWorkspaceView('tasks'); loadTasks(taskState); }} runSearch={(value) => { setQuery(value); setWorkspaceView('note'); }} removeSearch={removeSavedSearch} toggleTask={toggleTask} /> : workspaceView === 'tasks' ? <TasksView tasks={tasks} state={taskState} setState={(next) => { setTaskState(next); loadTasks(next); }} openNote={(path) => { setWorkspaceView('note'); openNote(path); }} toggleTask={toggleTask} /> : <>
+    <main ref={workspaceRef} className="workspace" tabIndex={-1}>
+      <ProjectHome hidden={workspaceView !== 'home'} tree={tree} notes={notes} activePath={activePath} selectedProjectPath={selectedProjectPath} projectView={projectView} graphRefreshRevision={projectGraphRevision} showGraphPrompt={projectGraphPrompt} projectIndexComplete={projectIndexComplete} dailyNotesFolder={settings?.dailyNotesFolder} onSelectProject={selectProject} onSetProjectView={setProjectView} onCreateProject={createProject} onCreateEntry={createProjectEntry} onDeleteEntry={deleteNoteAtPath} loadProjectGraph={loadProjectGraph} onOpenEntry={openProjectEntry} />
+      {workspaceView !== 'home' && (workspaceView === 'tasks' ? <TasksView tasks={tasks} state={taskState} setState={(next) => { setTaskState(next); loadTasks(next); }} openNote={(path) => { setWorkspaceView('note'); openNote(path); }} toggleTask={toggleTask} /> : !activePath ? <EmptyVaultView createNote={() => void createNote()} openDaily={() => void openDaily()} capture={() => setQuickCaptureOpen(true)} /> : <>
         <div className="tabs">{tabs.map(t => <button key={t} className={t===activePath?'active':''} onClick={() => openNote(t, false)}><span>{titleFromPath(t)}</span><i onClick={(e) => { e.stopPropagation(); closeTab(t); }}>×</i></button>)}</div>
         <header className="topbar">
           <div><div className="crumb">{activePath}</div><h2>{activeMeta?.title || activePath}{dirty ? ' •' : ''}</h2><p>{autosave ? 'Autosave on' : 'Autosave off'}{lastSavedAt ? ` · saved ${new Date(lastSavedAt).toLocaleTimeString()}` : ''}</p></div>
-          <div className="actions"><button onClick={() => setMode('split')} className={mode==='split'?'on':''}>Split</button><button onClick={() => setMode('edit')} className={mode==='edit'?'on':''}>Edit</button><button onClick={() => setMode('preview')} className={mode==='preview'?'on':''}>Preview</button><button onClick={() => setMode('graph')} className={mode==='graph'?'on':''}>Graph</button><button onClick={() => setEvidenceComposerOpen(true)}>Evidence</button><button onClick={togglePin}>{workspaceState.pinnedNotes.includes(activePath) ? 'Unpin' : 'Pin'}</button><button onClick={() => fileInputRef.current?.click()}>Attach</button><button onClick={openBackups}>Backups</button><button onClick={() => setSettingsOpen(true)}>Settings</button><button onClick={renameActive}>Rename</button><button onClick={save} disabled={!dirty}>Save</button><button className="danger" onClick={deleteNote}>Delete</button></div>
+          <div className="actions">
+            <div className="mode-switcher" role="group" aria-label="Note view">
+              <button onClick={() => setMode('split')} className={mode==='split'?'on':''} aria-pressed={mode === 'split'}>Split</button>
+              <button onClick={() => setMode('edit')} className={mode==='edit'?'on':''} aria-pressed={mode === 'edit'}>Edit</button>
+              <button onClick={() => setMode('preview')} className={mode==='preview'?'on':''} aria-pressed={mode === 'preview'}>Preview</button>
+            </div>
+            {selectedProject && projectView === 'graph' && <button onClick={() => openProjectGraph(selectedProject.path, false)}>← Back to {selectedProject.name} graph</button>}
+            <button onClick={() => openProjectGraph()} title={activeNoteProject ? `Open ${activeNoteProject.name} project graph` : 'Choose a project graph'}>Project graph</button>
+            <button className="primary-action save-note" onClick={save} disabled={!dirty}>Save</button>
+            <OverflowMenu label="More note actions" items={[
+              { label: 'Add evidence receipt', hint: 'Insert portable evidence Markdown', onSelect: () => setEvidenceComposerOpen(true) },
+              { label: workspaceState.pinnedNotes.includes(activePath) ? 'Unpin note' : 'Pin note', onSelect: togglePin },
+              { label: 'Attach file', onSelect: () => fileInputRef.current?.click() },
+              { label: 'Rename or move', onSelect: renameActive },
+              { label: 'View backups', onSelect: openBackups },
+              { label: 'Settings', onSelect: () => setSettingsOpen(true) },
+              { label: 'Delete note', danger: true, separator: true, onSelect: deleteNote },
+            ]} />
+          </div>
         </header>
-        {mode !== 'graph' && (mode==='split'||mode==='edit') && <MarkdownToolbar insert={insertMarkdown} attach={() => fileInputRef.current?.click()} evidence={() => setEvidenceComposerOpen(true)} />}
-        {mode !== 'graph' ? <div className={'panes '+mode} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); uploadFiles(e.dataTransfer.files).catch(err => setStatus(err.message)); }}>{(mode==='split'||mode==='edit') && <textarea ref={editorRef} className="editor" spellCheck="true" value={content} onChange={e => setContent(e.target.value)} onKeyDown={handleEditorKeyDown} onPaste={e => { if (e.clipboardData.files.length) { e.preventDefault(); uploadFiles(e.clipboardData.files).catch(err => setStatus(err.message)); } }} />}{(mode==='split'||mode==='preview') && <article className={`preview markdown ${settings?.fitImagesToPage === false ? '' : 'fit-images'}`} dangerouslySetInnerHTML={rendered} />}</div> : <GraphView graph={graph} activePath={activePath} onPreview={(path) => openGraphPanel(path, 'preview')} onEdit={(path) => openGraphPanel(path, 'edit')} onCreateMissing={createMissingGraphNote} overlay={graphPanel && <GraphNotePanel mode={graphPanel.mode} path={activePath} content={content} dirty={dirty} close={() => setGraphPanel(null)} setMode={(panelMode) => setGraphPanel({ mode: panelMode })} save={() => save().catch(err => setStatus(err.message))} setContent={setContent} />} />}
-      </>}
+        {(mode==='split'||mode==='edit') && <MarkdownToolbar insert={insertMarkdown} attach={() => fileInputRef.current?.click()} evidence={() => setEvidenceComposerOpen(true)} />}
+        <div className={'panes '+mode} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); uploadFiles(e.dataTransfer.files).catch(err => setStatus(err.message)); }}>{(mode==='split'||mode==='edit') && <textarea ref={editorRef} className="editor" spellCheck="true" value={content} onChange={e => setContent(e.target.value)} onKeyDown={handleEditorKeyDown} onPaste={e => { if (e.clipboardData.files.length) { e.preventDefault(); uploadFiles(e.clipboardData.files).catch(err => setStatus(err.message)); } }} />}{(mode==='split'||mode==='preview') && <article className={`preview markdown ${settings?.fitImagesToPage === false ? '' : 'fit-images'}`} dangerouslySetInnerHTML={rendered} />}</div>
+      </>)}
     </main>
 
-    <aside className="inspector"><section className="note-overview"><h2>Note overview</h2><div className="note-stats"><span><b>{wordCount.toLocaleString()}</b> words</span><span><b>{readingMinutes} min</b> read</span></div>{outline.length ? <nav className="note-outline" aria-label="Note outline">{outline.map(item => <button key={item.id} style={{ paddingLeft: `${10 + (item.depth - 1) * 13}px` }} title={item.label} onClick={() => goToHeading(item.id)}><span>H{item.depth}</span><b>{item.label}</b></button>)}</nav> : <p className="empty">Add Markdown headings to create a quick outline.</p>}</section><section className="evidence-overview"><div><h2>Evidence</h2><button onClick={() => setEvidencePanelOpen(true)}>{evidence.count ? 'Review' : 'Add'}</button></div><p><b>{evidence.count}</b> receipt{evidence.count === 1 ? '' : 's'}</p>{(evidence.stale || evidence.expired || evidence.conflicting) ? <div className="evidence-badges">{evidence.stale ? <span className="evidence-badge stale">{evidence.stale} stale</span> : null}{evidence.expired ? <span className="evidence-badge expired">{evidence.expired} expired</span> : null}{evidence.conflicting ? <span className="evidence-badge conflicting">{evidence.conflicting} conflicting</span> : null}</div> : <p className="small">No stale, expired, or conflicting evidence.</p>}</section><h2>Backlinks</h2>{backlinks.length ? backlinks.map(b => <button className="backlink" key={b.path} onClick={() => openNote(b.path)}><b>{b.title}</b><span>{b.path} — {b.excerpt}</span></button>) : <p className="empty">No backlinks yet. Link here with [[{activeMeta?.title || 'Note'}]].</p>}<h2>Outgoing links</h2><div className="link-list">{activeMeta?.links?.map(l => <button key={l} onClick={() => openWikiTarget(l)}>[[{l}]]</button>) || null}</div><h2>Properties</h2><p className="small">Path: {activePath}</p><p className="small">Tags: {activeMeta?.tags.map(t => '#'+t).join(' ') || 'none'}</p><p className="small">Status: {status}</p>{health && <><h2>Vault health</h2><p className="small">{health.noteCount} notes · {health.tagCount} tags · {health.linkCount} links</p><p className="small">{health.missingLinks.length} missing links · {health.orphanNotes.length} orphan notes · {health.backupCount} backups</p></>}<p className="small">Shortcuts: Ctrl/Cmd+K commands · Ctrl/Cmd+O quick switcher · Ctrl/Cmd+S save · Ctrl/Cmd+Shift+E evidence</p></aside>
+    <aside className="inspector"><section className="note-overview"><h2>Note overview</h2><div className="note-stats"><span><b>{wordCount.toLocaleString()}</b> words</span><span><b>{readingMinutes} min</b> read</span></div>{outline.length ? <nav className="note-outline" aria-label="Note outline">{outline.map(item => <button key={item.id} style={{ paddingLeft: `${8 + (item.depth - 1) * 16}px` }} title={item.label} onClick={() => goToHeading(item.id)}><span>H{item.depth}</span><b>{item.label}</b></button>)}</nav> : <p className="empty">Add Markdown headings to create a quick outline.</p>}</section><section className="evidence-overview"><div><h2>Evidence</h2><button onClick={() => setEvidencePanelOpen(true)}>{evidence.count ? 'Review' : 'Add'}</button></div><p><b>{evidence.count}</b> receipt{evidence.count === 1 ? '' : 's'}</p>{(evidence.stale || evidence.expired || evidence.conflicting) ? <div className="evidence-badges">{evidence.stale ? <span className="evidence-badge stale">{evidence.stale} stale</span> : null}{evidence.expired ? <span className="evidence-badge expired">{evidence.expired} expired</span> : null}{evidence.conflicting ? <span className="evidence-badge conflicting">{evidence.conflicting} conflicting</span> : null}</div> : <p className="small">No stale, expired, or conflicting evidence.</p>}</section><h2>Backlinks</h2>{backlinks.length ? backlinks.map(b => <button className="backlink" key={b.path} onClick={() => openNote(b.path)}><b>{b.title}</b><span>{b.path} — {b.excerpt}</span></button>) : <p className="empty">No backlinks yet. Link here with [[{activeMeta?.title || 'Note'}]].</p>}<h2>Outgoing links</h2><div className="link-list">{activeMeta?.links?.map(l => <button key={l} onClick={() => openWikiTarget(l)}>[[{l}]]</button>) || null}</div><h2>Properties</h2><p className="small">Path: {activePath}</p><p className="small">Tags: {activeMeta?.tags.map(t => '#'+t).join(' ') || 'none'}</p><p className="small">Status: {status}</p>{health && <><h2>Vault health</h2><p className="small">{health.noteCount} notes · {health.tagCount} tags · {health.linkCount} links</p><p className="small">{health.missingLinks.length} missing links · {health.orphanNotes.length} orphan notes · {health.backupCount} backups</p></>}<p className="small">Shortcuts: Ctrl/Cmd+K commands · Ctrl/Cmd+O quick switcher · Ctrl/Cmd+S save · Ctrl/Cmd+Shift+E evidence</p></aside>
 
     <input ref={fileInputRef} className="hidden-file" type="file" multiple onChange={e => { if (e.target.files) uploadFiles(e.target.files).catch(err => setStatus(err.message)); e.currentTarget.value = ''; }} />
     {dialog && <SafireModal dialog={dialog} close={() => { if (dialog.kind === 'confirm') (dialog.resolve as (value: boolean) => void)(false); else (dialog.resolve as (value: string | null) => void)(null); setDialog(null); }} done={(value) => { if (dialog.kind === 'confirm') (dialog.resolve as (value: boolean) => void)(value as boolean); else (dialog.resolve as (value: string | null) => void)(value as string | null); setDialog(null); }} />}
@@ -818,14 +1082,12 @@ function App() {
     {evidencePanelOpen && <EvidencePanel receipts={evidenceReceipts} close={() => setEvidencePanelOpen(false)} add={() => { setEvidencePanelOpen(false); setEvidenceComposerOpen(true); }} />}
     {paletteOpen && <Palette title="Command palette" query={paletteQuery} setQuery={setPaletteQuery} close={() => setPaletteOpen(false)} items={commands.map(c => ({ label: c.name, sub: c.hint, run: async () => { await c.run(); setPaletteOpen(false); } }))} />}
     {quickOpen && <Palette title="Quick switcher" query={paletteQuery} setQuery={setPaletteQuery} close={() => setQuickOpen(false)} items={notes.map(n => ({ label: n.title, sub: n.path, run: async () => { await openNote(n.path); setQuickOpen(false); } }))} />}
+    {helpOpen && <HelpPanel close={() => setHelpOpen(false)} returnFocus={helpReturnFocusRef.current} version={APP_VERSION} />}
   </div>;
 }
 
-function HomeView({ notes, tasks, workspace, health, openNote, openDaily, capture, templates, showTasks, runSearch, removeSearch, toggleTask }: { notes: NoteMeta[]; tasks: VaultTask[]; workspace: WorkspaceState; health: VaultHealth | null; openNote: (path: string) => void; openDaily: () => void; capture: () => void; templates: () => void; showTasks: () => void; runSearch: (query: string) => void; removeSearch: (id: string) => void; toggleTask: (task: VaultTask) => void }) {
-  const byPath = new Map(notes.map(note => [note.path, note]));
-  const pins = workspace.pinnedNotes.map(path => byPath.get(path)).filter((note): note is NoteMeta => Boolean(note));
-  const recents = workspace.recentNotes.map(item => ({ ...item, note: byPath.get(item.path) })).filter((item): item is { path: string; openedAt: number; note: NoteMeta } => Boolean(item.note));
-  return <div className="home-view"><header className="home-header"><div><span>Safire workspace</span><h2>Home</h2><p>Pick up the next useful thing without leaving your vault.</p></div><button onClick={showTasks} className="primary-action">{tasks.length} open tasks</button></header><div className="home-grid"><section className="home-card home-start"><h3>Start here</h3><div className="home-actions"><button onClick={openDaily}>Open today’s note</button><button onClick={capture}>Quick capture</button><button onClick={templates}>New from template</button></div></section><section className="home-card"><div className="home-card-head"><h3>Open tasks</h3><button onClick={showTasks}>View all</button></div>{tasks.length ? tasks.slice(0, 8).map(task => <div className="home-task" key={task.id}><button aria-label={`Complete ${task.text}`} onClick={() => toggleTask(task)}>☐</button><button onClick={() => openNote(task.path)}><b>{task.text}</b><span>{task.path}</span></button></div>) : <p className="empty-home">No open Markdown tasks.</p>}</section><section className="home-card"><h3>Pinned</h3>{pins.length ? pins.map(note => <button className="home-note" key={note.path} onClick={() => openNote(note.path)}><b>{note.title}</b><span>{note.path}</span></button>) : <p className="empty-home">Pin a note from its header to keep it here.</p>}</section><section className="home-card"><h3>Recent</h3>{recents.length ? recents.map(item => <button className="home-note" key={item.path} onClick={() => openNote(item.path)}><b>{item.note.title}</b><span>{item.path} · {relativeTime(item.openedAt)}</span></button>) : <p className="empty-home">Open notes to build your recent trail.</p>}</section><section className="home-card"><h3>Saved searches</h3>{workspace.savedSearches.length ? workspace.savedSearches.map(search => <div className="saved-search-row" key={search.id}><button onClick={() => runSearch(search.query)}><b>{search.name}</b><span>{search.query}</span></button><button aria-label={`Remove ${search.name}`} onClick={() => removeSearch(search.id)}>×</button></div>) : <p className="empty-home">Save a sidebar search to reuse it here.</p>}</section><section className="home-card"><h3>Vault health</h3>{health ? <p className="health-line"><b>{health.noteCount}</b> notes · <b>{health.linkCount}</b> links<br />{health.missingLinks.length} unresolved · {health.orphanNotes.length} orphan notes</p> : <p className="empty-home">Loading health…</p>}</section></div></div>;
+function EmptyVaultView({ createNote, openDaily, capture }: { createNote: () => void; openDaily: () => void; capture: () => void }) {
+  return <div className="home-view"><header className="home-header"><div><span>Safire workspace</span><h2>Your vault is empty</h2><p>Create a note when you are ready. Deleted starter notes stay deleted.</p></div></header><section className="home-card home-start"><h3>Start writing</h3><div className="home-actions"><button className="primary-action" onClick={createNote}>Create a note</button><button onClick={openDaily}>Open today’s note</button><button onClick={capture}>Quick capture</button></div></section></div>;
 }
 
 function TasksView({ tasks, state, setState, openNote, toggleTask }: { tasks: VaultTask[]; state: 'open'|'completed'; setState: (state: 'open'|'completed') => void; openNote: (path: string) => void; toggleTask: (task: VaultTask) => void }) {
@@ -838,8 +1100,27 @@ function QuickCapturePanel({ close, capture }: { close: () => void; capture: (te
 }
 
 function TemplatePicker({ templates, close, create }: { templates: TemplateItem[]; close: () => void; create: (templatePath: string, destination: string, title: string) => Promise<void> }) {
-  const [selected, setSelected] = React.useState(templates[0]?.path || ''); const [destination, setDestination] = React.useState(''); const [title, setTitle] = React.useState(''); const [error, setError] = React.useState('');
-  return <div className="modal-backdrop" onMouseDown={close}><form className="panel-modal template-panel" onMouseDown={e => e.stopPropagation()} onSubmit={async e => { e.preventDefault(); try { await create(selected, destination, title); } catch (err) { setError(err instanceof Error ? err.message : 'Could not create note'); } }}><div className="panel-head"><div><h2>New from template</h2><p>Templates are ordinary Markdown files in Templates.</p></div><button type="button" onClick={close}>×</button></div>{templates.length ? <><label><span>Template</span><select value={selected} onChange={e => setSelected(e.target.value)}>{templates.map(template => <option key={template.path} value={template.path}>{template.title}</option>)}</select></label><label><span>New note path</span><input value={destination} onChange={e => setDestination(e.target.value)} placeholder="Projects/New note" required /></label><label><span>Title</span><input value={title} onChange={e => setTitle(e.target.value)} placeholder="Optional; defaults to filename" /></label>{error && <p className="form-error">{error}</p>}<div className="dialog-actions"><button type="button" onClick={close}>Cancel</button><button className="primary-action" type="submit">Create note</button></div></> : <><p className="empty-home">Create Markdown files inside the Templates folder to use them here.</p><div className="dialog-actions"><button type="button" onClick={close}>Close</button></div></>}</form></div>;
+  const [selected, setSelected] = React.useState(templates[0]?.path || '');
+  const [destination, setDestination] = React.useState('');
+  const [title, setTitle] = React.useState('');
+  const [error, setError] = React.useState('');
+  return <div className="modal-backdrop" onMouseDown={close}>
+    <form className="panel-modal template-panel" role="dialog" aria-modal="true" aria-labelledby="template-picker-title" onMouseDown={e => e.stopPropagation()} onSubmit={async e => { e.preventDefault(); try { await create(selected, destination, title); } catch (err) { setError(err instanceof Error ? err.message : 'Could not create note'); } }}>
+      <div className="panel-head"><div><h2 id="template-picker-title">New from template</h2><p>Copy reusable Markdown into a new note.</p></div><button type="button" aria-label="Close template picker" onClick={close}>×</button></div>
+      <div className="template-how"><b>How it works</b><p>Put a <code>.md</code> file under <code>Templates/</code>. Safire copies it, then replaces <code>{'{{title}}'}</code>, <code>{'{{date}}'}</code>, and <code>{'{{time}}'}</code>. The original template stays unchanged.</p></div>
+      {templates.length ? <>
+        <label><span>Template</span><select autoFocus value={selected} onChange={e => setSelected(e.target.value)}>{templates.map(template => <option key={template.path} value={template.path}>{template.title}</option>)}</select></label>
+        <label><span>New note path</span><input value={destination} onChange={e => setDestination(e.target.value)} placeholder="Website Launch/Meeting Notes" required /></label>
+        <label><span>Title</span><input value={title} onChange={e => setTitle(e.target.value)} placeholder="Optional; defaults to filename" /></label>
+        <p className="template-destination-hint">Example: choose <code>Templates/Meeting.md</code>, enter <code>Meetings/Weekly Sync</code>, then create the note.</p>
+        {error && <p className="form-error">{error}</p>}
+        <div className="dialog-actions"><button type="button" onClick={close}>Cancel</button><button className="primary-action" type="submit">Create note</button></div>
+      </> : <>
+        <div className="template-empty"><b>No templates yet</b><p>Create a note such as <code>Templates/Meeting.md</code>, add reusable Markdown and any supported tokens, then reopen this picker.</p></div>
+        <div className="dialog-actions"><button autoFocus type="button" onClick={close}>Close</button></div>
+      </>}
+    </form>
+  </div>;
 }
 
 function WebClipperPanel({ templates, close, clip, saveTemplate }: { templates: WebClipTemplate[]; close: () => void; clip: (url: string, templateId: string, title: string) => Promise<void>; saveTemplate: (template: Omit<WebClipTemplate, 'body'> & { body: string }) => Promise<void> }) {
@@ -886,8 +1167,6 @@ function WebClipperPanel({ templates, close, clip, saveTemplate }: { templates: 
   </div>;
 }
 
-function relativeTime(timestamp: number) { const minutes = Math.max(0, Math.round((Date.now() - timestamp) / 60000)); return minutes < 1 ? 'just now' : minutes < 60 ? `${minutes}m ago` : minutes < 1440 ? `${Math.round(minutes / 60)}h ago` : `${Math.round(minutes / 1440)}d ago`; }
-
 function withAttachmentParam(url: string, key: 'raw' | 'download') {
   const next = new URL(url, window.location.href);
   next.searchParams.set(key, '1');
@@ -917,18 +1196,17 @@ function AttachmentViewer({ viewer, close }: { viewer: AttachmentViewerState; cl
 
   return <div className="modal-backdrop attachment-backdrop" onMouseDown={close}>
     <div className="panel-modal attachment-viewer" role="dialog" aria-modal="true" aria-label={`Attachment preview: ${viewer.name}`} onMouseDown={e => e.stopPropagation()}>
-      <button type="button" className="attachment-floating-back" onClick={close}>← Back to Safire</button>
       <div className="attachment-toolbar">
-        <button type="button" className="primary-action back-to-note" onClick={close}>← Back to Safire</button>
-        <div className="attachment-title"><h2>{viewer.name}</h2><p>Attachment preview. Use Back to Safire, Esc, or × to return to your note.</p></div>
-        <button type="button" className="attachment-close" aria-label="Close attachment and return to Safire" onClick={close}>×</button>
+        <button type="button" className="primary-action back-to-note" onClick={close}>← Back to note</button>
+        <div className="attachment-title"><h2>{viewer.name}</h2><p>Attachment preview. Use Back to note, Esc, or × to return.</p></div>
+        <button type="button" className="attachment-close" aria-label="Close attachment and return to note" onClick={close}>×</button>
       </div>
       <div className={`attachment-frame ${viewer.kind === 'text' ? 'text-frame' : ''}`}>
         {viewer.kind === 'image' && <img src={rawUrl} alt={viewer.name} />}
         {viewer.kind === 'text' && (error ? <div className="attachment-error">{error}</div> : <pre>{text || 'Loading text attachment…'}</pre>)}
         {viewer.kind === 'document' && <iframe title={viewer.name} src={rawUrl} sandbox="" />}
       </div>
-      <div className="attachment-actions"><a className="secondary-action" href={downloadUrl} download={viewer.name}>Download file</a><button type="button" className="primary-action" onClick={close}>← Back to Safire</button></div>
+      <div className="attachment-actions"><a className="secondary-action" href={downloadUrl} download={viewer.name}>Download file</a></div>
     </div>
   </div>;
 }
@@ -972,27 +1250,29 @@ function EvidencePanel({ receipts, close, add }: { receipts: EvidenceReceipt[]; 
   const exportJson = () => { const blob = new Blob([JSON.stringify(selectedReceipts.map(clean), null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'safire-evidence-receipts.json'; anchor.click(); URL.revokeObjectURL(url); };
   const toggleReceipt = (id: string) => setSelected(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
   const toggleRedaction = (field: keyof EvidenceDraft) => setRedactions(current => { const next = new Set(current); next.has(field) ? next.delete(field) : next.add(field); return next; });
-  return <div className="modal-backdrop" onMouseDown={close}><section className="panel-modal evidence-panel" onMouseDown={event => event.stopPropagation()}><div className="panel-head"><div><h2>Evidence for this note</h2><p>Select receipt(s), redact fields, then copy portable Markdown or export local JSON.</p></div><button onClick={close}>×</button></div>{receipts.length ? <><div className="evidence-export-actions"><button onClick={() => setSelected(receipts.map(receipt => receipt.id))}>Select all</button><button onClick={() => setSelected([])}>Clear</button><button className="primary-action" disabled={!selectedReceipts.length} onClick={() => void copyMarkdown()}>Copy Markdown</button><button disabled={!selectedReceipts.length} onClick={exportJson}>Export JSON</button></div><div className="evidence-receipt-list">{receipts.map(receipt => <label key={receipt.id}><input type="checkbox" checked={selected.includes(receipt.id)} onChange={() => toggleReceipt(receipt.id)} /><span className={`evidence-status ${receipt.status}`}>{receipt.status}</span><b>{receipt.claim || 'Untitled receipt'}</b><small>{EVIDENCE_SOURCES.find(source => source.value === receipt.sourceType)?.label} · {receipt.observedAt ? new Date(receipt.observedAt).toLocaleString() : 'No timestamp'}{receipt.expired ? ' · expired' : ''}</small></label>)}</div><fieldset className="evidence-redactions"><legend>Redact before copy/export</legend>{EVIDENCE_FIELDS.map(field => <label key={field.key}><input type="checkbox" checked={redactions.has(field.key)} onChange={() => toggleRedaction(field.key)} /> {field.label}</label>)}</fieldset></> : <p className="empty-home">No receipts in this note yet.</p>}<div className="dialog-actions"><button onClick={close}>Close</button><button className="primary-action" onClick={add}>Add receipt</button></div></section></div>;
+  return <div className="modal-backdrop" onMouseDown={close}><section className="panel-modal evidence-panel" onMouseDown={event => event.stopPropagation()}><div className="panel-head"><div><h2>Evidence for this note</h2><p>Select receipt(s), redact fields, then copy portable Markdown or export local JSON.</p></div><button onClick={close}>×</button></div>{receipts.length ? <><div className="evidence-export-actions"><button onClick={() => setSelected(receipts.map(receipt => receipt.id))}>Select all</button><button onClick={() => setSelected([])}>Clear</button><button className="primary-action" disabled={!selectedReceipts.length} onClick={() => void copyMarkdown()}>Copy Markdown</button><button disabled={!selectedReceipts.length} onClick={exportJson}>Export JSON</button></div><div className="evidence-receipt-list">{receipts.map(receipt => <label key={receipt.id}><input type="checkbox" checked={selected.includes(receipt.id)} onChange={() => toggleReceipt(receipt.id)} /><span className={`evidence-status ${receipt.status}`}>{receipt.status}</span><b>{receipt.claim || 'Untitled receipt'}</b><small>{EVIDENCE_SOURCES.find(source => source.value === receipt.sourceType)?.label} · {receipt.observedAt ? new Date(receipt.observedAt).toLocaleString() : 'No timestamp'}{receipt.expired ? ' · expired' : ''}</small></label>)}</div><fieldset className="evidence-redactions"><legend>Redact before copy/export</legend>{EVIDENCE_FIELDS.map(field => <label key={field.key}><input type="checkbox" checked={redactions.has(field.key)} onChange={() => toggleRedaction(field.key)} /> {field.label}</label>)}</fieldset></> : <p className="empty-home">No receipts in this note yet.</p>}<div className="dialog-actions"><button onClick={close}>Close</button><button onClick={add}>Add receipt</button></div></section></div>;
 }
 
 function MarkdownToolbar({ insert, attach, evidence }: { insert: (before: string, after?: string, placeholder?: string) => void; attach: () => void; evidence: () => void }) {
-  const buttons = [
+  const common = [
     ['H1', '# ', '', 'Heading'],
     ['H2', '## ', '', 'Heading'],
     ['B', '**', '**', 'bold text'],
     ['I', '*', '*', 'italic text'],
     ['`Code`', '`', '`', 'code'],
-    ['Quote', '> ', '', 'quote'],
-    ['List', '- ', '', 'list item'],
-    ['Task', '- [ ] ', '', 'task'],
     ['Link', '[', '](https://)', 'link text'],
-    ['Wiki', '[[', ']]', 'Note Name'],
   ] as const;
   return <div className="markdown-toolbar">
-    {buttons.map(([label, before, after, placeholder]) => <button key={label} type="button" onClick={() => insert(before, after, placeholder)}>{label}</button>)}
-    <button type="button" onClick={() => insert('```\n', '\n```', 'code')}>Block</button>
-    <button type="button" onClick={evidence}>Evidence</button>
-    <button type="button" onClick={attach}>Attach file</button>
+    <div className="markdown-common-actions">{common.map(([label, before, after, placeholder]) => <button key={label} type="button" onClick={() => insert(before, after, placeholder)}>{label}</button>)}</div>
+    <OverflowMenu className="markdown-overflow" label="More formatting and insert actions" items={[
+      { label: 'Quote', onSelect: () => insert('> ', '', 'quote') },
+      { label: 'Bulleted list', onSelect: () => insert('- ', '', 'list item') },
+      { label: 'Task checkbox', onSelect: () => insert('- [ ] ', '', 'task') },
+      { label: 'Wiki link', onSelect: () => insert('[[', ']]', 'Note Name') },
+      { label: 'Code block', onSelect: () => insert('```\n', '\n```', 'code') },
+      { label: 'Evidence receipt', separator: true, onSelect: evidence },
+      { label: 'Attach file', onSelect: attach },
+    ]} />
   </div>;
 }
 
@@ -1005,13 +1285,13 @@ function SettingsPanel({ settings, close, save }: { settings: SafireSettings; cl
       <label><span>Autosave</span><input type="checkbox" checked={draft.autosave} onChange={e => update('autosave', e.target.checked)} /></label>
       <label><span>Autosave delay, ms</span><input type="number" min={250} max={10000} step={50} value={draft.autosaveDelay} onChange={e => update('autosaveDelay', Number(e.target.value))} /></label>
       <label><span>Startup note</span><input value={draft.startupNote} onChange={e => update('startupNote', e.target.value)} /></label>
-      <label><span>Default view</span><select value={draft.defaultMode} onChange={e => update('defaultMode', e.target.value as Mode)}><option value="split">Split</option><option value="edit">Edit</option><option value="preview">Preview</option><option value="graph">Graph</option></select></label>
+      <label><span>Default note view</span><select value={draft.defaultMode} onChange={e => update('defaultMode', e.target.value as NoteMode)}><option value="split">Split</option><option value="edit">Edit</option><option value="preview">Preview</option></select></label>
       <label><span>Daily notes folder</span><input value={draft.dailyNotesFolder} onChange={e => update('dailyNotesFolder', e.target.value)} /></label>
       <label><span>Backup retention days</span><input type="number" min={1} max={365} value={draft.backupRetentionDays} onChange={e => update('backupRetentionDays', Number(e.target.value))} /></label>
       <label><span>Confirm deletes</span><input type="checkbox" checked={draft.confirmDeletes} onChange={e => update('confirmDeletes', e.target.checked)} /></label>
       <label><span>Fit images to page</span><input type="checkbox" checked={draft.fitImagesToPage !== false} onChange={e => update('fitImagesToPage', e.target.checked)} /></label>
       <label><span>Theme</span><select value={draft.theme} onChange={e => update('theme', e.target.value as ThemeMode)}><option value="dark">Dark</option><option value="light">Light</option></select></label>
-      <div className="dialog-actions"><button type="button" className="primary-action cancel-action" onClick={close}>Cancel</button><button type="submit" className="primary-action">Save settings</button></div>
+      <div className="dialog-actions"><button type="button" onClick={close}>Cancel</button><button type="submit" className="primary-action">Save settings</button></div>
     </form>
   </div>;
 }
@@ -1022,7 +1302,7 @@ function BackupsPanel({ activePath, backups, preview, close, refresh, show, rest
       <div className="panel-head"><div><h2>Backups for {activePath}</h2><p>Preview or restore the versions Safire created before saves/deletes.</p></div><button onClick={close}>×</button></div>
       <div className="backup-layout">
         <div className="backup-list">
-          <button className="primary-action wide" onClick={() => refresh()}>Refresh backups</button>
+          <button className="wide" onClick={() => refresh()}>Refresh backups</button>
           {backups.length ? backups.map(b => <button key={b.id} className={preview?.item.id === b.id ? 'backup-row active' : 'backup-row'} onClick={() => show(b)}>
             <b>{new Date(b.createdAt).toLocaleString()}</b><span>{Math.round(b.size / 1024 * 10) / 10} KB</span>
           </button>) : <p className="empty">No backups yet. Edit and save this note to create one.</p>}
@@ -1037,22 +1317,56 @@ function BackupsPanel({ activePath, backups, preview, close, refresh, show, rest
 
 function SafireModal({ dialog, close, done }: { dialog: SafireDialog; close: () => void; done: (value: string | boolean | null) => void }) {
   const [value, setValue] = React.useState(dialog.kind === 'input' ? dialog.defaultValue || '' : '');
+  const panelRef = React.useRef<HTMLFormElement | null>(null);
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
+  const cancelRef = React.useRef<HTMLButtonElement | null>(null);
+  const openerRef = React.useRef<HTMLElement | null>(document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  const titleId = React.useId();
+  const messageId = React.useId();
   React.useEffect(() => {
-    const el = document.querySelector('.safire-dialog input') as HTMLInputElement | null;
-    setTimeout(() => { el?.focus(); el?.select(); }, 20);
+    const timer = window.setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+        inputRef.current.select();
+      } else cancelRef.current?.focus();
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      if (openerRef.current?.isConnected) openerRef.current.focus();
+    };
   }, []);
+  const onKeyDown = (event: React.KeyboardEvent<HTMLFormElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = [...(panelRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])') || [])];
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
   const submit = (e?: React.FormEvent) => {
     e?.preventDefault();
     if (dialog.kind === 'input') done(value.trim() || null);
     else done(true);
   };
   return <div className="modal-backdrop" onMouseDown={close}>
-    <form className="palette safire-dialog" onMouseDown={e => e.stopPropagation()} onSubmit={submit}>
-      <h2>{dialog.title}</h2>
-      <p>{dialog.message}</p>
-      {dialog.kind === 'input' && <input value={value} onChange={e => setValue(e.target.value)} placeholder={dialog.placeholder || ''} />}
+    <form ref={panelRef} className="palette safire-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId} onKeyDown={onKeyDown} onMouseDown={e => e.stopPropagation()} onSubmit={submit}>
+      <h2 id={titleId}>{dialog.title}</h2>
+      <p id={messageId}>{dialog.message}</p>
+      {dialog.kind === 'input' && <input ref={inputRef} value={value} onChange={e => setValue(e.target.value)} placeholder={dialog.placeholder || ''} />}
       <div className="dialog-actions">
-        <button type="button" onClick={close}>Cancel</button>
+        <button ref={cancelRef} type="button" onClick={close}>Cancel</button>
         <button type="submit" className={dialog.danger ? 'danger-action' : 'primary-action'}>{dialog.confirmLabel || 'OK'}</button>
       </div>
     </form>
@@ -1061,7 +1375,7 @@ function SafireModal({ dialog, close, done }: { dialog: SafireDialog; close: () 
 
 function FileTree({ nodes, activePath, openNote, depth = 0 }: { nodes: TreeNode[]; activePath: string; openNote: (path: string) => void; depth?: number }) {
   const [closed, setClosed] = React.useState<Record<string, boolean>>({});
-  return <div className="file-tree">{nodes.map(n => n.type === 'folder' ? <div key={n.path}><button className="folder-row" style={{ paddingLeft: 8 + depth*14 }} onClick={() => setClosed(c => ({ ...c, [n.path]: !c[n.path] }))}>{closed[n.path] ? '▸' : '▾'} {n.name}</button>{!closed[n.path] && <FileTree nodes={n.children || []} activePath={activePath} openNote={openNote} depth={depth+1} />}</div> : <button key={n.path} className={'file-row '+(n.path===activePath?'active':'')} style={{ paddingLeft: 8 + depth*14 }} onClick={() => openNote(n.path)}>◦ {n.title}</button>)}</div>;
+  return <div className="file-tree">{nodes.map(n => n.type === 'folder' ? <div key={n.path}><button className="folder-row" style={{ paddingLeft: 8 + depth*16 }} onClick={() => setClosed(c => ({ ...c, [n.path]: !c[n.path] }))}>{closed[n.path] ? '▸' : '▾'} {n.name}</button>{!closed[n.path] && <FileTree nodes={n.children || []} activePath={activePath} openNote={openNote} depth={depth+1} />}</div> : <button key={n.path} className={'file-row '+(n.path===activePath?'active':'')} style={{ paddingLeft: 8 + depth*16 }} onClick={() => openNote(n.path)}>◦ {n.title}</button>)}</div>;
 }
 
 function Palette({ title, query, setQuery, close, items }: { title: string; query: string; setQuery: (q: string) => void; close: () => void; items: { label: string; sub: string; run: () => void|Promise<void> }[] }) {
@@ -1077,50 +1391,6 @@ function Palette({ title, query, setQuery, close, items }: { title: string; quer
     if (e.key === 'Escape') close();
   }} /> <div>{filtered.map((item, i) => <button key={item.label} className={i === selected ? 'selected' : ''} onMouseEnter={() => setSelected(i)} onClick={() => item.run()}><b>{item.label}</b><span>{item.sub}</span>{i===selected && <kbd>Enter</kbd>}</button>)}</div></div></div>;
 }
-
-function GraphNotePanel({ mode, path, content, dirty, close, setMode, save, setContent }: { mode: GraphPanel['mode']; path: string; content: string; dirty: boolean; close: () => void; setMode: (mode: GraphPanel['mode']) => void; save: () => void; setContent: (value: string) => void }) {
-  const panelRef = React.useRef<HTMLElement | null>(null);
-  const editorRef = React.useRef<HTMLTextAreaElement | null>(null);
-  const previewRef = React.useRef<HTMLElement | null>(null);
-  const returnFocusRef = React.useRef<HTMLElement | null>(null);
-  const closeRef = React.useRef(close);
-  closeRef.current = close;
-  const rendered = React.useMemo(() => ({ __html: renderMarkdown(content) }), [content]);
-  React.useEffect(() => {
-    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        closeRef.current();
-        return;
-      }
-      if (event.key !== 'Tab') return;
-      const focusable = [...(panelRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), textarea, [tabindex]:not([tabindex="-1"])') || [])].filter(element => !element.hidden);
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      if (returnFocusRef.current?.isConnected) returnFocusRef.current.focus();
-    };
-  }, []);
-  React.useEffect(() => {
-    const focusPanel = window.setTimeout(() => (mode === 'edit' ? editorRef.current : previewRef.current)?.focus(), 0);
-    return () => window.clearTimeout(focusPanel);
-  }, [mode, path]);
-  return <div className="graph-note-backdrop" onMouseDown={close}>
-    <section ref={panelRef} className="graph-note-panel" role="dialog" aria-modal="true" aria-label={`${mode === 'edit' ? 'Edit' : 'Preview'} ${path}`} onMouseDown={event => event.stopPropagation()}>
-      <header><div><span>Graph note · Connected workspace</span><h2>{titleFromPath(path)}</h2><p>{path}{dirty ? ' · unsaved changes' : ''} · Scroll to read the complete note.</p></div><div className="graph-note-actions"><button onClick={() => setMode('preview')} className={mode === 'preview' ? 'on' : ''}>Preview</button><button onClick={() => setMode('edit')} className={mode === 'edit' ? 'on' : ''}>Edit</button><button className="back-to-graph" onClick={close}>Back to graph</button></div></header>
-      {mode === 'edit' ? <textarea ref={editorRef} className="graph-note-editor" value={content} spellCheck="true" onChange={event => setContent(event.target.value)} /> : <article ref={previewRef} className="graph-note-preview markdown" tabIndex={0} aria-label={`Scrollable preview of ${titleFromPath(path)}`} dangerouslySetInnerHTML={rendered} />}
-      <footer>{mode === 'edit' && <button className="primary" onClick={save} disabled={!dirty}>Save note</button>}<button onClick={close}>Close</button></footer>
-    </section>
-  </div>;
-}
-
 
 createRoot(document.getElementById('root')!).render(<App />);
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));

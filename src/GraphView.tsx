@@ -1,5 +1,7 @@
 import React from 'react';
 import { GRAPH_RENDER_LIMITS, graphSourceLinkCountLabel, limitGraphForRendering } from './frontendSecurity';
+import { graphGroupAnchors, graphLayoutBounds, projectFolderGroup } from './graphOrganization';
+import { OverflowMenu } from './OverflowMenu';
 
 export type GraphNodeData = {
   id: string;
@@ -28,6 +30,7 @@ export type GraphData = {
   links: GraphLinkData[];
   meta?: {
     sourceNotes: number;
+    sourceNotesComplete?: boolean;
     sourceLinks: number;
     sourceLinksComplete?: boolean;
     returnedNotes: number;
@@ -46,13 +49,18 @@ type GraphViewProps = {
   onEdit: (path: string) => void;
   onCreateMissing: (title: string) => void;
   overlay?: React.ReactNode;
+  eyebrow?: string;
+  title?: string;
+  description?: string;
+  scopeLabel?: string;
+  projectPath?: string;
 };
 
 type RenderNode = GraphNodeData & { missing: boolean; resolution?: GraphLinkData['resolution'] };
 type RenderLink = GraphLinkData & { targetId: string };
 type LayoutPoint = { x: number; y: number; vx: number; vy: number; fx?: number; fy?: number };
 type ViewTransform = { x: number; y: number; k: number };
-type GraphScope = 'global' | 'local';
+type GraphScope = 'project' | 'local';
 type GroupMode = 'folder' | 'tag' | 'none';
 
 type GraphPreferences = {
@@ -193,10 +201,10 @@ function nodeMatches(node: RenderNode, query: string) {
   return query.split(/\s+/).filter(Boolean).every(term => haystack.includes(term));
 }
 
-function groupForNode(node: RenderNode, mode: GroupMode) {
+function groupForNode(node: RenderNode, mode: GroupMode, projectPath: string) {
   if (node.missing) return 'Unresolved links';
   if (mode === 'tag') return node.tags[0] ? `#${node.tags[0]}` : 'Untagged';
-  if (mode === 'folder') return node.folder.split('/')[0] || 'Vault root';
+  if (mode === 'folder') return projectFolderGroup(node.folder, projectPath);
   return 'Notes';
 }
 
@@ -234,7 +242,7 @@ function reportedGraphCount(value: number | undefined, fallback: number) {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= fallback ? value : fallback;
 }
 
-export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissing, overlay }: GraphViewProps) {
+export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissing, overlay, eyebrow = 'Project graph', title = 'Project connections', description = 'Links shape this project map. Dense hubs reveal recurring ideas; bridges reveal notes connecting different parts of the project.', scopeLabel = 'Project', projectPath = '' }: GraphViewProps) {
   const workspaceRef = React.useRef<HTMLDivElement | null>(null);
   const stageRef = React.useRef<HTMLDivElement | null>(null);
   const svgRef = React.useRef<SVGSVGElement | null>(null);
@@ -242,11 +250,14 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
   const menuReturnFocusRef = React.useRef<SVGElement | null>(null);
   const positionsRef = React.useRef(new Map<string, LayoutPoint>());
   const animationRef = React.useRef<number | null>(null);
+  const initialFitCompleteRef = React.useRef(false);
+  const viewTouchedRef = React.useRef(false);
+  const fitViewRef = React.useRef<() => void>(() => {});
   const dragRef = React.useRef<null | { kind: 'pan'; pointerId: number; startX: number; startY: number; origin: ViewTransform } | { kind: 'node'; pointerId: number; id: string; startX: number; startY: number; moved: boolean }>(null);
   const suppressClickRef = React.useRef<string | null>(null);
   const [dimensions, setDimensions] = React.useState({ width: 900, height: 560 });
   const [view, setView] = React.useState<ViewTransform>({ x: 0, y: 0, k: 1 });
-  const [scope, setScope] = React.useState<GraphScope>('global');
+  const [scope, setScope] = React.useState<GraphScope>('project');
   const [localRoot, setLocalRoot] = React.useState(activePath);
   const [depth, setDepth] = React.useState(1);
   const [query, setQuery] = React.useState('');
@@ -264,9 +275,13 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
   const [timelineCutoff, setTimelineCutoff] = React.useState(Number.POSITIVE_INFINITY);
   const [timelinePlaying, setTimelinePlaying] = React.useState(false);
   const [announcement, setAnnouncement] = React.useState('');
-  const renderBudget = React.useMemo(() => limitGraphForRendering(graph, activePath), [graph, activePath]);
+  // activePath is a load-time retention hint. Once a graph is rendered, every
+  // node the user can open is already retained; rebudgeting the same graph on
+  // selection could swap nodes at a safety ceiling and reset its layout.
+  const renderBudget = React.useMemo(() => limitGraphForRendering(graph, activePath), [graph]);
   const expanded = React.useMemo(() => expandGraph(renderBudget.graph), [renderBudget]);
   const sourceNoteCount = reportedGraphCount(graph.meta?.sourceNotes, graph.nodes.length);
+  const sourceNoteLabel = graph.meta?.sourceNotesComplete === false ? `at least ${sourceNoteCount}` : `${sourceNoteCount}`;
   const sourceLinkCount = reportedGraphCount(graph.meta?.sourceLinks, graph.links.length);
   const sourceLinkLabel = graphSourceLinkCountLabel(sourceLinkCount, graph.meta?.sourceLinksComplete !== false);
   const omittedNoteContent = reportedGraphCount(graph.meta?.omittedNoteContent, 0);
@@ -287,10 +302,6 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
   }, [preferences]);
 
   React.useEffect(() => {
-    if (activePath) setLocalRoot(activePath);
-  }, [activePath]);
-
-  React.useEffect(() => {
     setTimelineCutoff(modifiedRange.maximum || Number.POSITIVE_INFINITY);
   }, [modifiedRange.maximum]);
 
@@ -306,7 +317,10 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
     if (!stage) return;
     const resize = () => {
       const rect = stage.getBoundingClientRect();
-      setDimensions({ width: Math.max(320, rect.width), height: Math.max(280, rect.height) });
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const width = Math.max(320, rect.width);
+      const height = Math.max(280, rect.height);
+      setDimensions(current => current.width === width && current.height === height ? current : { width, height });
     };
     const observer = new ResizeObserver(resize);
     observer.observe(stage);
@@ -365,9 +379,9 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
     }
     return values;
   }, [visibleLinks, focusId]);
-  const groups = React.useMemo(() => [...new Set(visibleNodes.map(node => groupForNode(node, preferences.groupBy)))].sort((a, b) => a.localeCompare(b)), [visibleNodes, preferences.groupBy]);
+  const groups = React.useMemo(() => [...new Set(visibleNodes.map(node => groupForNode(node, preferences.groupBy, projectPath)))].sort((a, b) => a.localeCompare(b)), [visibleNodes, preferences.groupBy, projectPath]);
   const groupIndexes = React.useMemo(() => new Map(groups.map((group, index) => [group, index])), [groups]);
-  const layoutSignature = visibleNodes.map(node => `${node.id}:${node.degree}`).join('|');
+  const layoutSignature = visibleNodes.map(node => `${node.id}:${node.degree}:${groupForNode(node, preferences.groupBy, projectPath)}`).join('|');
   const linkSignature = visibleLinks.map(link => `${link.id}:${link.targetId}`).join('|');
 
   const updatePreference = <Key extends keyof GraphPreferences>(key: Key, value: GraphPreferences[Key]) => {
@@ -379,13 +393,33 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
     const positions = positionsRef.current;
     const centerX = dimensions.width / 2;
     const centerY = dimensions.height / 2;
-    const maxInitialRadius = Math.max(80, Math.min(dimensions.width, dimensions.height) * .34);
+    const anchors = graphGroupAnchors(groups, dimensions.width, dimensions.height);
+    const bounds = graphLayoutBounds(dimensions.width, dimensions.height);
+    const groupedNodes = new Map<string, RenderNode[]>();
+    for (const node of visibleNodes) {
+      const group = groupForNode(node, preferences.groupBy, projectPath);
+      const members = groupedNodes.get(group) || [];
+      members.push(node);
+      groupedNodes.set(group, members);
+    }
+    for (const members of groupedNodes.values()) {
+      members.sort((left, right) => right.degree - left.degree || left.label.localeCompare(right.label) || left.id.localeCompare(right.id));
+    }
     for (const node of visibleNodes) {
       if (positions.has(node.id)) continue;
-      const hash = graphHash(node.id);
-      const angle = (hash % 10000) / 10000 * Math.PI * 2;
-      const radius = (.18 + ((hash >>> 12) % 1000) / 1250) * maxInitialRadius;
-      positions.set(node.id, { x: centerX + Math.cos(angle) * radius, y: centerY + Math.sin(angle) * radius, vx: 0, vy: 0 });
+      const group = groupForNode(node, preferences.groupBy, projectPath);
+      const anchor = anchors.get(group) || { x: centerX, y: centerY };
+      const members = groupedNodes.get(group) || [node];
+      const memberIndex = Math.max(0, members.findIndex(member => member.id === node.id));
+      const ringIndex = Math.max(0, memberIndex - 1);
+      const ring = memberIndex === 0 ? 0 : 32 + Math.floor(ringIndex / 6) * 24;
+      const angle = (graphHash(group) % 360) * Math.PI / 180 + ringIndex % 6 * Math.PI / 3;
+      positions.set(node.id, {
+        x: clamp(anchor.x + Math.cos(angle) * ring, bounds.minimumX, bounds.maximumX),
+        y: clamp(anchor.y + Math.sin(angle) * ring, bounds.minimumY, bounds.maximumY),
+        vx: 0,
+        vy: 0,
+      });
     }
     const layoutNodes = visibleNodes.map(node => ({ node, point: positions.get(node.id)! }));
     const nodeLookup = new Map(layoutNodes.map(entry => [entry.node.id, entry]));
@@ -449,7 +483,7 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
         target.vx -= forceX;
         target.vy -= forceY;
       }
-      for (const { point } of layoutNodes) {
+      for (const { node, point } of layoutNodes) {
         if (point.fx !== undefined && point.fy !== undefined) {
           point.x = point.fx;
           point.y = point.fy;
@@ -457,22 +491,33 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
           point.vy = 0;
           continue;
         }
-        point.vx += (centerX - point.x) * preferences.centerForce * .0014;
-        point.vy += (centerY - point.y) * preferences.centerForce * .0014;
+        const group = groupForNode(node, preferences.groupBy, projectPath);
+        const anchor = anchors.get(group) || { x: centerX, y: centerY };
+        const clusterStrength = preferences.groupBy === 'none' ? .0014 : .0045;
+        point.vx += (anchor.x - point.x) * preferences.centerForce * clusterStrength;
+        point.vy += (anchor.y - point.y) * preferences.centerForce * clusterStrength;
         point.vx = clamp(point.vx * .84, -12, 12);
         point.vy = clamp(point.vy * .84, -12, 12);
-        point.x += point.vx;
-        point.y += point.vy;
+        point.x = clamp(point.x + point.vx, bounds.minimumX, bounds.maximumX);
+        point.y = clamp(point.y + point.vy, bounds.minimumY, bounds.maximumY);
+        if (point.x === bounds.minimumX || point.x === bounds.maximumX) point.vx *= -.2;
+        if (point.y === bounds.minimumY || point.y === bounds.maximumY) point.vy *= -.2;
       }
       iteration += 1;
     };
     const draw = () => {
       if (cancelled) return;
-      const steps = reducedMotion ? 140 : iteration < 45 ? 3 : 1;
+      const steps = reducedMotion ? 210 : iteration < 160 ? 8 : 4;
       for (let step = 0; step < steps; step += 1) simulate();
       setLayoutVersion(version => version + 1);
       if (iteration < 210) animationRef.current = requestAnimationFrame(draw);
-      else animationRef.current = null;
+      else {
+        animationRef.current = null;
+        if (!initialFitCompleteRef.current && !viewTouchedRef.current) {
+          initialFitCompleteRef.current = true;
+          requestAnimationFrame(() => fitViewRef.current());
+        }
+      }
     };
     animationRef.current = requestAnimationFrame(draw);
     return () => {
@@ -480,7 +525,7 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
       if (animationRef.current !== null) cancelAnimationFrame(animationRef.current);
       animationRef.current = null;
     };
-  }, [layoutSignature, linkSignature, dimensions.width, dimensions.height, preferences.centerForce, preferences.repelForce, preferences.linkStrength, preferences.linkDistance, preferences.nodeSize, simulationVersion]);
+  }, [layoutSignature, linkSignature, dimensions.width, dimensions.height, preferences.centerForce, preferences.repelForce, preferences.linkStrength, preferences.linkDistance, preferences.nodeSize, preferences.groupBy, projectPath, simulationVersion]);
 
   const fitView = React.useCallback(() => {
     const points = visibleNodes.map(node => positionsRef.current.get(node.id)).filter((point): point is LayoutPoint => Boolean(point));
@@ -501,11 +546,9 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
       k: scale,
     });
   }, [visibleNodes, dimensions]);
-
-  React.useEffect(() => {
-    const timer = window.setTimeout(fitView, 180);
-    return () => window.clearTimeout(timer);
-  }, [layoutSignature, dimensions.width, dimensions.height, fitView]);
+  React.useLayoutEffect(() => {
+    fitViewRef.current = fitView;
+  }, [fitView]);
 
   React.useEffect(() => {
     if (selectedId && !visibleIds.has(selectedId)) setSelectedId(null);
@@ -541,6 +584,8 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
   const focusNode = (nodeId: string, zoom = 1.45) => {
     const point = positionsRef.current.get(nodeId);
     if (!point) return;
+    viewTouchedRef.current = true;
+    initialFitCompleteRef.current = true;
     const scale = clamp(zoom, .25, 4);
     setView({ x: dimensions.width / 2 - point.x * scale, y: dimensions.height / 2 - point.y * scale, k: scale });
     setSelectedId(nodeId);
@@ -568,6 +613,8 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
 
   const beginNodeDrag = (event: React.PointerEvent<SVGGElement>, node: RenderNode) => {
     if (event.button !== 0) return;
+    viewTouchedRef.current = true;
+    initialFitCompleteRef.current = true;
     event.stopPropagation();
     const world = worldFromClient(event.clientX, event.clientY);
     const point = positionsRef.current.get(node.id);
@@ -583,6 +630,8 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
 
   const beginPan = (event: React.PointerEvent<SVGRectElement>) => {
     if (event.button !== 0) return;
+    viewTouchedRef.current = true;
+    initialFitCompleteRef.current = true;
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = { kind: 'pan', pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, origin: view };
     setMenu(null);
@@ -637,6 +686,8 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
   };
 
   const zoomAt = (factor: number, anchor = { x: dimensions.width / 2, y: dimensions.height / 2 }) => {
+    viewTouchedRef.current = true;
+    initialFitCompleteRef.current = true;
     setView(current => {
       const nextScale = clamp(current.k * factor, .2, 4);
       const ratio = nextScale / current.k;
@@ -690,42 +741,46 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
   const visibleResolvedLinkCount = visibleLinks.filter(link => link.resolved).length;
   const visibleMissingLinkCount = visibleLinks.length - visibleResolvedLinkCount;
   const currentMenuNode = menu ? nodeById.get(menu.nodeId) || null : null;
-  const nodeCountLabel = visibleNoteCount === sourceNoteCount ? `${visibleNoteCount}` : `${visibleNoteCount} of ${sourceNoteCount}`;
+  const nodeCountLabel = visibleNoteCount === sourceNoteCount && graph.meta?.sourceNotesComplete !== false
+    ? `${visibleNoteCount}`
+    : `${visibleNoteCount} of ${sourceNoteLabel}`;
   void layoutVersion;
 
   const fullscreenActive = isFullscreen || fullscreenFallback;
 
   return <div className={`graph-workspace graph-relationship-workspace${fullscreenFallback ? ' graph-fullscreen-fallback' : ''}`} ref={workspaceRef}>
     <header className="graph-panel-head graph-relationship-head">
-      <div><span className="graph-eyebrow">Knowledge graph</span><h2>{scope === 'local' ? `${titleFromGraphPath(localRoot)} connections` : 'Your connected notes'}</h2><p>Links shape the map. Dense hubs reveal recurring ideas; bridges reveal notes connecting different parts of your thinking.</p></div>
+      <div><span className="graph-eyebrow">{eyebrow}</span><h2>{scope === 'local' ? `${titleFromGraphPath(localRoot)} connections` : title}</h2><p>{description}</p></div>
       <div className="graph-stats" aria-label="Graph summary"><span><b>{nodeCountLabel}</b> notes</span><span><b>{visibleResolvedLinkCount}</b> links</span><span><b>{visibleMissingLinkCount}</b> unresolved</span></div>
     </header>
 
     <div className="graph-toolbar graph-relationship-toolbar" aria-label="Graph controls">
       <div className="graph-scope-control" role="group" aria-label="Graph scope">
-        <button className={scope === 'global' ? 'on' : ''} aria-pressed={scope === 'global'} onClick={() => setScope('global')}>Global</button>
+        <button className={scope === 'project' ? 'on' : ''} aria-pressed={scope === 'project'} onClick={() => setScope('project')}>{scopeLabel}</button>
         <button className={scope === 'local' ? 'on' : ''} aria-pressed={scope === 'local'} onClick={() => { setLocalRoot(activePath); setScope('local'); }}>Local</button>
       </div>
       {scope === 'local' && <label className="graph-depth-control"><span>Depth</span><select value={depth} onChange={event => setDepth(Number(event.target.value))}>{[1, 2, 3, 4].map(value => <option key={value} value={value}>{value}</option>)}</select></label>}
       <label className="graph-search-control"><span className="sr-only">Filter graph notes</span><input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Filter notes, paths, or tags…" /></label>
       <div className="graph-view-actions">
-        <button onClick={fitView}>Fit</button>
+        <button onClick={() => { viewTouchedRef.current = true; initialFitCompleteRef.current = true; fitView(); }}>Fit</button>
         <button aria-label="Zoom out" onClick={() => zoomAt(1 / 1.18)}>−</button>
         <button aria-label="Zoom in" onClick={() => zoomAt(1.18)}>+</button>
-        <button aria-expanded={navigatorOpen} onClick={() => { setNavigatorOpen(value => !value); setSettingsOpen(false); }}>Nodes</button>
-        <button aria-expanded={settingsOpen} onClick={() => { setSettingsOpen(value => !value); setNavigatorOpen(false); }}>Settings</button>
-        <button className="graph-fullscreen-button" onClick={() => void toggleFullscreen()} aria-pressed={fullscreenActive}>{fullscreenActive ? 'Exit full screen' : 'Full screen'}</button>
+        <OverflowMenu label="More graph actions" className="graph-toolbar-overflow" items={[
+          { label: navigatorOpen ? 'Hide nodes' : 'Nodes', hint: navigatorOpen ? 'Close the node navigator' : 'Browse visible notes', onSelect: () => { setNavigatorOpen(value => !value); setSettingsOpen(false); } },
+          { label: settingsOpen ? 'Hide settings' : 'Settings', hint: settingsOpen ? 'Close graph settings' : 'Tune filters and display', onSelect: () => { setSettingsOpen(value => !value); setNavigatorOpen(false); } },
+          { label: fullscreenActive ? 'Exit full screen' : 'Full screen', hint: fullscreenActive ? 'Return to the workspace' : 'Expand the graph workspace', separator: true, onSelect: toggleFullscreen },
+        ]} />
       </div>
     </div>
 
     {graphWasTruncated && <p className="graph-limit-notice" role="status">
-      Large graph limited for responsiveness: rendering {renderBudget.renderedNotes} of {sourceNoteCount} notes and {renderBudget.renderedLinks} of {sourceLinkLabel} links. Unresolved placeholders are limited to {GRAPH_RENDER_LIMITS.missing}.
+      Large graph limited for responsiveness: rendering {renderBudget.renderedNotes} of {sourceNoteLabel} notes and {renderBudget.renderedLinks} of {sourceLinkLabel} links. Unresolved placeholders are limited to {GRAPH_RENDER_LIMITS.missing}.
       {omittedNoteContent > 0 && <> Content indexing was skipped for {omittedNoteContent} oversized note{omittedNoteContent === 1 ? '' : 's'}.</>}
       {omittedLinkFields > 0 && <> {omittedLinkFields} oversized or malformed link field{omittedLinkFields === 1 ? ' was' : 's were'} omitted.</>}
     </p>}
 
     <div className="graph-3d-stage graph-2d-stage" ref={stageRef} tabIndex={0} onKeyDown={onGraphKeyDown}>
-      <svg ref={svgRef} className="graph-svg-canvas" viewBox={`0 0 ${dimensions.width} ${dimensions.height}`} aria-label={`Interactive ${scope} knowledge graph with ${visibleNodes.length} visible notes and ${visibleLinks.length} visible links`} onPointerMove={movePointer} onPointerUp={endPointer} onPointerCancel={endPointer} onWheel={event => {
+      <svg ref={svgRef} className="graph-svg-canvas" viewBox={`0 0 ${dimensions.width} ${dimensions.height}`} aria-label={`Interactive ${scope === 'local' ? 'local' : scopeLabel.toLowerCase()} knowledge graph with ${visibleNodes.length} visible notes and ${visibleLinks.length} visible links`} onPointerMove={movePointer} onPointerUp={endPointer} onPointerCancel={endPointer} onWheel={event => {
         event.preventDefault();
         zoomAt(Math.exp(-event.deltaY * .0011), pointFromClient(event.clientX, event.clientY));
       }}>
@@ -753,13 +808,13 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
               const point = positionsRef.current.get(node.id);
               if (!point) return null;
               const radius = nodeRadius(node, preferences.nodeSize);
-              const groupIndex = groupIndexes.get(groupForNode(node, preferences.groupBy)) || 0;
+              const groupIndex = groupIndexes.get(groupForNode(node, preferences.groupBy, projectPath)) || 0;
               const isSelected = node.id === selectedId;
               const isHovered = node.id === hoveredId;
               const isActive = node.id === activePath;
               const dimmed = Boolean(focusId && node.id !== focusId && !neighbors.has(node.id));
               const showLabel = preferences.showLabels && (view.k >= .8 || node.degree >= 3 || isSelected || isHovered || isActive);
-              return <g key={node.id} className={`graph-node graph-group-${groupIndex % 6}${node.missing ? ' missing' : ''}${node.resolution === 'ambiguous' ? ' ambiguous' : ''}${isSelected ? ' selected' : ''}${isActive ? ' active-note' : ''}${dimmed ? ' dimmed' : ''}`} transform={`translate(${point.x} ${point.y})`} role="button" tabIndex={0} aria-label={`${node.label}, ${node.resolution === 'ambiguous' ? 'ambiguous linked note' : node.missing ? 'unresolved linked note' : `${node.degree} connections`}`} onPointerDown={event => beginNodeDrag(event, node)} onPointerUp={event => endNodePointer(event, node)} onClick={event => {
+              return <g key={node.id} data-graph-node-id={node.id} className={`graph-node graph-group-${groupIndex % 6}${node.missing ? ' missing' : ''}${node.resolution === 'ambiguous' ? ' ambiguous' : ''}${isSelected ? ' selected' : ''}${isActive ? ' active-note' : ''}${dimmed ? ' dimmed' : ''}`} transform={`translate(${point.x} ${point.y})`} role="button" tabIndex={0} aria-label={`${node.label}, ${node.resolution === 'ambiguous' ? 'ambiguous linked note' : node.missing ? 'unresolved linked note' : `${node.degree} connections`}`} onPointerDown={event => beginNodeDrag(event, node)} onPointerUp={event => endNodePointer(event, node)} onClick={event => {
                 event.stopPropagation();
                 if (suppressClickRef.current === node.id) { suppressClickRef.current = null; return; }
                 setSelectedId(node.id);
@@ -801,10 +856,10 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
       {settingsOpen && <aside className="graph-settings-panel" aria-label="Graph settings">
         <header><div><span>Graph settings</span><b>Tune what the map reveals</b></div><button aria-label="Close graph settings" onClick={() => setSettingsOpen(false)}>×</button></header>
         <details open><summary>Filters</summary><label><span>Search files</span><input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="path, title, or #tag" /></label><label className="graph-check"><input type="checkbox" checked={preferences.showMissing} onChange={event => updatePreference('showMissing', event.target.checked)} /><span>Unresolved links</span></label><label className="graph-check"><input type="checkbox" checked={preferences.showOrphans} onChange={event => updatePreference('showOrphans', event.target.checked)} /><span>Orphan notes</span></label></details>
-        <details open><summary>Groups</summary><label><span>Color nodes by</span><select value={preferences.groupBy} onChange={event => updatePreference('groupBy', event.target.value as GroupMode)}><option value="folder">Top-level folder</option><option value="tag">First tag</option><option value="none">No groups</option></select></label></details>
+        <details open><summary>Groups</summary><label><span>Organize and color by</span><select value={preferences.groupBy} onChange={event => updatePreference('groupBy', event.target.value as GroupMode)}><option value="folder">Project folder</option><option value="tag">First tag</option><option value="none">Connections only</option></select></label></details>
         <details><summary>Display</summary><label className="graph-check"><input type="checkbox" checked={preferences.arrows} onChange={event => updatePreference('arrows', event.target.checked)} /><span>Link direction arrows</span></label><label className="graph-check"><input type="checkbox" checked={preferences.showLabels} onChange={event => updatePreference('showLabels', event.target.checked)} /><span>Note labels</span></label><label><span>Node size <b>{preferences.nodeSize.toFixed(1)}×</b></span><input type="range" min="0.7" max="1.6" step="0.1" value={preferences.nodeSize} onChange={event => updatePreference('nodeSize', Number(event.target.value))} /></label><label><span>Link thickness <b>{preferences.linkWidth.toFixed(1)}</b></span><input type="range" min="0.6" max="3" step="0.1" value={preferences.linkWidth} onChange={event => updatePreference('linkWidth', Number(event.target.value))} /></label>{modifiedRange.maximum > modifiedRange.minimum && <div className="graph-timeline-control"><label className="graph-check"><input type="checkbox" checked={timelineEnabled} onChange={event => { setTimelineEnabled(event.target.checked); setTimelinePlaying(false); setTimelineCutoff(modifiedRange.maximum); }} /><span>Modified timeline</span></label>{timelineEnabled && <><label><span>Through <b>{formatGraphDate(timelineCutoff)}</b></span><input type="range" min={modifiedRange.minimum} max={modifiedRange.maximum} step={Math.max(1, (modifiedRange.maximum - modifiedRange.minimum) / 120)} value={timelineCutoff} onChange={event => { setTimelinePlaying(false); setTimelineCutoff(Number(event.target.value)); }} /></label><button onClick={() => setTimelinePlaying(value => !value)}>{timelinePlaying ? 'Pause time-lapse' : 'Play time-lapse'}</button></>}</div>}</details>
         <details><summary>Forces</summary><label><span>Center force <b>{preferences.centerForce.toFixed(2)}</b></span><input type="range" min="0" max="1" step="0.02" value={preferences.centerForce} onChange={event => updatePreference('centerForce', Number(event.target.value))} /></label><label><span>Repel force <b>{preferences.repelForce}</b></span><input type="range" min="20" max="220" step="2" value={preferences.repelForce} onChange={event => updatePreference('repelForce', Number(event.target.value))} /></label><label><span>Link force <b>{preferences.linkStrength.toFixed(2)}</b></span><input type="range" min="0.05" max="1" step="0.05" value={preferences.linkStrength} onChange={event => updatePreference('linkStrength', Number(event.target.value))} /></label><label><span>Link distance <b>{preferences.linkDistance}px</b></span><input type="range" min="45" max="220" step="5" value={preferences.linkDistance} onChange={event => updatePreference('linkDistance', Number(event.target.value))} /></label></details>
-        <button className="graph-reset-settings" onClick={() => { setPreferences(DEFAULT_PREFERENCES); setQuery(''); setTimelineEnabled(false); setSimulationVersion(version => version + 1); }}>Restore defaults</button>
+        <button className="graph-reset-settings" onClick={() => { positionsRef.current.clear(); initialFitCompleteRef.current = false; viewTouchedRef.current = false; setPreferences(DEFAULT_PREFERENCES); setQuery(''); setTimelineEnabled(false); setSimulationVersion(version => version + 1); }}>Restore defaults</button>
       </aside>}
 
       {navigatorOpen && <aside className="graph-node-navigator" aria-label="Graph node navigator"><header><div><span>Node navigator</span><b>{visibleNodes.length} visible notes</b></div><button aria-label="Close node navigator" onClick={() => setNavigatorOpen(false)}>×</button></header><div>{visibleNodes.slice().sort((left, right) => right.degree - left.degree || left.label.localeCompare(right.label)).slice(0, 300).map(node => <button key={node.id} className={node.id === selectedId ? 'selected' : ''} onClick={() => { focusNode(node.id); setNavigatorOpen(false); }}><b>{node.label}</b><span>{node.missing ? 'Unresolved link' : `${node.degree} connections · ${node.folder || 'Vault root'}`}</span></button>)}</div>{visibleNodes.length > 300 && <p>Showing the 300 most connected visible notes. Use the graph filter to narrow the list.</p>}</aside>}

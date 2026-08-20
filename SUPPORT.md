@@ -1,6 +1,6 @@
 # Safire support
 
-Safire is under active development. The current 1.5.x release line and current `main` branch receive best-effort community support through GitHub Issues; older releases and source snapshots may not receive fixes.
+Safire is under active development. The current 1.6.x release line and current `main` branch receive best-effort community support through GitHub Issues; older releases and source snapshots may not receive fixes.
 
 ## Before opening an issue
 

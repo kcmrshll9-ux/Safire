@@ -64,6 +64,37 @@ test('Safire server can be scoped to a temporary vault', async (t) => {
   });
 });
 
+test('restarting the HTTP server does not resurrect deleted or renamed starter notes', async (t) => {
+  const vault = await fs.mkdtemp(path.join(os.tmpdir(), 'safire-starter-restart-'));
+  let started = await startSafireServer({ vaultDir: vault, port: 0, log: () => {} });
+  t.after(async () => {
+    if (started.server.listening) await new Promise(resolve => started.server.close(resolve));
+    await fs.rm(vault, { recursive: true, force: true });
+  });
+
+  const seeded = await fetch(`${started.url}/api/notes`).then(response => response.json());
+  assert.deepEqual(seeded.notes.map(note => note.path), ['Ideas.md', 'Welcome.md']);
+  const deleted = await fetch(`${started.url}/api/note`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: 'Welcome.md' }),
+  });
+  assert.equal(deleted.status, 200);
+  const renamed = await fetch(`${started.url}/api/rename`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: 'Ideas.md', to: 'Personal Ideas.md' }),
+  });
+  assert.equal(renamed.status, 200);
+
+  await new Promise(resolve => started.server.close(resolve));
+  started = await startSafireServer({ vaultDir: vault, port: 0, log: () => {} });
+  const reopened = await fetch(`${started.url}/api/notes`).then(response => response.json());
+  assert.deepEqual(reopened.notes.map(note => note.path), ['Personal Ideas.md']);
+  await assert.rejects(() => fs.access(path.join(vault, 'Welcome.md')), { code: 'ENOENT' });
+  await assert.rejects(() => fs.access(path.join(vault, 'Ideas.md')), { code: 'ENOENT' });
+});
+
 test('HTTP note mutations serialize accepted writes and publish complete unique backups', async (t) => {
   await withServer(t, async ({ url }) => {
     const initialVersions = Array.from({ length: 32 }, (_value, index) => `creator-${index}\n`);
@@ -367,6 +398,83 @@ test('Safire graph resolves paths deterministically and reports note topology me
     assert.deepEqual(health.missingLinks.map(link => link.target).sort(), ['Never Created', 'Twin']);
     assert.equal(health.orphanNotes.includes('Lonely.md'), true);
     assert.equal(health.orphanNotes.includes('Projects/Plan.md'), false);
+  });
+});
+
+test('project graph indexes one project independently and excludes cross-project links', async (t) => {
+  await withServer(t, async ({ url }) => {
+    const createNote = async (notePath, content) => {
+      const response = await fetch(`${url}/api/note`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: notePath, content }),
+      });
+      assert.equal(response.status, 201);
+    };
+    await createNote('Atlas/Overview.md', '# Overview\n\n[[Notes/Decision]]\n[[Beta/Plan]]\n[[Plan]]\n[[Missing]]\n');
+    await createNote('Atlas/Notes/Decision.md', '# Decision\n\n[[Atlas/Overview]]\n');
+    await createNote('Atlas/Plan.md', '# Inside duplicate title\n');
+    await createNote('Beta/Plan.md', '# Outside\n\n[[Atlas/Overview]]\n');
+
+    const response = await fetch(`${url}/api/graph?project=${encodeURIComponent('Atlas')}`);
+    assert.equal(response.status, 200);
+    const graph = await response.json();
+    assert.deepEqual(graph.nodes.map(node => node.id), ['Atlas/Notes/Decision.md', 'Atlas/Overview.md', 'Atlas/Plan.md']);
+    assert.deepEqual(graph.links.map(link => ({ source: link.source, target: link.target, resolved: link.resolved })), [
+      { source: 'Atlas/Notes/Decision.md', target: 'Atlas/Overview.md', resolved: true },
+      { source: 'Atlas/Overview.md', target: 'Atlas/Notes/Decision.md', resolved: true },
+      { source: 'Atlas/Overview.md', target: 'Atlas/Plan.md', resolved: true },
+    ]);
+    assert.deepEqual({
+      sourceNotes: graph.meta.sourceNotes,
+      sourceNotesComplete: graph.meta.sourceNotesComplete,
+      sourceLinks: graph.meta.sourceLinks,
+      sourceLinksComplete: graph.meta.sourceLinksComplete,
+      returnedNotes: graph.meta.returnedNotes,
+      returnedLinks: graph.meta.returnedLinks,
+      truncated: graph.meta.truncated,
+    }, {
+      sourceNotes: 3,
+      sourceNotesComplete: true,
+      sourceLinks: 3,
+      sourceLinksComplete: true,
+      returnedNotes: 3,
+      returnedLinks: 3,
+      truncated: false,
+    });
+
+    const outsideActive = await fetch(`${url}/api/graph?project=${encodeURIComponent('Atlas')}&active=${encodeURIComponent('Beta/Plan.md')}`).then(result => result.json());
+    assert.deepEqual(outsideActive.nodes.map(node => node.id), ['Atlas/Notes/Decision.md', 'Atlas/Overview.md', 'Atlas/Plan.md']);
+    assert.equal(outsideActive.nodes.some(node => node.id.startsWith('Beta/')), false);
+    assert.equal(outsideActive.links.some(link => link.source.startsWith('Beta/') || link.target.startsWith('Beta/')), false);
+
+    const hiddenInternal = await fetch(`${url}/api/graph?project=${encodeURIComponent('.safire')}`);
+    assert.notEqual(hiddenInternal.status, 200);
+    const nestedScope = await fetch(`${url}/api/graph?project=${encodeURIComponent('Atlas/Notes')}`);
+    assert.notEqual(nestedScope.status, 200);
+    for (const unsafeProject of ['../Atlas', 'Atlas/../Beta', 'Atlas\\Notes', 'Welcome.md']) {
+      const unsafe = await fetch(`${url}/api/graph?project=${encodeURIComponent(unsafeProject)}`);
+      assert.equal(unsafe.status, 400, unsafeProject);
+    }
+  });
+});
+
+test('project graph rejects a linked project root without indexing its target', async (t) => {
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'safire-project-graph-outside-'));
+  t.after(() => fs.rm(outside, { recursive: true, force: true }));
+  await fs.writeFile(path.join(outside, 'OUTSIDE-PROJECT-SENTINEL.md'), '# Outside');
+  await withServer(t, async ({ vault, url }) => {
+    try {
+      await fs.symlink(outside, path.join(vault, 'Linked Project'), process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (error) {
+      t.skip(`Directory links are unavailable in this environment: ${error.message}`);
+      return;
+    }
+    const response = await fetch(`${url}/api/graph?project=${encodeURIComponent('Linked Project')}`);
+    const text = await response.text();
+    assert.equal(response.status, 400);
+    assert.match(text, /symlinks or junctions/);
+    assert.doesNotMatch(text, /OUTSIDE-PROJECT-SENTINEL/);
   });
 });
 
@@ -856,9 +964,29 @@ test('Safire captures ideas and instantiates portable Markdown templates', async
   });
 });
 
+test('daily notes honor the configured vault folder', async (t) => {
+  await withServer(t, async ({ url }) => {
+    const settings = await fetch(`${url}/api/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dailyNotesFolder: 'Journal/Daily' }),
+    });
+    assert.equal(settings.status, 200);
+    assert.equal((await settings.json()).settings.dailyNotesFolder, 'Journal/Daily');
+
+    const opened = await fetch(`${url}/api/daily`, { method: 'POST' });
+    assert.equal(opened.status, 200);
+    const daily = await opened.json();
+    assert.match(daily.path, /^Journal\/Daily\/\d{4}-\d{2}-\d{2}\.md$/);
+
+    const note = await fetch(`${url}/api/note?path=${encodeURIComponent(daily.path)}`).then(response => response.json());
+    assert.match(note.content, /^# \d{4}-\d{2}-\d{2}/);
+  });
+});
+
 test('Safire indexes portable evidence receipts and filters global search locally', async (t) => {
   await withServer(t, async ({ url }) => {
-    const receipt = `\n\`\`\`safire-evidence\nid: "receipt-1"\nclaim: "Daily account balance reviewed"\nsource_type: "url"\nsource: "https://bank.example/checking"\nobserved_at: "2026-07-20T08:30:00.000Z"\naction: "Reviewed the displayed balance"\nverification: "The account page showed the expected balance"\nstatus: "verified"\nfreshness: "2026-08-20T08:30:00.000Z"\nexcerpt: "Balance displayed: $123.45"\nhash: "abc123"\nprivate_notes: "Do not share account details"\n\`\`\`\n\n\`\`\`safire-evidence\nid: "receipt-2"\nclaim: "Old tool result"\nsource_type: "tool_result"\nsource: "local diagnostic"\nobserved_at: "2025-01-01T00:00:00.000Z"\naction: "Ran local diagnostic"\nverification: "Exit code is zero"\nstatus: "stale"\nfreshness: "2025-01-02T00:00:00.000Z"\nexcerpt: "ok"\nhash: ""\nprivate_notes: ""\n\`\`\``;
+    const receipt = `\n\`\`\`safire-evidence\nid: "receipt-1"\nclaim: "Daily account balance reviewed"\nsource_type: "url"\nsource: "https://bank.example/checking"\nobserved_at: "2026-07-20T08:30:00.000Z"\naction: "Reviewed the displayed balance"\nverification: "The account page showed the expected balance"\nstatus: "verified"\nfreshness: "2030-08-20T08:30:00.000Z"\nexcerpt: "Balance displayed: $123.45"\nhash: "abc123"\nprivate_notes: "Do not share account details"\n\`\`\`\n\n\`\`\`safire-evidence\nid: "receipt-2"\nclaim: "Old tool result"\nsource_type: "tool_result"\nsource: "local diagnostic"\nobserved_at: "2025-01-01T00:00:00.000Z"\naction: "Ran local diagnostic"\nverification: "Exit code is zero"\nstatus: "stale"\nfreshness: "2025-01-02T00:00:00.000Z"\nexcerpt: "ok"\nhash: ""\nprivate_notes: ""\n\`\`\``;
     const created = await fetch(`${url}/api/note`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: 'Research/Evidence.md', content: `# Evidence\n${receipt}` }) });
     assert.equal(created.status, 201);
 
@@ -867,7 +995,7 @@ test('Safire indexes portable evidence receipts and filters global search locall
     const data = await indexed.json();
     assert.equal(data.receipts.length, 2);
     assert.deepEqual(data.receipts[0], {
-      id: 'receipt-1', claim: 'Daily account balance reviewed', sourceType: 'url', source: 'https://bank.example/checking', observedAt: '2026-07-20T08:30:00.000Z', action: 'Reviewed the displayed balance', verification: 'The account page showed the expected balance', status: 'verified', freshness: '2026-08-20T08:30:00.000Z', excerpt: 'Balance displayed: $123.45', hash: 'abc123', privateNotes: 'Do not share account details', expired: false,
+      id: 'receipt-1', claim: 'Daily account balance reviewed', sourceType: 'url', source: 'https://bank.example/checking', observedAt: '2026-07-20T08:30:00.000Z', action: 'Reviewed the displayed balance', verification: 'The account page showed the expected balance', status: 'verified', freshness: '2030-08-20T08:30:00.000Z', excerpt: 'Balance displayed: $123.45', hash: 'abc123', privateNotes: 'Do not share account details', expired: false,
     });
 
     const verified = await fetch(`${url}/api/search?status=verified&source=url&from=2026-07-01&to=2026-07-31`).then(res => res.json());

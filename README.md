@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/kcmrshll9-ux/Safire/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/kcmrshll9-ux/Safire/actions/workflows/ci.yml/badge.svg" /></a>
-  <img alt="Version 1.5.0" src="https://img.shields.io/badge/version-1.5.0-f97316" />
+  <img alt="Version 1.6.0" src="https://img.shields.io/badge/version-1.6.0-f97316" />
   <img alt="Windows, macOS, and Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-2563eb" />
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-22c55e" /></a>
 </p>
@@ -21,29 +21,30 @@ Safire keeps notes as ordinary Markdown files in a vault you choose. It adds a f
   <img src="docs/assets/safire-graph.png" alt="Safire interactive relationship graph" width="100%" />
 </p>
 
-<p align="center"><sub>Global graph view using an invented demonstration vault.</sub></p>
+<p align="center"><sub>Project graph using an invented demonstration project.</sub></p>
 
 ## Project status
 
 | Item | Current state |
 | --- | --- |
-| Current version | 1.5.0 |
-| Current source | Safire 1.5.0 release source; see the changelog below |
+| Current version | 1.6.0 |
+| Current source | Safire 1.6.0 release source; see the changelog below |
 | Desktop targets | Windows x64, macOS Apple Silicon and Intel, Linux x64 |
 | Storage | Local Markdown vault selected by the user |
 | Official downloads | [GitHub Releases](https://github.com/kcmrshll9-ux/Safire/releases) |
 | License | [MIT](LICENSE) |
 
-Safire is under active development. Version 1.5.0 adds native macOS and Linux packages while retaining the MIT license and security hardening from the 1.4 series. See the [changelog](CHANGELOG.md#150---2026-08-16) for details. Back up important vaults independently and review the [security policy](SECURITY.md) before using Safire with sensitive material.
+Safire is under active development. Version 1.6.0 refines the workspace with a project-only Home, project-specific graphs, a complete in-app Help Center, persistent user control of starter notes, clearer action hierarchy, an 8-pixel spacing rhythm, restrained accent usage, and calmer surfaces. See the [changelog](CHANGELOG.md#160---2026-08-18) for details. Back up important vaults independently and review the [security policy](SECURITY.md) before using Safire with sensitive material.
 
 ## Highlights
 
+- Project-only Home index built from user-named top-level folders, with entries and an isolated relationship graph inside each project
 - Local filesystem-backed Markdown vault with nested notes and folders
 - Split editor and preview, focused edit and reading modes, and tabbed notes
 - Search, tags, backlinks, outgoing links, and `[[wiki links]]`
-- Interactive 2D force-directed graph with global and local scopes and explicit large-vault rendering limits
+- Interactive 2D force-directed graph with project and local-connection scopes; notes from other projects are excluded
 - Large graph responses are limited to 1,000 notes, 2,000 links, and 2 MiB of response data; link targets and aliases are limited to 1,024 characters and 2 KiB, at most 250 unique unresolved placeholders are rendered, the active note is retained, and truncation or omitted imported content is visibly labeled
-- Graph depth, filters, folder/tag grouping, display controls, and adjustable forces
+- Project-relative graph links and clusters, depth, filters, folder/tag grouping, display controls, and adjustable forces
 - Node hover, drag, pan, zoom, keyboard navigation, context actions, and in-graph note panels
 - Daily notes, Markdown tasks, templates, quick capture, and saved searches
 - Command palette, quick switcher, and Markdown formatting controls
@@ -53,6 +54,7 @@ Safire is under active development. Version 1.5.0 adds native macOS and Linux pa
 - Vault health summaries and configurable local-first settings
 - Legacy vault-scoped MCP server with a deliberately narrow eight-tool surface
 - Optional, additive six-tool MCP sidecar for attributed general-agent memory
+- Searchable in-app Help Center with complete workflows, use cases, AI connection steps, safe prompt examples, troubleshooting, and licensing
 
 ## Privacy model
 
@@ -106,8 +108,8 @@ npm run dist:mac     # macOS
 Windows output includes:
 
 ```text
-release/Safire-Setup-1.5.0.exe
-release/Safire-Portable-1.5.0.exe
+release/Safire-Setup-1.6.0.exe
+release/Safire-Portable-1.6.0.exe
 ```
 
 The selected vault remains outside the application installation directory and is never packaged into an application update.
@@ -148,11 +150,13 @@ Documents/Safire Vault
 
 Without `SAFIRE_VAULT_PATH`, the source server follows the saved desktop selection or uses `Documents/Safire Vault`. In the desktop app, use **Safire → Change Vault Location…** to switch later. The desktop application and MCP servers can share that saved selection.
 
+Home treats each top-level user folder as one named project and shows only project cards. Open a project to create, edit, or backup-before-delete its Markdown entries and to explore a graph limited to that project’s notes and internal links. To manage several existing project folders together, select their common parent as the vault; Safire reads the folders in place and does not move or rewrite them when you switch.
+
 ## MCP integrations
 
 Safire provides two separate, additive local stdio MCP servers. Neither server modifies Hermes or another agent host, and installing Safire does not add a transcript listener, background capture hook, or automatic memory collector.
 
-The legacy vault server, `safire-mcp.mjs`, retains its exact eight-tool surface: `list_notes`, `read_note`, `create_note`, `update_note`, `quick_capture`, `list_tasks`, `toggle_task`, and `vault_health`. It works with Markdown notes through an in-process vault service, opens no HTTP listener, and does not expose delete, rename, attachment, backup-restore, or web-fetch tools.
+The vault server, `safire-mcp.mjs`, retains its exact eight-tool surface: `list_notes`, `read_note`, `create_note`, `update_note`, `quick_capture`, `list_tasks`, `toggle_task`, and `vault_health`. It works with Markdown notes through an in-process vault service, opens no HTTP listener, and does not expose delete, rename, attachment, backup-restore, or web-fetch tools.
 
 Run the MCP server against a one-off test vault with:
 
@@ -168,12 +172,16 @@ mcp_servers:
     command: node
     args:
       - C:/path/to/Safire/safire-mcp.mjs
+      - --vault
+      - C:/path/to/My Safire Vault
     timeout: 30
 ```
 
 Restart the agent session after registering the server or changing the selected vault so its tool connection is refreshed.
 
-The separate agent-memory server, `safire-memory-mcp.mjs`, exposes exactly six tools: `memory_record_events`, `memory_search`, `memory_get`, `memory_record_feedback`, `memory_recall`, and `memory_status`. It stores append-only, attributed event-backed memory beneath `<vault>/.safire/memory/v1/` without changing Markdown notes or the legacy MCP surface.
+Open **Safire Help → Connect an AI assistant** for current, copy-ready Hermes and OpenClaw commands, explicit connection-verification steps, the permission boundary of all eight tools, a safe operating prompt, terminal interaction examples, and a prompt library for searches, careful updates, tasks, captures, projects, meetings, and vault health.
+
+The separate agent-memory server, `safire-memory-mcp.mjs`, exposes exactly six tools: `memory_record_events`, `memory_search`, `memory_get`, `memory_record_feedback`, `memory_recall`, and `memory_status`. It stores append-only, attributed event-backed memory beneath `<vault>/.safire/memory/v1/` without changing Markdown notes or the vault MCP surface.
 
 Run it with an operator-controlled version-1 profile and an explicit vault:
 
@@ -183,7 +191,7 @@ npm run mcp:memory -- --profile-config "C:/path/to/agent-memory-profile.json" --
 
 Installed desktop packages expose a platform-native optional memory launcher: `resources/safire-memory-mcp.cmd` on Windows and `resources/safire-memory-mcp.sh` on macOS or Linux. An MCP host can use that launcher with the same arguments without a separate Node.js/source installation. Connection is still manual and opt-in; see the agent-memory guide for exact configuration. Portable Windows and AppImage builds do not promise a stable external launcher path.
 
-The fixed profile provides stable principal, agent-instance, ingest-adapter, source, actor, and namespace identities. Ordinary portable profiles cannot claim user activity. Authenticated user events require the separate trusted-bridge library seam and a host-supplied authenticator; that seam is not a listener or installed transport. Harry and Moltbook appear only in reference examples—Safire memory is agent-general, and Moltbook is modeled there only as automation delegated by the reference Harry profile.
+The fixed profile provides stable principal, agent-instance, ingest-adapter, source, actor, and namespace identities. Ordinary portable profiles cannot claim user activity. Authenticated user events require the separate trusted-bridge library seam and a host-supplied authenticator; that seam is not a listener or installed transport. Published examples use neutral synthetic agent and delegated-automation identities; Safire memory is agent-general.
 
 Memory records are local plaintext JSON. Use operating-system permissions and device encryption where confidentiality matters, and never submit credentials, tokens, private reasoning, chain-of-thought, or scratchpad material in content, identifiers, metadata, or search queries. See the [agent-memory guide](docs/memory/README.md), [security model](docs/memory/SECURITY.md), and [trusted-bridge contract](docs/memory/TRUSTED_BRIDGE.md) before enabling it.
 
@@ -198,7 +206,7 @@ Memory records are local plaintext JSON. Use operating-system permissions and de
 
 ## Documentation
 
-See the [documentation index](docs/README.md) for the current documentation status and bundled legacy manuals. Some bundled HTML/PDF guides predate the current graph and evidence features; the application and this README are authoritative where they differ.
+Open **Safire Help** inside the application for the complete current software guide. The [documentation index](docs/README.md) lists agent references and clearly labeled historical manuals; the application and this README are authoritative where older material differs.
 
 ## Repository map
 
@@ -212,7 +220,7 @@ See the [documentation index](docs/README.md) for the current documentation stat
 | `safire-memory-mcp.mjs` | Separate six-tool general-agent memory MCP server |
 | `lib/memory/` | Versioned local memory schemas, profiles, persistence, search, and trust seam |
 | `test/` | Automated tests using disposable data |
-| `docs/` | User and agent documentation |
+| `docs/` | Agent references and archived historical manuals |
 | `press-kit/` | Brand and media materials |
 
 ## Support, security, and contributions

@@ -1,29 +1,29 @@
 {
   "version": 1,
-  "profile_id": "profile:harry-local",
+  "profile_id": "profile:example-local",
   "profile_type": "portable_mcp",
   "principal": {
-    "id": "agent:harry",
+    "id": "agent:example",
     "type": "agent",
-    "display_name": "Harry"
+    "display_name": "Example Agent"
   },
   "agent_instance": {
-    "id": "agent_instance:harry:desktop",
+    "id": "agent_instance:example:desktop",
     "type": "agent_instance",
-    "display_name": "Harry desktop"
+    "display_name": "Example desktop instance"
   },
   "ingested_by": {
-    "id": "adapter:safire-memory-mcp:harry",
+    "id": "adapter:safire-memory-mcp:example",
     "adapter_type": "portable_mcp",
-    "profile_id": "profile:harry-local"
+    "profile_id": "profile:example-local"
   },
-  "source_identity": "mcp:harry-local",
+  "source_identity": "mcp:example-local",
   "allowed_actors": [
     {
-      "id": "automation:moltbook",
+      "id": "automation:scheduled-research",
       "type": "automation",
-      "display_name": "Moltbook",
-      "delegated_by": "agent:harry"
+      "display_name": "Scheduled Research",
+      "delegated_by": "agent:example"
     },
     {
       "id": "external_service:browser",
@@ -33,13 +33,13 @@
   ],
   "namespace_grants": [
     {
-      "namespace": "agents/harry",
+      "namespace": "agents/example",
       "read": true,
       "write": true,
       "descendants": true
     },
     {
-      "namespace": "automation/moltbook",
+      "namespace": "automation/scheduled-research",
       "read": true,
       "write": true,
       "descendants": true

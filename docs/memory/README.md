@@ -159,9 +159,9 @@ A normalized profile has these top-level fields:
 | `namespace_grants` | Explicit read/write ACLs. |
 | `trust.accept_user_events` | Always `false` for `portable_mcp`; only an authenticated trusted bridge may enable it. |
 
-Actor IDs are stable, typed opaque IDs such as `agent:harry`, `automation:moltbook`, and `external_service:browser`. An automation must name the profile principal in `delegated_by`. A portable profile cannot allowlist a user, system, another agent, or another agent instance. An `unknown` actor must be explicitly allowlisted; it is the safe attribution for an explicitly submitted legacy item whose author cannot be established.
+Actor IDs are stable, typed opaque IDs such as `agent:example`, `automation:scheduled-research`, and `external_service:browser`. An automation must name the profile principal in `delegated_by`. A portable profile cannot allowlist a user, system, another agent, or another agent instance. An `unknown` actor must be explicitly allowlisted; it is the safe attribution for an explicitly submitted legacy item whose author cannot be established.
 
-Harry is only a reference profile in this repository. In that profile, Moltbook is an `automation` delegated by `agent:harry`; it is not Harry, a user, or an independent agent. [`synthetic-portable-profile.json`](examples/synthetic-portable-profile.json) shows a second, invented agent with a different private namespace. Its isolation is intentional.
+The repository's example profile is explicitly synthetic. Its `automation:scheduled-research` actor is delegated by `agent:example`; it is not a user or an independent agent. [`synthetic-portable-profile.json`](examples/synthetic-portable-profile.json) shows a second, invented agent with a different private namespace. Its isolation is intentional.
 
 Existing Markdown is never auto-imported, rewritten, or assigned to a user by this milestone. If a future or operator-controlled adapter explicitly submits a legacy note without trustworthy authorship, it must use an explicitly configured `unknown` actor, never `user`.
 
@@ -210,10 +210,10 @@ The trusted source tuple is `(profile.source_identity, input.source.stream, inpu
 
 All files below contain synthetic or requested reference identities and no secrets:
 
-- [`harry-portable-profile.json`](examples/harry-portable-profile.json): Harry reference profile, including delegated Moltbook automation.
+- [`example-portable-profile.json`](examples/example-portable-profile.json): neutral synthetic reference profile, including a delegated scheduled-research automation.
 - [`synthetic-portable-profile.json`](examples/synthetic-portable-profile.json): isolated second-agent profile.
-- [`harry-agent-event.json`](examples/harry-agent-event.json): visible Harry response event.
-- [`harry-moltbook-event.json`](examples/harry-moltbook-event.json): separately attributed automation event.
+- [`example-agent-event.json`](examples/example-agent-event.json): visible synthetic-agent response event.
+- [`example-automation-event.json`](examples/example-automation-event.json): separately attributed synthetic automation event.
 - [`correction-feedback.json`](examples/correction-feedback.json): schema-valid append-only correction template; replace its target with a record accessible in the selected vault.
 - [`trusted-bridge-profile.json`](examples/trusted-bridge-profile.json), [`trusted-bridge-user-event.json`](examples/trusted-bridge-user-event.json), and [`trusted-bridge-authentication-result.json`](examples/trusted-bridge-authentication-result.json): invented trusted-bridge configuration, envelope, and successful authentication result.
 

@@ -73,7 +73,8 @@ function linkStringCharacters(link: GraphBudgetLink) {
 /**
  * Applies a deterministic, defensive render budget before the graph view creates
  * unresolved placeholders, force-layout state, or SVG elements. The active note
- * is retained when it exists, followed by the server's stable node/link order.
+ * is retained when it exists, while output preserves the server's stable order
+ * so changing only the active note cannot reset graph layout or camera state.
  */
 export function limitGraphForRendering<Node extends GraphBudgetNode, Link extends GraphBudgetLink>(
   graph: GraphBudgetInput<Node, Link>,
@@ -101,6 +102,8 @@ export function limitGraphForRendering<Node extends GraphBudgetNode, Link extend
     addNode(node);
     if (nodes.length >= GRAPH_RENDER_LIMITS.notes) break;
   }
+  const sourceOrder = new Map(sourceNodes.map((node, index) => [node.id, index]));
+  nodes.sort((left, right) => (sourceOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (sourceOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER));
 
   const unresolvedTargets = new Set<string>();
   const links: Link[] = [];

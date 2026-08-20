@@ -11,7 +11,7 @@ function event(overrides = {}) {
   return {
     event_id: 'evt_11111111-1111-4111-8111-111111111111',
     memory_id: 'mem_11111111-1111-4111-8111-111111111111',
-    actor: { type: 'agent', id: 'agent:harry' },
+    actor: { type: 'agent', id: 'agent:example' },
     content: 'Review the crimson launch checklist',
     ingested_at: '2026-08-14T10:00:00.000Z',
     ...overrides,
@@ -25,9 +25,9 @@ function feedback(actor, signal, target = { type: 'memory', id: event().memory_i
 test('agent and automation activity never becomes user activity', () => {
   const memoryEvent = event();
   const records = [
-    feedback({ type: 'agent', id: 'agent:harry' }, 'useful'),
-    feedback({ type: 'automation', id: 'automation:moltbook' }, 'useful'),
-    feedback({ type: 'automation', id: 'automation:moltbook' }, 'useful'),
+    feedback({ type: 'agent', id: 'agent:example' }, 'useful'),
+    feedback({ type: 'automation', id: 'automation:indexer' }, 'useful'),
+    feedback({ type: 'automation', id: 'automation:indexer' }, 'useful'),
   ];
 
   const summary = summarizeActivity(memoryEvent, records);
@@ -46,10 +46,10 @@ test('agent and automation activity never becomes user activity', () => {
 test('trusted user feedback remains distinct and stronger than agent repetition', () => {
   const memoryEvent = event();
   const agentRepeated = Array.from({ length: 100 }, () => (
-    feedback({ type: 'agent', id: 'agent:harry' }, 'useful')
+    feedback({ type: 'agent', id: 'agent:example' }, 'useful')
   ));
   const automationRepeated = Array.from({ length: 100 }, () => (
-    feedback({ type: 'automation', id: 'automation:moltbook' }, 'useful')
+    feedback({ type: 'automation', id: 'automation:indexer' }, 'useful')
   ));
   const userConfirmed = [feedback({ type: 'user', id: 'user:owner' }, 'user_confirmed')];
 
@@ -70,7 +70,7 @@ test('ranking is lexical, actor-aware, deterministic, and has no time decay', ()
   const newer = event({
     event_id: 'evt_22222222-2222-4222-8222-222222222222',
     memory_id: 'mem_22222222-2222-4222-8222-222222222222',
-    actor: { type: 'automation', id: 'automation:moltbook' },
+    actor: { type: 'automation', id: 'automation:indexer' },
     ingested_at: '2026-08-14T11:00:00.000Z',
   });
   const ranked = rankMemoryEvents([older, newer], [], { query: 'crimson', limit: 10 });
@@ -86,7 +86,7 @@ test('feedback for event and memory targets is both retained', () => {
   const ranked = rankMemoryEvents([memoryEvent], [
     feedback({ type: 'user', id: 'user:owner' }, 'useful'),
     feedback(
-      { type: 'agent', id: 'agent:harry' },
+      { type: 'agent', id: 'agent:example' },
       'not_useful',
       { type: 'event', id: memoryEvent.event_id },
     ),
