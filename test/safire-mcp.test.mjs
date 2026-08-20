@@ -47,13 +47,13 @@ function createClient({ vaultDir, configPath, useVaultArgument = true, extraEnv 
     }
   });
 
-  const request = (method, params = {}) => new Promise((resolve, reject) => {
+  const request = (method, params = {}, { timeoutMs = 5_000 } = {}) => new Promise((resolve, reject) => {
     const id = nextId++;
     pending.set(id, resolve);
     child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
     setTimeout(() => {
       if (pending.delete(id)) reject(new Error(`Timed out waiting for ${method}; stderr: ${stderr}`));
-    }, 5000).unref();
+    }, timeoutMs).unref();
   });
   const notify = (method, params = {}) => child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method, params })}\n`);
   const close = async () => {
@@ -223,7 +223,12 @@ test('real stdio MCP generic indexes cap imported metadata and pretty-JSON respo
   });
   client.notify('notifications/initialized');
 
-  const listedCall = await client.request('tools/call', { name: 'list_notes', arguments: {} });
+  // These calls intentionally parse several megabytes of imported metadata.
+  // Give slower CI runners headroom while every ordinary request keeps the
+  // fail-fast five-second default.
+  const heavyRequest = { timeoutMs: 15_000 };
+
+  const listedCall = await client.request('tools/call', { name: 'list_notes', arguments: {} }, heavyRequest);
   const listedText = listedCall.result.content[0].text;
   const listed = JSON.parse(listedText);
   assert.equal(listed.meta.responseBytes, Buffer.byteLength(listedText, 'utf8'));
@@ -233,14 +238,14 @@ test('real stdio MCP generic indexes cap imported metadata and pretty-JSON respo
   const searchedCall = await client.request('tools/call', {
     name: 'list_notes',
     arguments: { query: 'common-mcp-index-marker' },
-  });
+  }, heavyRequest);
   const searchedText = searchedCall.result.content[0].text;
   const searched = JSON.parse(searchedText);
   assert.equal(searched.results.length, 4);
   assert.equal(searched.meta.responseBytes, Buffer.byteLength(searchedText, 'utf8'));
   assert.ok(searched.meta.responseBytes <= GENERIC_INDEX_LIMITS.responseBytes);
 
-  const taskCall = await client.request('tools/call', { name: 'list_tasks', arguments: { state: 'all' } });
+  const taskCall = await client.request('tools/call', { name: 'list_tasks', arguments: { state: 'all' } }, heavyRequest);
   const taskText = taskCall.result.content[0].text;
   const tasks = JSON.parse(taskText);
   assert.equal(tasks.tasks.length, GENERIC_INDEX_LIMITS.tasks);
@@ -248,7 +253,7 @@ test('real stdio MCP generic indexes cap imported metadata and pretty-JSON respo
   assert.equal(tasks.meta.responseBytes, Buffer.byteLength(taskText, 'utf8'));
   assert.ok(tasks.meta.responseBytes <= GENERIC_INDEX_LIMITS.responseBytes);
 
-  const healthCall = await client.request('tools/call', { name: 'vault_health', arguments: {} });
+  const healthCall = await client.request('tools/call', { name: 'vault_health', arguments: {} }, heavyRequest);
   const healthText = healthCall.result.content[0].text;
   const health = JSON.parse(healthText);
   assert.equal(health.meta.backupsComplete, false);
