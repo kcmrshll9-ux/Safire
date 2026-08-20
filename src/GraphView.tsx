@@ -1139,7 +1139,7 @@ export function GraphView({ graph, activePath, onPreview, onEdit, onCreateMissin
         <button aria-label="Zoom out" onClick={() => zoomAt(1 / 1.18)}>−</button>
         <button aria-label="Zoom in" onClick={() => zoomAt(1.18)}>+</button>
         {displayMode === 'full-graph' && <button className="graph-orbit-reset" title="Reset 3D rotation (R)" onClick={resetFullGraphOrbit}>Reset 3D</button>}
-        {displayMode === 'full-graph' && <button ref={fullscreenTriggerRef} className="graph-fullscreen-button" aria-pressed={fullscreenActive} title="Full screen (F)" onClick={() => void toggleFullscreen()}>{fullscreenActive ? 'Exit full screen' : 'Full screen'}</button>}
+        {displayMode === 'full-graph' && <button ref={fullscreenTriggerRef} className="graph-fullscreen-button" aria-pressed={fullscreenActive} title="Full screen (F)" onClick={() => void toggleFullscreen()}>{fullscreenFallback ? 'Exit expanded view' : isFullscreen ? 'Exit full screen' : 'Full screen'}</button>}
         <OverflowMenu label="More graph actions" className="graph-toolbar-overflow" items={[
           { label: navigatorOpen ? 'Hide nodes' : 'Nodes', hint: navigatorOpen ? 'Close the node navigator' : displayMode === 'project-map' ? 'Browse every project note, including grouped notes' : 'Browse visible notes', onSelect: () => { setNavigatorOpen(value => !value); setSettingsOpen(false); } },
           { label: settingsOpen ? 'Hide settings' : 'Settings', hint: settingsOpen ? 'Close graph settings' : 'Tune filters and display', onSelect: () => { setSettingsOpen(value => !value); setNavigatorOpen(false); } },

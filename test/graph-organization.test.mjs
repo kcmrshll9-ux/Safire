@@ -351,6 +351,7 @@ test('Full graph wires perspective orbit controls and a direct full-screen actio
   assert.match(source, /kind: 'orbit'/);
   assert.match(source, /displayMode === 'full-graph' && !event\.shiftKey/);
   assert.match(source, /displayMode === 'full-graph' && <button ref=\{fullscreenTriggerRef\} className="graph-fullscreen-button" aria-pressed=\{fullscreenActive\}/);
+  assert.match(source, /fullscreenFallback \? 'Exit expanded view' : isFullscreen \? 'Exit full screen' : 'Full screen'/);
   assert.match(source, /orbitFrameRef\.current = requestAnimationFrame/);
   assert.match(source, /renderedNodes\.map\(node =>/);
   assert.match(source, /document\.addEventListener\('keydown', closeFallback, true\)/);
