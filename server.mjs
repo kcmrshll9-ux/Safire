@@ -1306,14 +1306,8 @@ app.get('/api/graph', async (req, res, next) => {
       omittedLinkFields += scan.omitted;
       if (!scan.complete) omittedLink = true;
       if (!scan.observationsComplete) linkDiscoveryStopped = true;
-      const retainedTargets = new Set();
+      const retainedRelationships = new Set();
       for (const linkTitle of scan.targets) {
-        if (candidateLinks.length >= GRAPH_STORAGE_LIMITS.links) {
-          omittedLink = true;
-          linkDiscoveryStopped = true;
-          break;
-        }
-        if (retainedTargets.has(linkTitle)) continue;
         const resolution = resolveWikiLink(linkTitle);
         if (projectPath && !resolverDiscovery.complete && resolution.resolution === 'unique-title') {
           // A bounded project name index cannot prove title uniqueness.
@@ -1330,7 +1324,16 @@ app.get('/api/graph', async (req, res, next) => {
           omittedLink = true;
           continue;
         }
-        retainedTargets.add(linkTitle);
+        // Equivalent wiki-link spellings are one directed relationship once
+        // they resolve to the same canonical target from this source note.
+        const relationshipKey = `${resolution.resolved ? 'resolved' : resolution.resolution}\0${resolverPathKey(resolution.target)}`;
+        if (retainedRelationships.has(relationshipKey)) continue;
+        if (candidateLinks.length >= GRAPH_STORAGE_LIMITS.links) {
+          omittedLink = true;
+          linkDiscoveryStopped = true;
+          break;
+        }
+        retainedRelationships.add(relationshipKey);
         candidateLinks.push({
           id: `link:${candidateLinks.length}`,
           source: rel,

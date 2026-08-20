@@ -63,7 +63,7 @@ export function ProjectHome({ hidden, tree, notes, activePath, selectedProjectPa
     : null;
   const projectGraphActivePath = projectGraphData?.nodes.some(node => node.id === activePath)
     ? activePath
-    : projectGraphData?.nodes[0]?.id || '';
+    : '';
 
   React.useLayoutEffect(() => {
     if (resolvedActiveProjectPath) {

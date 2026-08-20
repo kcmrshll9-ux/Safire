@@ -1,6 +1,6 @@
 # Safire documentation
 
-This directory contains bundled Safire user and agent documentation. Safire is currently version 1.6.0; the searchable in-app Help Center is the complete current software guide, while versioned manuals are retained as clearly labeled historical references. The current application also contains the additive, opt-in general-agent memory foundation.
+This directory contains bundled Safire user and agent documentation. Safire is currently version 1.6.1; the searchable in-app Help Center is the complete current software guide, while versioned manuals are retained as clearly labeled historical references. The current application also contains the additive, opt-in general-agent memory foundation.
 
 ## Current references
 
@@ -26,7 +26,7 @@ This directory contains bundled Safire user and agent documentation. Safire is c
 
 Where a bundled legacy manual conflicts with the application or the root README, treat the current application and [README.md](../README.md) as authoritative. In particular:
 
-- the current Graph is a two-dimensional force-directed relationship graph, not the earlier three-dimensional workspace;
+- the current Graph defaults to a deterministic two-dimensional Project map; its optional Full graph shows every matching relationship in mouse-rotatable perspective 3D and can open full screen;
 - source-server vault selection follows the saved desktop selection or `SAFIRE_VAULT_PATH`, not a project-local `./vault` default;
 - machine-specific paths in legacy MCP examples must be replaced with paths for the local installation; and
 - Safire stores primary data in the selected vault; Web Clipper requests are user-initiated, YouTube cards are local-only until opened, and the desktop content policy blocks remote Markdown images;

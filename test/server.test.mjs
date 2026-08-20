@@ -338,7 +338,7 @@ test('Safire graph resolves paths deterministically and reports note topology me
       sourceLinks: 7,
       sourceLinksComplete: true,
       returnedNotes: 7,
-      returnedLinks: 7,
+      returnedLinks: 5,
       omittedNoteContent: 0,
       omittedLinkFields: 0,
       responseBytes: Buffer.byteLength(JSON.stringify(graph), 'utf8'),
@@ -350,16 +350,12 @@ test('Safire graph resolves paths deterministically and reports note topology me
     const linksByLabel = new Map(links.map(link => [link.label, link]));
 
     assert.deepEqual(
-      ['Projects/Plan', 'Projects/Plan.md', 'Plan.md'].map(label => ({
-        target: linksByLabel.get(label).target,
-        resolved: linksByLabel.get(label).resolved,
-        resolution: linksByLabel.get(label).resolution,
+      links.filter(link => link.target === 'Projects/Plan.md').map(link => ({
+        label: link.label,
+        resolved: link.resolved,
+        resolution: link.resolution,
       })),
-      [
-        { target: 'Projects/Plan.md', resolved: true, resolution: 'exact-path' },
-        { target: 'Projects/Plan.md', resolved: true, resolution: 'exact-path' },
-        { target: 'Projects/Plan.md', resolved: true, resolution: 'unique-title' },
-      ],
+      [{ label: 'Projects/Plan', resolved: true, resolution: 'exact-path' }],
     );
     assert.deepEqual(
       { target: linksByLabel.get('Twin').target, resolved: linksByLabel.get('Twin').resolved, resolution: linksByLabel.get('Twin').resolution },
@@ -383,7 +379,7 @@ test('Safire graph resolves paths deterministically and reports note topology me
     assert.equal(Number.isFinite(plan.mtime), true);
     assert.deepEqual(
       { inDegree: plan.inDegree, outDegree: plan.outDegree, degree: plan.degree, orphan: plan.orphan },
-      { inDegree: 3, outDegree: 0, degree: 3, orphan: false },
+      { inDegree: 1, outDegree: 0, degree: 1, orphan: false },
     );
     assert.deepEqual(
       { inDegree: nodes.get('Lonely.md').inDegree, outDegree: nodes.get('Lonely.md').outDegree, degree: nodes.get('Lonely.md').degree, orphan: nodes.get('Lonely.md').orphan },
@@ -456,6 +452,56 @@ test('project graph indexes one project independently and excludes cross-project
       const unsafe = await fetch(`${url}/api/graph?project=${encodeURIComponent(unsafeProject)}`);
       assert.equal(unsafe.status, 400, unsafeProject);
     }
+  });
+});
+
+test('project graph deduplicates equivalent wiki-link spellings by directed resolved endpoints', async (t) => {
+  await withServer(t, async ({ url }) => {
+    const createNote = async (notePath, content) => {
+      const response = await fetch(`${url}/api/note`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: notePath, content }),
+      });
+      assert.equal(response.status, 201);
+    };
+    await createNote('Map/Source.md', [
+      '# Source',
+      '[[Target]]',
+      '[[Target]]',
+      '[[Target.md]]',
+      '[[Map/Target]]',
+      '[[Map/Target.md|Same destination]]',
+    ].join('\n'));
+    await createNote('Map/Target.md', '# Target\n\n[[Source]]\n');
+    await createNote('Map/Other.md', '# Other\n\n[[Target]]\n');
+
+    const graph = await fetch(`${url}/api/graph?project=${encodeURIComponent('Map')}`).then(response => response.json());
+    const relationships = graph.links.map(link => ({
+      source: link.source,
+      target: link.target,
+      label: link.label,
+      resolved: link.resolved,
+    }));
+
+    assert.deepEqual(relationships, [
+      { source: 'Map/Other.md', target: 'Map/Target.md', label: 'Target', resolved: true },
+      { source: 'Map/Source.md', target: 'Map/Target.md', label: 'Target', resolved: true },
+      { source: 'Map/Target.md', target: 'Map/Source.md', label: 'Source', resolved: true },
+    ]);
+    assert.equal(new Set(graph.links.map(link => `${link.source}\0${link.target}`)).size, graph.links.length);
+    assert.equal(graph.meta.sourceLinks, 3);
+    assert.equal(graph.meta.returnedLinks, 3);
+    assert.equal(graph.meta.truncated, false);
+    const nodes = new Map(graph.nodes.map(node => [node.id, node]));
+    assert.deepEqual(
+      { inDegree: nodes.get('Map/Source.md').inDegree, outDegree: nodes.get('Map/Source.md').outDegree },
+      { inDegree: 1, outDegree: 1 },
+    );
+    assert.deepEqual(
+      { inDegree: nodes.get('Map/Target.md').inDegree, outDegree: nodes.get('Map/Target.md').outDegree },
+      { inDegree: 2, outDegree: 1 },
+    );
   });
 });
 

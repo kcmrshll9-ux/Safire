@@ -3,7 +3,7 @@
 | Field | Detail |
 | --- | --- |
 | Product | Safire |
-| Version | 1.6.0 |
+| Version | 1.6.1 |
 | Category | Privacy-focused Markdown knowledge workspace |
 | Platform | Windows x64, macOS Apple Silicon and Intel, Linux x64; local browser/developer mode |
 | Storage | Plain `.md` files in a user-selected local vault |
@@ -22,8 +22,8 @@ Safire is a Markdown knowledge forge for connected notes, interactive relationsh
 - Folders, nested notes, tabs, full-vault search, tags, and saved searches
 - Wikilinks, backlinks, outgoing links, and missing-note creation
 - Named projects built from top-level vault folders, with project entries kept out of the Home index until a project is opened
-- A separate two-dimensional, force-directed relationship graph for each project, limited to that project's notes and internal links
-- Project-relative folder clusters and wikilink resolution, plus project and local scopes, filters, grouping, hover highlighting, pan, zoom, and node dragging
+- A separate relationship graph for each project, limited to that project's notes and internal links, with a deterministic two-dimensional Project map for readable first-open organization
+- A lossless Full graph with optional mouse-rotatable perspective 3D and full-screen exploration, plus project-relative wikilink resolution, project and local scopes, filters, grouping, hover highlighting, pan, zoom, and node dragging
 - Daily notes, vault-wide tasks, quick capture, and Markdown templates
 - Drag, paste, and attach files into the vault
 - Web Clipper with local/private-network request protections

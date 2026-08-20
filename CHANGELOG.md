@@ -4,6 +4,13 @@ Notable changes to Safire are recorded here. Application versions follow the ver
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-08-20
+
+### Changed
+
+- Made dense project graphs readable at first open with a deterministic, folder-clustered Project map, explicit grouped-note expansion, selected-note connections, and an optional mouse-rotatable, full-screen 3D Full graph view, without changing project notes or project-isolated link resolution.
+- Deduplicated equivalent wiki-link spellings by canonical directed endpoints, so each source-to-target edge draws once while reciprocal links remain distinct.
+
 ## [1.6.0] - 2026-08-20
 
 ### Added

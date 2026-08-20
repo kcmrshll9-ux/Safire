@@ -712,7 +712,9 @@ test('Safire MCP uses only its in-process eight-tool service and cannot reach hi
     t.diagnostic(`Junction assertion skipped: ${error.message}`);
   }
 
-  const nodeOptions = [process.env.NODE_OPTIONS, `--require=${denyNetworkListenFixture}`].filter(Boolean).join(' ');
+  // NODE_OPTIONS is reparsed by the child Node process, so quote the preload
+  // path to keep Windows worktrees with spaces from splitting the module name.
+  const nodeOptions = [process.env.NODE_OPTIONS, `--require=${JSON.stringify(denyNetworkListenFixture)}`].filter(Boolean).join(' ');
   const client = createClient({ vaultDir: vault, extraEnv: { NODE_OPTIONS: nodeOptions } });
   t.after(async () => {
     await client.close();
