@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
 const vaultConfig = require('../vault-config.cjs');
+const { allowsSafireDesktopPermission } = require('./permission-policy.cjs');
 
 let mainWindow = null;
 let safireServer = null;
@@ -149,8 +150,28 @@ async function createWindow() {
       allowRunningInsecureContent: false,
     },
   });
-  mainWindow.webContents.session.setPermissionCheckHandler(() => false);
-  mainWindow.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  const permissionContext = {
+    appOrigin: new URL(url).origin,
+    mainWebContents: mainWindow.webContents,
+  };
+  mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => (
+    allowsSafireDesktopPermission({
+      ...permissionContext,
+      webContents,
+      permission,
+      requestingUrl: requestingOrigin,
+      isMainFrame: details?.isMainFrame === true,
+    })
+  ));
+  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    callback(allowsSafireDesktopPermission({
+      ...permissionContext,
+      webContents,
+      permission,
+      requestingUrl: details?.requestingUrl,
+      isMainFrame: details?.isMainFrame === true,
+    }));
+  });
   const revealMainWindow = () => {
     if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isVisible()) return;
     mainWindow.show();
