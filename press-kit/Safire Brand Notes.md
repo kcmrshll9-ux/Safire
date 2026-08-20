@@ -32,5 +32,6 @@ Safire is not affiliated with Obsidian or any other third-party notes applicatio
 ## Contact
 
 - Repository: https://github.com/kcmrshll9-ux/Safire
+- X: https://x.com/run4ourfun (`@run4ourfun`)
 - Support and media requests: https://github.com/kcmrshll9-ux/Safire/issues
 - Confidential security reports: use **Security → Report a vulnerability** when that repository feature is enabled; otherwise follow the [security policy](../SECURITY.md) without posting technical details publicly.

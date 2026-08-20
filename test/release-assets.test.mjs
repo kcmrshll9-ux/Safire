@@ -53,6 +53,7 @@ test('multi-platform release assets receive a complete deterministic checksum ma
   assert.match(releaseNotes, /not code-signed/);
   assert.match(releaseNotes, /Safire-1\.6\.0-macos-arm64\.dmg/);
   assert.match(releaseNotes, /Safire-1\.6\.0-linux-x64\.AppImage/);
+  assert.match(releaseNotes, /https:\/\/x\.com\/run4ourfun/);
 });
 
 test('public 1.6.0 highlights describe the shipped project and platform behavior', async () => {
@@ -72,5 +73,8 @@ test('public 1.6.0 highlights describe the shipped project and platform behavior
   assert.match(boilerplate, /Named projects keep their entries and relationship graphs separate/);
   assert.match(pressKit, /A separate two-dimensional graph for each project/);
   assert.match(pressKit, /MIT License grants rights to Safire branding/);
+  assert.match(readme, /https:\/\/x\.com\/run4ourfun/);
+  assert.match(factSheet, /https:\/\/x\.com\/run4ourfun/);
+  assert.match(pressKit, /https:\/\/x\.com\/run4ourfun/);
   assert.doesNotMatch(`${factSheet}\n${pressKit}`, /global graph|global and local graph|local and global graph|remote thumbnails|calling Safire open source/i);
 });

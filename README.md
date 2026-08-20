@@ -226,6 +226,7 @@ Open **Safire Help** inside the application for the complete current software gu
 
 ## Support, security, and contributions
 
+- Follow or contact the project on X: [@run4ourfun](https://x.com/run4ourfun).
 - Read [SUPPORT.md](SUPPORT.md) before opening a support request.
 - Report suspected vulnerabilities through the private process in [SECURITY.md](SECURITY.md).
 - Review [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a change.
