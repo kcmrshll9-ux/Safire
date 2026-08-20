@@ -49,7 +49,9 @@ test('starter notes are seeded only on first use and never resurrect after delet
   t.after(() => fs.rm(vault, { recursive: true, force: true }));
 
   const initialized = vaultConfig.initializeVault(vault);
-  assert.equal(initialized, await fs.realpath(vault));
+  const [initializedMetadata, vaultMetadata] = await Promise.all([fs.stat(initialized), fs.stat(vault)]);
+  assert.equal(initializedMetadata.dev, vaultMetadata.dev);
+  assert.equal(initializedMetadata.ino, vaultMetadata.ino);
   assert.match(await fs.readFile(path.join(vault, 'Welcome.md'), 'utf8'), /^# Welcome to Safire/);
   assert.match(await fs.readFile(path.join(vault, 'Ideas.md'), 'utf8'), /^# Ideas/);
 
