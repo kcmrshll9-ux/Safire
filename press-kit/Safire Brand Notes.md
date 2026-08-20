@@ -2,19 +2,19 @@
 
 ## Brand character
 
-Warm, focused, trustworthy, local-first, creative, and technically capable without feeling cold.
+Warm, focused, trustworthy, privacy-conscious, creative, and technically capable without feeling cold.
 
 ## Preferred wording
 
-- "privacy-focused, local-first Markdown knowledge forge"
-- "local-first Markdown workspace for Windows, macOS, and Linux"
+- "privacy-focused Markdown knowledge forge"
+- "Markdown workspace for Windows, macOS, and Linux"
 - "connected notes that remain portable files"
 
 Use "private" only for a specific, supportable claim. Safire keeps its core note workflow local, but user-requested features such as Web Clipper access public websites and external media previews may request remote assets.
 
 ## Avoid
 
-- Describe Safire as open-source software under the MIT License without implying that the license grants rights to the Safire name or marks.
+- Do not imply that Safire's MIT License grants rights to the Safire name, flame mark, or other project branding.
 - Do not promise that public source code cannot be viewed, forked, or copied.
 - Do not imply built-in cloud sync, end-to-end encryption, or third-party affiliation.
 - Do not call Safire a clone of another notes application.

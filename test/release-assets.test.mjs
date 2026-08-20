@@ -38,15 +38,39 @@ test('multi-platform release assets receive a complete deterministic checksum ma
   }
 
   const releaseNotes = await fs.readFile(notes, 'utf8');
-  assert.match(releaseNotes, /^Safire 1\.6\.0 brings a calmer, more focused local-first Markdown workspace to Windows, macOS, and Linux\./);
+  assert.match(releaseNotes, /^Safire 1\.6\.0 brings a calmer, more focused Markdown workspace to Windows, macOS, and Linux\./);
   assert.match(releaseNotes, /overflow menus/);
   assert.match(releaseNotes, /8-pixel spacing scale/);
   assert.match(releaseNotes, /searchable Help Center/);
   assert.match(releaseNotes, /Hermes\/OpenClaw setup/);
   assert.match(releaseNotes, /named projects/);
-  assert.match(releaseNotes, /isolated relationship graph/);
+  assert.match(releaseNotes, /backup-before-delete controls/);
+  assert.match(releaseNotes, /every project graph/);
+  assert.match(releaseNotes, /all valid in-project connections are shown/);
+  assert.match(releaseNotes, /configured daily-notes folder/);
   assert.match(releaseNotes, /starter notes first-use-only/);
+  assert.match(releaseNotes, /Windows portable startup/);
   assert.match(releaseNotes, /not code-signed/);
   assert.match(releaseNotes, /Safire-1\.6\.0-macos-arm64\.dmg/);
   assert.match(releaseNotes, /Safire-1\.6\.0-linux-x64\.AppImage/);
+});
+
+test('public 1.6.0 highlights describe the shipped project and platform behavior', async () => {
+  const [readme, changelog, factSheet, boilerplate, pressKit] = await Promise.all([
+    fs.readFile(path.join(projectRoot, 'README.md'), 'utf8'),
+    fs.readFile(path.join(projectRoot, 'CHANGELOG.md'), 'utf8'),
+    fs.readFile(path.join(projectRoot, 'press-kit', 'Safire Fact Sheet.md'), 'utf8'),
+    fs.readFile(path.join(projectRoot, 'press-kit', 'Safire Boilerplate.md'), 'utf8'),
+    fs.readFile(path.join(projectRoot, 'press-kit', 'Safire Press Kit.html'), 'utf8'),
+  ]);
+
+  assert.match(readme, /CHANGELOG\.md#160---2026-08-20/);
+  assert.match(readme, /More reliable Windows portable startup/);
+  assert.match(changelog, /outer portable application/);
+  assert.match(factSheet, /separate two-dimensional, force-directed relationship graph for each project/);
+  assert.match(factSheet, /Recognized YouTube links use a local placeholder/);
+  assert.match(boilerplate, /Named projects keep their entries and relationship graphs separate/);
+  assert.match(pressKit, /A separate two-dimensional graph for each project/);
+  assert.match(pressKit, /MIT License grants rights to Safire branding/);
+  assert.doesNotMatch(`${factSheet}\n${pressKit}`, /global graph|global and local graph|local and global graph|remote thumbnails|calling Safire open source/i);
 });

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
-  "description": "Safire - a privacy-focused, local-first Markdown knowledge forge for Windows, macOS, and Linux.",
+  "description": "Safire - a privacy-focused Markdown knowledge forge for Windows, macOS, and Linux.",
   "author": {
     "name": "Safire",
     "email": "224699173+kcmrshll9-ux@users.noreply.github.com",
@@ -23,7 +23,6 @@
   "keywords": [
     "electron",
     "knowledge-graph",
-    "local-first",
     "markdown",
     "notes",
     "personal-knowledge-management",

@@ -5,7 +5,7 @@
 <h1 align="center">Safire</h1>
 
 <p align="center">
-  A privacy-focused, local-first Markdown knowledge forge for Windows, macOS, and Linux.
+  A privacy-focused Markdown knowledge forge for Windows, macOS, and Linux.
 </p>
 
 <p align="center">
@@ -31,10 +31,10 @@ Safire keeps notes as ordinary Markdown files in a vault you choose. It adds a f
 | Current source | Safire 1.6.0 release source; see the changelog below |
 | Desktop targets | Windows x64, macOS Apple Silicon and Intel, Linux x64 |
 | Storage | Local Markdown vault selected by the user |
-| Official downloads | [GitHub Releases](https://github.com/kcmrshll9-ux/Safire/releases) |
+| Official downloads | [Safire 1.6.0](https://github.com/kcmrshll9-ux/Safire/releases/tag/v1.6.0) |
 | License | [MIT](LICENSE) |
 
-Safire is under active development. Version 1.6.0 refines the workspace with a project-only Home, project-specific graphs, a complete in-app Help Center, persistent user control of starter notes, clearer action hierarchy, an 8-pixel spacing rhythm, restrained accent usage, and calmer surfaces. See the [changelog](CHANGELOG.md#160---2026-08-18) for details. Back up important vaults independently and review the [security policy](SECURITY.md) before using Safire with sensitive material.
+Safire is under active development. Version 1.6.0 refines the workspace with a project-only Home, project-specific graphs, a complete in-app Help Center, persistent user control of starter notes, clearer action hierarchy, an 8-pixel spacing rhythm, restrained accent usage, and calmer surfaces. See the [changelog](CHANGELOG.md#160---2026-08-20) for details. Back up important vaults independently and review the [security policy](SECURITY.md) before using Safire with sensitive material.
 
 ## Highlights
 
@@ -51,14 +51,15 @@ Safire is under active development. Version 1.6.0 refines the workspace with a p
 - Drag-and-drop, paste, and file attachments
 - Cross-process serialized note mutations with complete backup-before-write publication, exact versioned path metadata, preview, and contained restore tools
 - Web Clipper and private evidence receipts for local research workflows
-- Vault health summaries and configurable local-first settings
+- Vault health summaries and configurable vault settings
 - Legacy vault-scoped MCP server with a deliberately narrow eight-tool surface
 - Optional, additive six-tool MCP sidecar for attributed general-agent memory
 - Searchable in-app Help Center with complete workflows, use cases, AI connection steps, safe prompt examples, troubleshooting, and licensing
+- More reliable Windows portable startup and vault-location restart behavior
 
 ## Privacy model
 
-Safire is local-first, but “local-first” does not mean the application never uses the network.
+Safire keeps its primary data in the selected local vault, but some user-requested features use the network.
 
 - Notes, settings, attachments, and backups are stored in the selected local vault.
 - The local HTTP API binds to `127.0.0.1` by default.

@@ -24,6 +24,7 @@ Notable changes to Safire are recorded here. Application versions follow the ver
 - Added project creation, direct entry creation and editing, backup-before-delete controls, and a graph isolated to each project’s own notes and internal links. All Graph actions now open that project-only graph; Safire no longer exposes a mixed vault graph in the interface.
 - Organized each project graph into stable project-relative folder clusters, kept nodes inside the visible canvas, and delayed the initial fit until layout settles so the map no longer drifts or clips after opening.
 - Made graph link resolution project-relative: bare titles such as `[[Plan]]` and paths such as `[[Notes/Decision]]` resolve inside the opened project even when another project contains entries with the same names.
+- Improved Windows portable startup visibility and made Change Vault relaunch the outer portable application instead of its temporary extracted runtime.
 - Replaced project-specific memory documentation and fixtures with neutral synthetic agent and automation examples.
 - Updated Safire and both MCP server versions to 1.6.0.
 
@@ -97,7 +98,7 @@ Notable changes to Safire are recorded here. Application versions follow the ver
 ### Changed
 
 - Replaced the earlier three-dimensional graph workspace with a relationship-first two-dimensional graph designed for both desktop and compact displays.
-- Updated repository documentation to distinguish local-first storage from the application’s user-initiated network features.
+- Updated repository documentation to distinguish local vault storage from the application’s user-initiated network features.
 - Replaced machine-specific development examples with generic, disposable-vault examples.
 - Hardened loopback API request validation, private-data cache controls, client error redaction, attachment previews, and packaged Electron permissions.
 - Added proprietary, privacy, trademark, third-party, security, support, and contribution notices for a reviewed public-facing repository snapshot.

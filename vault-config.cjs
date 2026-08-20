@@ -4,7 +4,7 @@ const path = require('path');
 
 const STARTER_STATE_DIRECTORY = '.safire';
 const STARTER_STATE_FILE = 'starter-notes.json';
-const WELCOME_NOTE = '# Welcome to Safire\n\nSafire is your privacy-focused, local-first Markdown workspace: warm, fast, portable, and yours.\n\n- Link notes with [[Ideas]]\n- Tag notes with #home or #projects\n- Use the graph view to see connections\n- Press Ctrl+K for the command palette\n- Press Ctrl+O for quick switcher\n- Press Ctrl+S to save\n\nCore note workflows stay on this computer. See PRIVACY.md for the network boundaries of optional features.\n';
+const WELCOME_NOTE = '# Welcome to Safire\n\nSafire is your privacy-focused Markdown workspace: warm, fast, portable, and yours.\n\n- Link notes with [[Ideas]]\n- Tag notes with #home or #projects\n- Use the graph view to see connections\n- Press Ctrl+K for the command palette\n- Press Ctrl+O for quick switcher\n- Press Ctrl+S to save\n\nCore note workflows stay on this computer. See PRIVACY.md for the network boundaries of optional features.\n';
 const IDEAS_NOTE = '# Ideas\n\nThis note links back to [[Welcome]].\n\n#ideas\n';
 
 function userHome(options = {}) {

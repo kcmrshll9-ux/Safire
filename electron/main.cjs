@@ -121,7 +121,7 @@ function createMenu() {
       submenu: [
         { label: 'Safire Help', click: openSafireHelp },
         { type: 'separator' },
-        { label: 'About Safire', click: () => dialog.showMessageBox(mainWindow, { type: 'info', title: 'About Safire', message: `Safire ${app.getVersion()}`, detail: 'A privacy-focused, local-first Markdown knowledge forge.\n\nCopyright (c) 2026 Safire\nSafire’s original project code is licensed under the MIT License.\n\nThird-party components are not relicensed by Safire and retain their own licenses and notices.' }) },
+        { label: 'About Safire', click: () => dialog.showMessageBox(mainWindow, { type: 'info', title: 'About Safire', message: `Safire ${app.getVersion()}`, detail: 'A privacy-focused Markdown knowledge forge.\n\nCopyright (c) 2026 Safire\nSafire’s original project code is licensed under the MIT License.\n\nThird-party components are not relicensed by Safire and retain their own licenses and notices.' }) },
       ],
     },
   ];

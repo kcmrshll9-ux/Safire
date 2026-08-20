@@ -35,7 +35,7 @@ for (const name of expectedArtifacts) {
 const checksumName = `Safire-${version}-checksums.txt`;
 await fs.writeFile(path.join(artifactDirectory, checksumName), `${checksumLines.join('\n')}\n`, 'utf8');
 
-const notes = `Safire ${version} brings a calmer, more focused local-first Markdown workspace to Windows, macOS, and Linux.
+const notes = `Safire ${version} brings a calmer, more focused Markdown workspace to Windows, macOS, and Linux.
 
 ## Highlights
 
@@ -44,8 +44,11 @@ const notes = `Safire ${version} brings a calmer, more focused local-first Markd
 - Reserved bright accent colors for primary calls to action.
 - Reduced card borders and dividers in favor of spacing and subtle surface contrast.
 - Added a searchable Help Center with complete workflows, use cases, Hermes/OpenClaw setup, copy-ready AI prompts, troubleshooting, privacy guidance, and licensing.
-- Reworked Home around named projects, with each project’s entries and isolated relationship graph kept together.
+- Reworked Home around named projects, with direct entry creation, editing, backup-before-delete controls, and no mixed vault-wide entry list.
+- Isolated every project graph to that project’s own notes and internal links, with stable project-relative folder clusters and project-relative wikilink resolution so all valid in-project connections are shown.
+- Refreshed template guidance and made Today honor the configured daily-notes folder.
 - Made starter notes first-use-only so edits and deletions remain exactly as the user leaves them.
+- Improved Windows portable startup visibility and Change Vault restart reliability.
 
 ## Downloads
 

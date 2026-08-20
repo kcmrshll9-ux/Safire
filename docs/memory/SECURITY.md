@@ -153,4 +153,4 @@ The current milestone installs no hook, listener, or external integration, perfo
 
 ## Excluded systems
 
-There is no lifecycle engine, automatic expiration, archive, deletion scheduler, cloud replication, AWS integration, or AWS archival fallback in this milestone. Operators should not infer remote backup or retention guarantees from the local-first label.
+There is no lifecycle engine, automatic expiration, archive, deletion scheduler, cloud replication, AWS integration, or AWS archival fallback in this milestone. Operators should not infer remote backup or retention guarantees from local vault storage.
