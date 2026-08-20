@@ -29,7 +29,7 @@ Where a bundled legacy manual conflicts with the application or the root README,
 - the current Graph is a two-dimensional force-directed relationship graph, not the earlier three-dimensional workspace;
 - source-server vault selection follows the saved desktop selection or `SAFIRE_VAULT_PATH`, not a project-local `./vault` default;
 - machine-specific paths in legacy MCP examples must be replaced with paths for the local installation; and
-- Safire is local-first; Web Clipper requests are user-initiated, YouTube cards are local-only until opened, and the desktop content policy blocks remote Markdown images;
+- Safire stores primary data in the selected vault; Web Clipper requests are user-initiated, YouTube cards are local-only until opened, and the desktop content policy blocks remote Markdown images;
 - the legacy eight-tool Markdown-vault MCP and additive six-tool agent-memory MCP are separate servers; and
 - agent memory is explicit, local plaintext sidecar data—not automatic transcript capture or a modification to Hermes or another host.
 

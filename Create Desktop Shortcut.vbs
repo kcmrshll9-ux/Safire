@@ -8,6 +8,6 @@ Set Shortcut = WshShell.CreateShortcut(ShortcutPath)
 Shortcut.TargetPath = AppDir & "\Launch Safire.bat"
 Shortcut.WorkingDirectory = AppDir
 Shortcut.IconLocation = AppDir & "\public\app-icon.ico,0"
-Shortcut.Description = "Launch the Safire local-first Markdown knowledge forge"
+Shortcut.Description = "Launch the Safire privacy-focused Markdown knowledge forge"
 Shortcut.Save
 WScript.Echo "Created desktop shortcut: " & ShortcutPath

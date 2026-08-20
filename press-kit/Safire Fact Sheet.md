@@ -4,7 +4,7 @@
 | --- | --- |
 | Product | Safire |
 | Version | 1.6.0 |
-| Category | Privacy-focused, local-first Markdown knowledge workspace |
+| Category | Privacy-focused Markdown knowledge workspace |
 | Platform | Windows x64, macOS Apple Silicon and Intel, Linux x64; local browser/developer mode |
 | Storage | Plain `.md` files in a user-selected local vault |
 | Repository | https://github.com/kcmrshll9-ux/Safire |
@@ -12,7 +12,7 @@
 
 ## One-line description
 
-Safire is a local-first Markdown knowledge forge for connected notes, interactive relationship mapping, focused daily workflows, and recoverable edits.
+Safire is a Markdown knowledge forge for connected notes, interactive relationship mapping, focused daily workflows, and recoverable edits.
 
 ## Key features
 

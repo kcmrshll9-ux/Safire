@@ -46,7 +46,7 @@ Please allow maintainers time to reproduce, correct, and distribute a fix before
 
 ## Security boundaries
 
-Safire is local-first, but the Web Clipper performs outbound requests for URLs the user submits, YouTube link cards may load thumbnails, and external links may open in the system browser. See the privacy model in [README.md](README.md) when evaluating a report.
+Safire stores its primary data in the selected local vault, but the Web Clipper performs outbound requests for URLs the user submits, recognized YouTube links contact YouTube after the user opens them, and external links may open in the system browser. See the privacy model in [README.md](README.md) when evaluating a report.
 
 Safire's MCP integrations are separate. The legacy eight-tool server operates on Markdown notes, captures, tasks, and vault health. The additive six-tool agent-memory server writes versioned plaintext JSON beneath the selected vault. Opaque filenames and integrity digests do not encrypt memory content; use operating-system permissions and device encryption where confidentiality matters.
 

@@ -519,7 +519,7 @@ function ReferenceTopic() {
 
 function PrivacyTopic() {
   return <>
-    <TopicHeader eyebrow="Privacy & safety" title="Local-first still requires deliberate choices">Safire keeps its primary data locally, but user-triggered network actions and connected AI hosts have their own trust boundaries.</TopicHeader>
+    <TopicHeader eyebrow="Privacy & safety" title="Local storage still requires deliberate choices">Safire keeps its primary data locally, but user-triggered network actions and connected AI hosts have their own trust boundaries.</TopicHeader>
     <h3>Local by default</h3>
     <ul>
       <li>Notes, attachments, preferences, backups, evidence, and optional agent memory are stored on the computer in or alongside the selected vault.</li>
@@ -566,7 +566,7 @@ function AboutTopic({ version }: { version: string }) {
   };
 
   return <>
-    <TopicHeader eyebrow="About" title={`Safire ${version}`}>A privacy-focused, local-first Markdown knowledge forge for Windows, macOS, and Linux.</TopicHeader>
+    <TopicHeader eyebrow="About" title={`Safire ${version}`}>A privacy-focused Markdown knowledge forge for Windows, macOS, and Linux.</TopicHeader>
     <div className="help-identity">
       <img className="flame-mark" src="/fire-icon.png" alt="Safire logo" />
       <div><h3>Safire <span>v{version}</span></h3><p>Local files, connected thinking.</p></div>

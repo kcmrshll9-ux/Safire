@@ -35,7 +35,7 @@ for (const name of expectedArtifacts) {
 const checksumName = `Safire-${version}-checksums.txt`;
 await fs.writeFile(path.join(artifactDirectory, checksumName), `${checksumLines.join('\n')}\n`, 'utf8');
 
-const notes = `Safire ${version} brings a calmer, more focused local-first Markdown workspace to Windows, macOS, and Linux.
+const notes = `Safire ${version} brings a calmer, more focused Markdown workspace to Windows, macOS, and Linux.
 
 ## Highlights
 

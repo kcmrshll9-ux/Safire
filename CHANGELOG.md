@@ -98,7 +98,7 @@ Notable changes to Safire are recorded here. Application versions follow the ver
 ### Changed
 
 - Replaced the earlier three-dimensional graph workspace with a relationship-first two-dimensional graph designed for both desktop and compact displays.
-- Updated repository documentation to distinguish local-first storage from the application’s user-initiated network features.
+- Updated repository documentation to distinguish local vault storage from the application’s user-initiated network features.
 - Replaced machine-specific development examples with generic, disposable-vault examples.
 - Hardened loopback API request validation, private-data cache controls, client error redaction, attachment previews, and packaged Electron permissions.
 - Added proprietary, privacy, trademark, third-party, security, support, and contribution notices for a reviewed public-facing repository snapshot.

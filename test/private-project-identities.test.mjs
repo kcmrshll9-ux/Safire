@@ -14,6 +14,9 @@ const privateIdentities = [
   ['har', 'ry'].join(''),
   ['molt', 'book'].join(''),
 ];
+const retiredProductPhrases = [
+  ['local', 'first'].join('-'),
+];
 
 async function sourceTextFiles(directory) {
   const files = [];
@@ -33,6 +36,20 @@ test('private project identities are absent from shipped source, documentation, 
     const content = await fs.readFile(absolutePath, 'utf8');
     for (const identity of privateIdentities) {
       if (relativePath.toLowerCase().includes(identity) || content.toLowerCase().includes(identity)) {
+        violations.push(relativePath);
+      }
+    }
+  }
+  assert.deepEqual([...new Set(violations)].sort(), []);
+});
+
+test('retired product phrases are absent from shipped source, documentation, examples, and tests', async () => {
+  const violations = [];
+  for (const absolutePath of await sourceTextFiles(projectRoot)) {
+    const relativePath = path.relative(projectRoot, absolutePath).replaceAll(path.sep, '/');
+    const content = await fs.readFile(absolutePath, 'utf8');
+    for (const phrase of retiredProductPhrases) {
+      if (relativePath.toLowerCase().includes(phrase) || content.toLowerCase().includes(phrase)) {
         violations.push(relativePath);
       }
     }

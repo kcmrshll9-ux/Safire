@@ -1020,7 +1020,7 @@ function App() {
       ]} />
     </nav>
     <aside className="sidebar">
-      <div className="brand"><div className="brand-logo"><FlameMark /></div><div className="brand-copy"><h1 className="brand-wordmark"><span className="brand-name">Safire</span><span className="app-version">v{APP_VERSION}</span></h1><p>Local-first knowledge forge</p></div></div>
+      <div className="brand"><div className="brand-logo"><FlameMark /></div><div className="brand-copy"><h1 className="brand-wordmark"><span className="brand-name">Safire</span><span className="app-version">v{APP_VERSION}</span></h1><p>Markdown knowledge forge</p></div></div>
       <div className="toolbar-row"><button className="primary" onClick={() => createNote()}>+ New note</button><OverflowMenu label="More creation options" items={[
         { label: 'New project', onSelect: async () => { await createProject(); } },
         { label: 'New folder', onSelect: createFolder },

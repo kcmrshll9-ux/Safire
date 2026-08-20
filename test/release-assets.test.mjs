@@ -38,7 +38,7 @@ test('multi-platform release assets receive a complete deterministic checksum ma
   }
 
   const releaseNotes = await fs.readFile(notes, 'utf8');
-  assert.match(releaseNotes, /^Safire 1\.6\.0 brings a calmer, more focused local-first Markdown workspace to Windows, macOS, and Linux\./);
+  assert.match(releaseNotes, /^Safire 1\.6\.0 brings a calmer, more focused Markdown workspace to Windows, macOS, and Linux\./);
   assert.match(releaseNotes, /overflow menus/);
   assert.match(releaseNotes, /8-pixel spacing scale/);
   assert.match(releaseNotes, /searchable Help Center/);
