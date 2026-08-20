@@ -35,19 +35,16 @@ for (const name of expectedArtifacts) {
 const checksumName = `Safire-${version}-checksums.txt`;
 await fs.writeFile(path.join(artifactDirectory, checksumName), `${checksumLines.join('\n')}\n`, 'utf8');
 
-const previousVersion = '1.6.0';
+const previousVersion = '1.6.1';
 
-const notes = `Safire ${version} makes dense project graphs easier to read while keeping every project relationship available on Windows, macOS, and Linux.
+const notes = `Safire ${version} restores native Full graph fullscreen in the desktop app and keeps the expanded-view fallback accurately labeled on Windows, macOS, and Linux.
 
 ## Highlights
 
-- Added a deterministic, folder-clustered Project map as the readable first-open graph view.
-- Grouped lower-priority notes behind explicit folder controls while keeping selected-note connections and every immediate hub relationship available.
-- Kept Full graph lossless so every matching note and directed wiki-link relationship remains available.
-- Added mouse-rotatable perspective 3D to Full graph, with Shift-drag panning, wheel zoom, depth-aware node dragging, and a reset control.
-- Added direct native or in-window full-screen graph viewing, plus keyboard controls for full screen, rotation, reset, pan, and zoom.
-- Deduplicated equivalent wiki-link spellings by canonical directed endpoints so repeated source-to-target edges draw once while reciprocal links stay distinct.
-- Preserved project isolation, project-relative wikilink resolution, and user vault data; the update does not rewrite project notes.
+- Fixed the packaged Electron app's permission policy so the Full graph button can enter native fullscreen.
+- Kept the permission exception narrow: only fullscreen requests from Safire's exact loopback origin, main window, and main frame are allowed; other permissions and untrusted request contexts remain denied.
+- Labeled the in-window fallback action **Exit expanded view** when native fullscreen is unavailable, instead of describing the fallback as fullscreen.
+- Preserved the Project map, mouse-rotatable 3D Full graph, keyboard controls, project isolation, and user vault data without rewriting project notes.
 
 ## Downloads
 

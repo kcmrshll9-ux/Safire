@@ -1,6 +1,6 @@
 # Safire Press Kit
 
-This directory contains the current Safire 1.6.1 press kit. For supported downloads and complete release notes, see the root [README](../README.md) and [changelog](../CHANGELOG.md).
+This directory contains the current Safire 1.6.2 press kit. Version 1.6.2 is a focused Windows/Electron hotfix that restores native full-screen mode for the mouse-rotatable 3D Full graph; it is not a broader graph redesign. For supported downloads and complete release notes, see the root [README](../README.md) and [changelog](../CHANGELOG.md).
 
 ## Media inquiries
 

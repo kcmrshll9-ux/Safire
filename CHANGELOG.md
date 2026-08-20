@@ -4,6 +4,13 @@ Notable changes to Safire are recorded here. Application versions follow the ver
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-08-20
+
+### Fixed
+
+- Restored native Full graph fullscreen in the packaged desktop app by allowing only trusted main-frame fullscreen requests from Safire's exact loopback origin while continuing to deny every other Electron permission.
+- Corrected the in-window fallback control to say `Exit expanded view` instead of claiming native fullscreen when fullscreen is unavailable.
+
 ## [1.6.1] - 2026-08-20
 
 ### Changed

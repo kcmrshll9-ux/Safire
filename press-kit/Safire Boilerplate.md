@@ -14,8 +14,8 @@ Safire is a privacy-focused Markdown workspace for people who want connected thi
 
 ## Launch copy
 
-Safire 1.6.1 makes dense project graphs readable: a stable folder-clustered Project map groups lower-priority notes and reveals selected connections, while a lossless Full graph adds mouse-rotatable 3D and full-screen exploration across desktop platforms.
+Safire 1.6.2 is a focused Windows/Electron hotfix that restores native full-screen exploration for the mouse-rotatable perspective 3D Full graph. It otherwise retains the Project map and Full graph experience introduced in 1.6.1.
 
 ## Social copy
 
-Safire 1.6.1 makes dense Markdown project graphs readable at first open with stable folder regions, grouped-note expansion, a lossless Full graph, and optional mouse-rotatable 3D full-screen exploration.
+Safire 1.6.2 restores native full-screen mode for the mouse-rotatable 3D Full graph in the Windows Electron app—a focused hotfix with the broader 1.6.1 graph experience unchanged.
