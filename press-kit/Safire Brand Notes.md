@@ -14,7 +14,7 @@ Use "private" only for a specific, supportable claim. Safire keeps its core note
 
 ## Avoid
 
-- Describe Safire as open-source software under the MIT License without implying that the license grants rights to the Safire name or marks.
+- Do not imply that Safire's MIT License grants rights to the Safire name, flame mark, or other project branding.
 - Do not promise that public source code cannot be viewed, forked, or copied.
 - Do not imply built-in cloud sync, end-to-end encryption, or third-party affiliation.
 - Do not call Safire a clone of another notes application.

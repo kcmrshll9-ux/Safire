@@ -14,8 +14,8 @@ Safire is a privacy-focused Markdown workspace for people who want connected thi
 
 ## Launch copy
 
-Introducing Safire 1.6.0: a calmer local-first Markdown knowledge forge for Windows, macOS, and Linux. Keep your notes as portable files in a refined workspace with clearer actions, focused writing tools, connected workflows, and recoverable edits.
+Introducing Safire 1.6.0: a calmer local-first Markdown knowledge forge for Windows, macOS, and Linux. Named projects keep their entries and relationship graphs separate, while searchable in-app Help, clearer actions, focused writing tools, and recoverable edits make Safire easier to learn and use.
 
 ## Social copy
 
-Safire keeps connected notes grounded in plain Markdown: local files, a polished cross-platform workspace, wikilinks, backlinks, an interactive graph, tasks, templates, attachments, web capture, and backup restore.
+Safire 1.6.0 keeps connected notes grounded in plain Markdown: named projects, a separate graph for each project, searchable in-app Help, templates, attachments, web capture, and recoverable edits across Windows, macOS, and Linux.

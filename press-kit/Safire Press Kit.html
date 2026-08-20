@@ -9,7 +9,7 @@
   * { box-sizing:border-box; }
   html,body { margin:0; padding:0; background:#e9edf6; color:var(--ink); font-family:Inter,"Segoe UI",Arial,sans-serif; line-height:1.55; }
   @page { size: Letter; margin: .58in .58in .66in; }
-  @media print { html,body { background:#fff!important; } body { font-size:14px; line-height:1.45; } .sheet { width:auto!important; min-height:auto!important; margin:0!important; background:#fff!important; box-shadow:none!important; } .cover { min-height:9.68in; page-break-after:always; } .break { page-break-before:auto; } .content { padding:32px 48px 42px; background:#fff!important; } h2 { margin:24px 0 10px; break-after:avoid; } h3 { margin:17px 0 6px; break-after:avoid; } p { margin:6px 0 9px; orphans:3; widows:3; } .content p,.card,.asset-row,.quote,table { break-inside:avoid; } a { color:inherit; text-decoration:none; } }
+  @media print { html,body { background:#fff!important; } body { font-size:13.25px; line-height:1.38; } .sheet { width:auto!important; min-height:auto!important; margin:0!important; background:#fff!important; box-shadow:none!important; } .cover { min-height:9.68in; page-break-after:always; } .break { page-break-before:auto; } .content { padding:26px 42px 24px; background:#fff!important; } h2 { margin:16px 0 7px; break-after:avoid; } h3 { margin:12px 0 4px; break-after:avoid; } p { margin:4px 0 6px; orphans:3; widows:3; } ul { margin-top:5px; margin-bottom:9px; } .content p,.card,.asset-row,.quote,table { break-inside:avoid; } .asset-img { width:84px; height:84px; } .press-angles { margin-top:10px; } .footer-note { margin-top:6px; padding-top:6px; } a { color:inherit; text-decoration:none; } }
   .sheet { width:8.5in; min-height:11in; margin:24px auto; background:var(--paper); box-shadow:0 24px 70px rgba(16,24,40,.18); overflow:hidden; }
   .cover { color:#fff; position:relative; padding:58px; background:radial-gradient(circle at 13% 18%, rgba(255,138,28,.55), transparent 28%), radial-gradient(circle at 90% 10%, rgba(24,205,233,.26), transparent 31%), radial-gradient(circle at 72% 88%, rgba(124,58,237,.48), transparent 36%), linear-gradient(135deg,#080914,#131633 58%,#080914); }
   .cover:after { content:""; position:absolute; inset:0; opacity:.7; background-image:linear-gradient(rgba(255,255,255,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.045) 1px,transparent 1px); background-size:32px 32px; pointer-events:none; mask-image:radial-gradient(circle at 45% 20%, black, transparent 86%); }
@@ -40,7 +40,7 @@
   .callout { border-left:5px solid var(--aqua); background:#ecfeff; border-radius:14px; padding:14px 16px; margin:16px 0; }
   .asset-row { display:grid; grid-template-columns:110px 1fr; gap:16px; align-items:center; }
   .asset-img { width:96px; height:96px; border-radius:22px; padding:10px; background:#111827; object-fit:contain; }
-  .footer-note { margin-top:34px; padding-top:14px; border-top:1px solid var(--line); color:var(--muted); font-size:12.5px; }
+  .footer-note { display:block; margin-top:24px; padding-top:12px; border-top:1px solid var(--line); color:var(--muted); font-size:12.5px; }
   .contact { font-size:18px; }
   .contact a { color:#1455d9; font-weight:800; }
   .press-angles { display:flow-root; clear:both; margin-top:17px; break-inside:avoid; }
@@ -82,7 +82,7 @@
   <h2 class="break">What Makes Safire Different</h2>
   <div class="grid">
     <div class="card"><h3>Beautiful but portable</h3><p>Safire gives local Markdown files a polished desktop interface without locking notes into a proprietary database.</p></div>
-    <div class="card"><h3>Connected notes</h3><p>Wikilinks, backlinks, tags, local and global graph modes, filtering, grouping, and hover highlighting reveal relationships.</p></div>
+    <div class="card"><h3>Connected projects</h3><p>Named projects keep their entries separate, while project-only graphs use wikilinks, backlinks, folder clusters, filtering, grouping, and hover highlighting to reveal internal relationships.</p></div>
     <div class="card"><h3>Trust-centered workflow</h3><p>Autosave, backend backup-before-write, delete backups, backup preview, and restore reduce the fear of losing work.</p></div>
     <div class="card"><h3>Local-first privacy</h3><p>Safire is built around a user-selected local vault and a loopback-only service, with no hosted sync or telemetry.</p></div>
   </div>
@@ -91,23 +91,24 @@
   <h2>Feature Highlights</h2>
   <table><thead><tr><th>Category</th><th>Highlights</th></tr></thead><tbody>
     <tr><td>Writing</td><td>Markdown editor, rendered preview, split/edit/preview modes, formatting toolbar, keyboard shortcuts.</td></tr>
-    <tr><td>Organization</td><td>Folders, nested notes, tabs, search, tags, command palette, quick switcher.</td></tr>
-    <tr><td>Knowledge graph</td><td>Wikilinks, backlinks, a two-dimensional force layout, local/global modes, filters, grouping, pan, zoom, and node dragging.</td></tr>
+    <tr><td>Organization</td><td>Named projects, project entries, folders, nested notes, tabs, search, tags, command palette, and quick switcher.</td></tr>
+    <tr><td>Knowledge graph</td><td>A separate two-dimensional graph for each project, limited to that project's notes and internal wikilinks, with project-relative folder clusters, project/local scopes, filters, grouping, pan, zoom, and node dragging.</td></tr>
     <tr><td>Daily workflow</td><td>Daily notes, startup note setting, autosave controls, status feedback.</td></tr>
     <tr><td>Files</td><td>Drag/drop, paste, attach file button, in-app attachment viewer, download link.</td></tr>
     <tr><td>Safety</td><td>Backup-before-write, backup-before-delete, backup browser, preview, restore safety backup, path traversal protection.</td></tr>
+    <tr><td>Help</td><td>Searchable in-app workflows, templates, AI-assistant setup and prompt examples, troubleshooting, privacy guidance, MIT licensing, and third-party notices.</td></tr>
   </tbody></table>
 
   <h2 class="break">Suggested Press Copy</h2>
-  <h3>Launch blurb</h3><p>Introducing Safire 1.6.0: a calmer local-first Markdown knowledge forge for Windows, macOS, and Linux. Safire keeps notes as plain files while adding a refined workspace with clearer actions, consistent spacing, focused writing tools, connected workflows, and recoverable edits.</p>
-  <h3>Social post option</h3><p>Safire keeps connected notes grounded in plain Markdown: local files, a polished cross-platform workspace, wikilinks, backlinks, an interactive graph, tasks, templates, attachments, web capture, and backup restore.</p>
+  <h3>Launch blurb</h3><p>Introducing Safire 1.6.0: a calmer local-first Markdown knowledge forge for Windows, macOS, and Linux. Named projects keep their entries and relationship graphs separate, while searchable in-app Help, clearer actions, focused writing tools, and recoverable edits make Safire easier to learn and use.</p>
+  <h3>Social post option</h3><p>Safire 1.6.0 keeps connected notes grounded in plain Markdown: named projects, a separate graph for each project, searchable in-app Help, templates, attachments, web capture, and recoverable edits across Windows, macOS, and Linux.</p>
   <div class="press-angles"><h3>Press angle ideas</h3><ul><li>Local-first productivity tools are becoming more important as users reconsider cloud lock-in.</li><li>Plain Markdown remains one of the most durable personal knowledge formats.</li><li>Safire focuses on a polished owner experience without sacrificing file ownership.</li></ul></div>
 
   <h2>Brand and Asset Notes</h2>
   <div class="asset-row"><img class="asset-img" src="assets/fire-icon.png" alt="Safire flame logo"><div><strong>Primary logo:</strong> Safire flame mark. Use on dark or neutral backgrounds with clear spacing. Do not stretch, recolor heavily, or place over busy backgrounds.</div></div>
   <p><strong>Brand tone:</strong> focused, polished, trustworthy, creative, local-first, modern, warm, and technically capable without feeling cold.</p>
   <p><strong>Preferred wording:</strong> "privacy-focused, local-first Markdown knowledge forge" or "local-first Markdown workspace for Windows, macOS, and Linux."</p>
-  <p><strong>Avoid:</strong> calling Safire open source, promising that public source cannot be copied, implying built-in cloud sync or encryption, or implying third-party affiliation.</p>
+  <p><strong>Avoid:</strong> implying that the MIT License grants rights to Safire branding, promising that public source cannot be copied, implying built-in cloud sync or encryption, or implying third-party affiliation.</p>
 
   <h2 class="break">Project Contact</h2>
   <p class="contact"><strong>Repository:</strong> <a href="https://github.com/kcmrshll9-ux/Safire">github.com/kcmrshll9-ux/Safire</a><br><strong>Requests:</strong> <a href="https://github.com/kcmrshll9-ux/Safire/issues">GitHub Issues</a></p>
@@ -116,9 +117,7 @@
   <h2>Credits</h2>
   <p><strong>Application:</strong> Safire 1.6.0, a local-first Markdown knowledge forge. Current Safire source is available under the MIT License.</p>
   <p><strong>Core technologies:</strong> React, Vite, TypeScript, Express, Electron, marked, DOMPurify, Undici, Zod, and the Model Context Protocol SDK.</p>
-  <p><strong>Third-party notice:</strong> Third-party components retain their own licenses. See <code>THIRD_PARTY_NOTICES.md</code> in the repository.</p>
-  <p><strong>Originality note:</strong> Safire is not affiliated with Obsidian or any other third-party notes application.</p>
-  <div class="footer-note">Safire Press Kit 1.6.0 | Updated August 2026 | github.com/kcmrshll9-ux/Safire</div>
+  <p><strong>Third-party and originality notice:</strong> Third-party components retain their own licenses; see <code>THIRD_PARTY_NOTICES.md</code> in the repository. Safire is not affiliated with Obsidian or any other third-party notes application.<span class="footer-note">Safire Press Kit 1.6.0 | Updated August 2026 | github.com/kcmrshll9-ux/Safire</span></p>
 </section>
 </main>
 </body>
