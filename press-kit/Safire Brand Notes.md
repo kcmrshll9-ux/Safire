@@ -25,7 +25,7 @@ Use the Safire flame mark on dark, warm, or neutral backgrounds with clear space
 
 ## Product credits
 
-Safire 1.6.0 is built with React, Vite, TypeScript, Express, Electron, marked, DOMPurify, Undici, Zod, and the Model Context Protocol SDK. Third-party components retain their own licenses; see `THIRD_PARTY_NOTICES.md`.
+Safire 1.6.1 is built with React, Vite, TypeScript, Express, Electron, marked, DOMPurify, Undici, Zod, and the Model Context Protocol SDK. Third-party components retain their own licenses; see `THIRD_PARTY_NOTICES.md`.
 
 Safire is not affiliated with Obsidian or any other third-party notes application.
 

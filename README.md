@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/kcmrshll9-ux/Safire/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/kcmrshll9-ux/Safire/actions/workflows/ci.yml/badge.svg" /></a>
-  <img alt="Version 1.6.0" src="https://img.shields.io/badge/version-1.6.0-f97316" />
+  <img alt="Version 1.6.1" src="https://img.shields.io/badge/version-1.6.1-f97316" />
   <img alt="Windows, macOS, and Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-2563eb" />
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-22c55e" /></a>
 </p>
@@ -18,23 +18,23 @@
 Safire keeps notes as ordinary Markdown files in a vault you choose. It adds a focused desktop workspace for writing, linking, research capture, graph exploration, tasks, attachments, and recovery without requiring a cloud account.
 
 <p align="center">
-  <img src="docs/assets/safire-graph.png" alt="Safire interactive relationship graph" width="100%" />
+  <img src="docs/assets/safire-graph.png" alt="Safire 1.6.1 full-screen 3D project graph" width="100%" />
 </p>
 
-<p align="center"><sub>Project graph using an invented demonstration project.</sub></p>
+<p align="center"><sub>Mouse-rotatable 3D Full graph using an invented demonstration project.</sub></p>
 
 ## Project status
 
 | Item | Current state |
 | --- | --- |
-| Current version | 1.6.0 |
-| Current source | Safire 1.6.0 release source; see the changelog below |
+| Current version | 1.6.1 |
+| Current source | Safire 1.6.1 release source; see the changelog below |
 | Desktop targets | Windows x64, macOS Apple Silicon and Intel, Linux x64 |
 | Storage | Local Markdown vault selected by the user |
-| Official downloads | [Safire 1.6.0](https://github.com/kcmrshll9-ux/Safire/releases/tag/v1.6.0) |
+| Official downloads | [Safire 1.6.1](https://github.com/kcmrshll9-ux/Safire/releases/tag/v1.6.1) |
 | License | [MIT](LICENSE) |
 
-Safire is under active development. Version 1.6.0 refines the workspace with a project-only Home, project-specific graphs, a complete in-app Help Center, persistent user control of starter notes, clearer action hierarchy, an 8-pixel spacing rhythm, restrained accent usage, and calmer surfaces. See the [changelog](CHANGELOG.md#160---2026-08-20) for details. Back up important vaults independently and review the [security policy](SECURITY.md) before using Safire with sensitive material.
+Safire is under active development. Version 1.6.1 makes dense project graphs readable at first open with a deterministic, folder-clustered Project map, explicit grouped-note expansion, and selected-note connections. The lossless Full graph adds optional mouse-rotatable perspective 3D and a full-screen view while preserving project isolation and project-relative links. See the [changelog](CHANGELOG.md#161---2026-08-20) for details. Back up important vaults independently and review the [security policy](SECURITY.md) before using Safire with sensitive material.
 
 ## Highlights
 
@@ -42,10 +42,10 @@ Safire is under active development. Version 1.6.0 refines the workspace with a p
 - Local filesystem-backed Markdown vault with nested notes and folders
 - Split editor and preview, focused edit and reading modes, and tabbed notes
 - Search, tags, backlinks, outgoing links, and `[[wiki links]]`
-- Interactive 2D force-directed graph with project and local-connection scopes; notes from other projects are excluded
+- Deterministic 2D Project map with stable folder regions, explicit grouped-note expansion, and selected-note connections; notes from other projects are excluded
 - Large graph responses are limited to 1,000 notes, 2,000 links, and 2 MiB of response data; link targets and aliases are limited to 1,024 characters and 2 KiB, at most 250 unique unresolved placeholders are rendered, the active note is retained, and truncation or omitted imported content is visibly labeled
-- Project-relative graph links and clusters, depth, filters, folder/tag grouping, display controls, and adjustable forces
-- Node hover, drag, pan, zoom, keyboard navigation, context actions, and in-graph note panels
+- Lossless Full graph with project-relative links, mouse-rotatable perspective 3D, full-screen exploration, depth, filters, folder/tag grouping, display controls, and adjustable forces
+- Node hover, drag, pan, zoom, keyboard navigation, accessible rotation and full-screen shortcuts, context actions, and in-graph note panels
 - Daily notes, Markdown tasks, templates, quick capture, and saved searches
 - Command palette, quick switcher, and Markdown formatting controls
 - Drag-and-drop, paste, and file attachments
@@ -109,8 +109,8 @@ npm run dist:mac     # macOS
 Windows output includes:
 
 ```text
-release/Safire-Setup-1.6.0.exe
-release/Safire-Portable-1.6.0.exe
+release/Safire-Setup-1.6.1.exe
+release/Safire-Portable-1.6.1.exe
 ```
 
 The selected vault remains outside the application installation directory and is never packaged into an application update.
@@ -214,7 +214,7 @@ Open **Safire Help** inside the application for the complete current software gu
 | Path | Responsibility |
 | --- | --- |
 | `src/` | React user interface and styles |
-| `src/GraphView.tsx` | Interactive 2D relationship graph |
+| `src/GraphView.tsx` | Deterministic Project map and mouse-rotatable 3D Full graph |
 | `server.mjs` | Loopback HTTP API and vault operations |
 | `electron/` | Cross-platform desktop application entry point |
 | `safire-mcp.mjs` | Legacy eight-tool Markdown-vault MCP server |

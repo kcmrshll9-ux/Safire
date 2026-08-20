@@ -10,12 +10,12 @@ Safire is a polished Markdown knowledge forge for Windows, macOS, and Linux. Not
 
 ## 100 words
 
-Safire is a privacy-focused Markdown workspace for people who want connected thinking without surrendering ownership of their files. Notes remain ordinary `.md` files in a local vault, while Safire adds a modern cross-platform desktop experience: split editing and preview, tabs, search, tags, wikilinks, backlinks, a force-directed relationship graph, daily notes, vault-wide tasks, templates, web capture, attachments, keyboard navigation, autosave, and backup preview and restore. Its application service binds to the local computer, and Safire does not include telemetry or a hosted sync service. Users choose their own backup or synchronization tools for the vault.
+Safire is a privacy-focused Markdown workspace for people who want connected thinking without surrendering ownership of their files. Notes remain ordinary `.md` files in a local vault, while Safire adds a modern cross-platform desktop experience: split editing and preview, tabs, search, tags, wikilinks, backlinks, a folder-clustered Project map and mouse-rotatable Full graph, daily notes, vault-wide tasks, templates, web capture, attachments, keyboard navigation, autosave, and backup preview and restore. Its application service binds to the local computer, and Safire does not include telemetry or a hosted sync service. Users choose their own backup or synchronization tools for the vault.
 
 ## Launch copy
 
-Introducing Safire 1.6.0: a calmer Markdown knowledge forge for Windows, macOS, and Linux. Named projects keep their entries and relationship graphs separate, while searchable in-app Help, clearer actions, focused writing tools, and recoverable edits make Safire easier to learn and use.
+Safire 1.6.1 makes dense project graphs readable: a stable folder-clustered Project map groups lower-priority notes and reveals selected connections, while a lossless Full graph adds mouse-rotatable 3D and full-screen exploration across desktop platforms.
 
 ## Social copy
 
-Safire 1.6.0 keeps connected notes grounded in plain Markdown: named projects, a separate graph for each project, searchable in-app Help, templates, attachments, web capture, and recoverable edits across Windows, macOS, and Linux.
+Safire 1.6.1 makes dense Markdown project graphs readable at first open with stable folder regions, grouped-note expansion, a lossless Full graph, and optional mouse-rotatable 3D full-screen exploration.
