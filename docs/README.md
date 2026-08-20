@@ -1,6 +1,6 @@
 # Safire documentation
 
-This directory contains bundled Safire user and agent documentation. Safire is currently version 1.5.0; the unversioned visual guide covers current core workflows, while the versioned manuals are retained as clearly labeled historical references. The current application also contains the additive, opt-in general-agent memory foundation.
+This directory contains bundled Safire user and agent documentation. Safire is currently version 1.6.0; the searchable in-app Help Center is the complete current software guide, while versioned manuals are retained as clearly labeled historical references. The current application also contains the additive, opt-in general-agent memory foundation.
 
 ## Current references
 
@@ -8,7 +8,7 @@ This directory contains bundled Safire user and agent documentation. Safire is c
 - [Changelog](../CHANGELOG.md) — current and historical source milestones
 - [Support](../SUPPORT.md) — safe support and bug-reporting workflow
 - [Security policy](../SECURITY.md) — private vulnerability-reporting process
-- [Safire User Guide](Safire%20User%20Guide.html) — current visual overview for Safire 1.5.0 and the guide opened from the desktop Help menu
+- **Safire Help** in the application — complete current workflows, use cases, templates, research and recovery, Hermes/OpenClaw connection steps, AI prompt examples, reference, privacy, troubleshooting, and licenses
 - [Agent Instruction Manual](Safire%20Agent%20Instruction%20Manual.md) — MCP operating guidance prepared for the v1.2 tool surface, which remains applicable to the current eight-tool integration
 - [Agent Memory](memory/README.md) — current guide for the separate exact six-tool memory MCP, versioned profiles, local sidecar, and invented examples
 - [Agent-memory security](memory/SECURITY.md) and [trusted bridge](memory/TRUSTED_BRIDGE.md) — plaintext-storage, trust-boundary, authentication, and no-auto-capture guidance
@@ -33,4 +33,4 @@ Where a bundled legacy manual conflicts with the application or the root README,
 - the legacy eight-tool Markdown-vault MCP and additive six-tool agent-memory MCP are separate servers; and
 - agent memory is explicit, local plaintext sidecar data—not automatic transcript capture or a modification to Hermes or another host.
 
-Future public releases should publish one version-matched user guide and archive prior manuals under a dedicated `docs/archive/` directory.
+Future public releases should keep in-app Help version-matched and archive prior standalone manuals under a dedicated `docs/archive/` directory.

@@ -1,6 +1,6 @@
 {
   "name": "safire",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
@@ -114,7 +114,6 @@
       "public/fire-icon.png",
       "public/app-icon-1024.png",
       "public/icon.svg",
-      "docs/Safire User Guide.html",
       "docs/memory/**/*",
       "LICENSE",
       "PRIVACY.md",

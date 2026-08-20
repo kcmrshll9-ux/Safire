@@ -4,6 +4,29 @@ Notable changes to Safire are recorded here. Application versions follow the ver
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-08-20
+
+### Added
+
+- Added a searchable in-app Help Center with complete Safire workflows, practical use cases, a copy-ready AI prompt library, verified Hermes and OpenClaw MCP setup, troubleshooting, privacy guidance, the complete MIT License, and bundled third-party software notices.
+
+### Changed
+
+- Consolidated secondary workspace actions into overflow menus so primary tasks remain easy to find.
+- Standardized interface padding, gaps, and margins on an 8-pixel spacing scale.
+- Reserved bright accent colors for primary calls to action to clarify interaction priority.
+- Replaced excess card borders and dividers with spacing and subtle background contrast for a calmer, less boxed-in workspace.
+- Consolidated the standalone desktop User Guide into the searchable in-app Safire Help Center.
+- Expanded New from template with supported-token guidance and refreshed its Markdown template list whenever the picker opens.
+- Made the configured daily-notes folder control where Today creates or opens its note.
+- Made the starter `Welcome.md` and `Ideas.md` notes first-vault-only content so user edits and deletions persist across restarts.
+- Reworked Home into a project-only index: each top-level user folder is a named project card, while its Markdown entries appear only after opening that project.
+- Added project creation, direct entry creation and editing, backup-before-delete controls, and a graph isolated to each project’s own notes and internal links. All Graph actions now open that project-only graph; Safire no longer exposes a mixed vault graph in the interface.
+- Organized each project graph into stable project-relative folder clusters, kept nodes inside the visible canvas, and delayed the initial fit until layout settles so the map no longer drifts or clips after opening.
+- Made graph link resolution project-relative: bare titles such as `[[Plan]]` and paths such as `[[Notes/Decision]]` resolve inside the opened project even when another project contains entries with the same names.
+- Replaced project-specific memory documentation and fixtures with neutral synthetic agent and automation examples.
+- Updated Safire and both MCP server versions to 1.6.0.
+
 ## [1.5.0] - 2026-08-16
 
 ### Added
@@ -50,7 +73,7 @@ Notable changes to Safire are recorded here. Application versions follow the ver
 - Added a separate `safire-memory-mcp.mjs` entry point with exactly six tools: `memory_record_events`, `memory_search`, `memory_get`, `memory_record_feedback`, `memory_recall`, and `memory_status`. The existing `safire-mcp.mjs` Markdown-vault integration remains a separate eight-tool server.
 - Windows installer output exposes an opt-in `resources/safire-memory-mcp.cmd` launcher with the required runtime files unpacked, so an external MCP host can use installed Safire without a separate Node.js checkout. Registration remains manual; the portable EXE has no stable external launcher path.
 - Added a trusted-bridge library contract for host-authenticated user events. It is an explicit in-process seam and simulator, not a listener, transcript monitor, automatic capture service, or Hermes modification.
-- Added agent-memory architecture, security, operator, and example documentation. Harry and Moltbook are reference identities only; the subsystem is agent-general, and the reference Moltbook actor remains automation delegated by the reference Harry profile.
+- Added agent-memory architecture, security, operator, and example documentation using neutral synthetic agent and delegated-automation identities; the subsystem is agent-general.
 
 ### Security
 

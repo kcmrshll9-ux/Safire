@@ -26,9 +26,9 @@ import {
 
 const validEvent = (overrides = {}) => ({
   schema_version: MEMORY_SCHEMA_VERSION,
-  namespace: 'Harry/Projects',
+  namespace: 'Example/Projects',
   actor_type: 'agent_instance',
-  actor_id: 'actor_harry',
+  actor_id: 'actor_example',
   delegated_by: 'actor_user',
   agent_instance_id: 'agent_instance_01',
   kind: 'visible_agent_response',
@@ -49,8 +49,8 @@ const validEvent = (overrides = {}) => ({
     { type: 'belongs_to', target_event_id: 'event_project_01' },
   ],
   derived: {
-    summary: 'Harry proposed the visible plan.',
-    claim: 'The proposal came from Harry, not the user.',
+    summary: 'Example proposed the visible plan.',
+    claim: 'The proposal came from Example, not the user.',
     source_event_ids: ['event_user_01', 'event_agent_01'],
   },
   attributes: {
@@ -86,14 +86,14 @@ test('Stage 1 vocabularies are fixed and exported', () => {
 });
 
 test('logical namespaces canonicalize case-insensitively', () => {
-  assert.equal(canonicalizeNamespace('  Harry/Projects.alpha  '), 'harry/projects.alpha');
-  assert.equal(parseEventInput(validEvent()).namespace, 'harry/projects');
+  assert.equal(canonicalizeNamespace('  Example/Projects.alpha  '), 'example/projects.alpha');
+  assert.equal(parseEventInput(validEvent()).namespace, 'example/projects');
 });
 
 test('logical namespaces reject traversal, absolute paths, backslashes, and encoded bypasses', () => {
   for (const namespace of [
-    '../harry', 'harry/../user', '/harry/user', 'C:/harry/user', 'harry\\user',
-    'harry//user', 'harry/user/', 'harry/%2e%2e/user', '//server/share', '.', '..',
+    '../example', 'example/../user', '/example/user', 'C:/example/user', 'example\\user',
+    'example//user', 'example/user/', 'example/%2e%2e/user', '//server/share', '.', '..',
   ]) {
     assert.throws(() => canonicalizeNamespace(namespace), MemorySchemaValidationError, namespace);
   }
@@ -113,7 +113,7 @@ test('opaque IDs are portable identifiers rather than paths or free text', () =>
 test('strict event parsing accepts the complete approved input and canonicalizes it', () => {
   const parsed = parseEventInput(validEvent());
   assert.equal(parsed.schema_version, 1);
-  assert.equal(parsed.namespace, 'harry/projects');
+  assert.equal(parsed.namespace, 'example/projects');
   assert.equal(parsed.context.session_id, 'session_01');
   assert.equal(parsed.context.automation_run_id, 'automation_run_01');
   assert.deepEqual(parsed.relations.map(relation => relation.type), ['replies_to', 'belongs_to']);
@@ -203,7 +203,7 @@ test('credential-like material is rejected from every caller-controlled identifi
       assert.equal(isOpaqueId(credential), false);
 
       const eventInputs = [
-        validEvent({ namespace: `harry/${credential}` }),
+        validEvent({ namespace: `example/${credential}` }),
         validEvent({ actor_id: credential }),
         validEvent({ delegated_by: credential }),
         validEvent({ agent_instance_id: credential }),

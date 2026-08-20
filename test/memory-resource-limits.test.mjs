@@ -43,7 +43,7 @@ function profile(name, overrides = {}) {
 }
 
 function event(name, overrides = {}) {
-  const actor = overrides.actorName || 'harry';
+  const actor = overrides.actorName || 'example';
   const { actorName: _actorName, ...rest } = overrides;
   return {
     schema_version: 1,
@@ -95,14 +95,14 @@ test('resource configuration accepts exact immutable ceilings and only lower val
   for (const [key, maximum] of Object.entries(HARD_MEMORY_RESOURCE_LIMITS)) {
     const exact = createMemoryStore({
       vaultDir: vault,
-      profile: profile('harry'),
+      profile: profile('example'),
       resourceLimits: { [key]: maximum },
     });
     assert.equal(exact.resourceLimits[key], maximum, `${key} accepts its exact hard ceiling`);
     assert.throws(
       () => createMemoryStore({
         vaultDir: vault,
-        profile: profile('harry'),
+        profile: profile('example'),
         resourceLimits: { [key]: maximum + 1 },
       }),
       {
@@ -130,7 +130,7 @@ test('resource configuration accepts exact immutable ceilings and only lower val
   };
   const store = createMemoryStore({
     vaultDir: vault,
-    profile: profile('harry'),
+    profile: profile('example'),
     resourceLimits: lowered,
   });
   assert.deepEqual(store.resourceLimits, lowered);
@@ -225,7 +225,7 @@ test('manifest initialization uses the configured directory-entry ceiling', asyn
   const acceptedVault = await temporaryVault(t, 'safire-memory-manifest-cap-accepted-');
   const accepted = createMemoryStore({
     vaultDir: acceptedVault,
-    profile: profile('harry'),
+    profile: profile('example'),
     resourceLimits: { maxDirectoryEntriesPerOperation: 5 },
   });
   await accepted.initialize();
@@ -234,7 +234,7 @@ test('manifest initialization uses the configured directory-entry ceiling', asyn
   const rejectedVault = await temporaryVault(t, 'safire-memory-manifest-cap-rejected-');
   const rejected = createMemoryStore({
     vaultDir: rejectedVault,
-    profile: profile('harry'),
+    profile: profile('example'),
     resourceLimits: { maxDirectoryEntriesPerOperation: 4 },
   });
   await assert.rejects(() => rejected.initialize(), assertGenericResourceError);
@@ -250,25 +250,25 @@ test('oversized manifest and actor files fail closed before allocation without d
   const manifestPath = path.join(manifestLayout.rootDir, 'manifest.json');
   await fs.writeFile(manifestPath, '{}\n', 'utf8');
   await fs.truncate(manifestPath, HARD_MAX_MEMORY_JSON_FILE_BYTES + 1);
-  const manifestStore = createMemoryStore({ vaultDir: manifestVault, profile: profile('harry') });
+  const manifestStore = createMemoryStore({ vaultDir: manifestVault, profile: profile('example') });
   await assert.rejects(() => manifestStore.initialize(), assertGenericResourceError);
   assert.equal((await fs.stat(manifestPath)).size, HARD_MAX_MEMORY_JSON_FILE_BYTES + 1);
 
   const actorVault = await temporaryVault(t, 'safire-memory-oversized-actor-');
-  const harryProfile = profile('harry');
-  const writer = createMemoryStore({ vaultDir: actorVault, profile: harryProfile });
+  const exampleProfile = profile('example');
+  const writer = createMemoryStore({ vaultDir: actorVault, profile: exampleProfile });
   await writer.initialize();
-  const actorPath = immutableRecordPath(writer.layout, 'actors', harryProfile.principal.id);
+  const actorPath = immutableRecordPath(writer.layout, 'actors', exampleProfile.principal.id);
   await fs.truncate(actorPath, HARD_MAX_MEMORY_JSON_FILE_BYTES + 1);
-  const reopened = createMemoryStore({ vaultDir: actorVault, profile: harryProfile });
+  const reopened = createMemoryStore({ vaultDir: actorVault, profile: exampleProfile });
   await assert.rejects(() => reopened.initialize(), assertGenericResourceError);
   assert.equal((await fs.stat(actorPath)).size, HARD_MAX_MEMORY_JSON_FILE_BYTES + 1);
 });
 
 test('direct and collection reads reject deterministic growth after caller pre-stat', async (t) => {
   const vault = await temporaryVault(t, 'safire-memory-file-growth-');
-  const harryProfile = profile('harry');
-  const writer = createMemoryStore({ vaultDir: vault, profile: harryProfile });
+  const exampleProfile = profile('example');
+  const writer = createMemoryStore({ vaultDir: vault, profile: exampleProfile });
   const created = await writer.recordEvents([event('growth.target')]);
   const eventId = created.results[0].event.event_id;
   const eventPath = immutableRecordPath(writer.layout, 'events', eventId);
@@ -277,7 +277,7 @@ test('direct and collection reads reject deterministic growth after caller pre-s
   let directGrown = false;
   const directReader = createMemoryStore({
     vaultDir: vault,
-    profile: harryProfile,
+    profile: exampleProfile,
     faultInjector: async (stage, metadata) => {
       if (!directGrown && stage === 'before_direct_record_read' && metadata.collection === 'events') {
         directGrown = true;
@@ -291,7 +291,7 @@ test('direct and collection reads reject deterministic growth after caller pre-s
   let collectionGrown = false;
   const collectionReader = createMemoryStore({
     vaultDir: vault,
-    profile: harryProfile,
+    profile: exampleProfile,
     faultInjector: async (stage, metadata) => {
       if (!collectionGrown
           && stage === 'before_collection_record_read'
@@ -307,11 +307,11 @@ test('direct and collection reads reject deterministic growth after caller pre-s
 
 test('oversized journal recovery fails closed without publishing or deleting state', async (t) => {
   const vault = await temporaryVault(t, 'safire-memory-oversized-journal-');
-  const harryProfile = profile('harry');
+  const exampleProfile = profile('example');
   let interrupted = false;
   const writer = createMemoryStore({
     vaultDir: vault,
-    profile: harryProfile,
+    profile: exampleProfile,
     faultInjector(stage) {
       if (!interrupted && stage === 'after_journal_create') {
         interrupted = true;
@@ -328,7 +328,7 @@ test('oversized journal recovery fails closed without publishing or deleting sta
   const journalPath = path.join(ingestionDirectory, journalName);
   await fs.truncate(journalPath, HARD_MAX_MEMORY_JSON_FILE_BYTES + 1);
 
-  const reopened = createMemoryStore({ vaultDir: vault, profile: harryProfile });
+  const reopened = createMemoryStore({ vaultDir: vault, profile: exampleProfile });
   await assert.rejects(() => reopened.status(), assertGenericResourceError);
   assert.equal((await fs.stat(journalPath)).size, HARD_MAX_MEMORY_JSON_FILE_BYTES + 1);
   assert.deepEqual(
@@ -339,8 +339,8 @@ test('oversized journal recovery fails closed without publishing or deleting sta
 
 test('collection reads use bounded concurrency and default exact get performs no collection scan', async (t) => {
   const vault = await temporaryVault(t);
-  const harry = profile('harry');
-  const writer = createMemoryStore({ vaultDir: vault, profile: harry });
+  const example = profile('example');
+  const writer = createMemoryStore({ vaultDir: vault, profile: example });
   const recorded = await writer.recordEvents(
     Array.from({ length: 24 }, (_, index) => event(`bounded.${index}`)),
   );
@@ -350,7 +350,7 @@ test('collection reads use bounded concurrency and default exact get performs no
   let maximumReads = 0;
   const reader = createMemoryStore({
     vaultDir: vault,
-    profile: harry,
+    profile: example,
     resourceLimits: { readConcurrency: 3 },
     faultInjector: async (stage) => {
       if (stage === 'before_collection_record_read') {
@@ -370,7 +370,7 @@ test('collection reads use bounded concurrency and default exact get performs no
 
   const exactReader = createMemoryStore({
     vaultDir: vault,
-    profile: harry,
+    profile: example,
     faultInjector: async (stage) => {
       if (stage === 'before_collection_record_read') {
         throw new Error('exact get attempted a collection scan');
@@ -388,7 +388,7 @@ test('request record and byte limits fail generically before sidecar mutation', 
   const recordVault = await temporaryVault(t, 'safire-memory-request-records-');
   const recordStore = createMemoryStore({
     vaultDir: recordVault,
-    profile: profile('harry'),
+    profile: profile('example'),
     resourceLimits: { maxRecordsPerRequest: 2 },
   });
   await assert.rejects(
@@ -400,7 +400,7 @@ test('request record and byte limits fail generically before sidecar mutation', 
   const byteVault = await temporaryVault(t, 'safire-memory-request-bytes-');
   const byteStore = createMemoryStore({
     vaultDir: byteVault,
-    profile: profile('harry'),
+    profile: profile('example'),
     resourceLimits: { maxBytesPerRequest: 128 },
   });
   await assert.rejects(
@@ -412,8 +412,8 @@ test('request record and byte limits fail generically before sidecar mutation', 
 
 test('store scans count unexpected entries and exact reads remain direct', async (t) => {
   const vault = await temporaryVault(t, 'safire-memory-store-directory-cap-');
-  const harryProfile = profile('harry');
-  const writer = createMemoryStore({ vaultDir: vault, profile: harryProfile });
+  const exampleProfile = profile('example');
+  const writer = createMemoryStore({ vaultDir: vault, profile: exampleProfile });
   const created = await writer.recordEvents([event('directory.direct')]);
   const eventId = created.results[0].event.event_id;
   const eventDirectory = path.join(vault, '.safire', 'memory', 'v1', 'records', 'events');
@@ -422,7 +422,7 @@ test('store scans count unexpected entries and exact reads remain direct', async
 
   const reader = createMemoryStore({
     vaultDir: vault,
-    profile: harryProfile,
+    profile: exampleProfile,
     resourceLimits: { maxDirectoryEntriesPerOperation: 2 },
   });
   await assert.rejects(() => reader.status(), assertGenericResourceError);
@@ -435,20 +435,20 @@ test('store scans count unexpected entries and exact reads remain direct', async
 
 test('directory-entry budget is shared across every collection in one request', async (t) => {
   const vault = await temporaryVault(t, 'safire-memory-shared-directory-cap-');
-  const harryProfile = profile('harry');
-  const writer = createMemoryStore({ vaultDir: vault, profile: harryProfile });
+  const exampleProfile = profile('example');
+  const writer = createMemoryStore({ vaultDir: vault, profile: exampleProfile });
   const created = await writer.recordEvents([event('directory.shared')]);
   const eventId = created.results[0].event.event_id;
   await writer.recordFeedback([{
     schema_version: 1,
     target: { type: 'event', id: eventId },
     signal: 'useful',
-    actor_id: 'agent:harry',
+    actor_id: 'agent:example',
     source: { stream: 'feedback.directory', event_id: 'shared' },
   }]);
   const reader = createMemoryStore({
     vaultDir: vault,
-    profile: harryProfile,
+    profile: exampleProfile,
     resourceLimits: { maxDirectoryEntriesPerOperation: 1 },
   });
   await assert.rejects(() => reader.status(), assertGenericResourceError);
@@ -457,8 +457,8 @@ test('directory-entry budget is shared across every collection in one request', 
 
 test('search candidate and result ceilings fail generically while bounded top-k remains correct', async (t) => {
   const vault = await temporaryVault(t, 'safire-memory-search-cap-');
-  const harryProfile = profile('harry');
-  const writer = createMemoryStore({ vaultDir: vault, profile: harryProfile });
+  const exampleProfile = profile('example');
+  const writer = createMemoryStore({ vaultDir: vault, profile: exampleProfile });
   await writer.recordEvents([
     event('candidate.1', { content: 'Bounded candidate alpha.' }),
     event('candidate.2', { content: 'Bounded candidate beta.' }),
@@ -467,7 +467,7 @@ test('search candidate and result ceilings fail generically while bounded top-k 
 
   const candidateLimited = createMemoryStore({
     vaultDir: vault,
-    profile: harryProfile,
+    profile: exampleProfile,
     resourceLimits: { maxSearchCandidates: 2 },
   });
   await assert.rejects(
@@ -477,7 +477,7 @@ test('search candidate and result ceilings fail generically while bounded top-k 
 
   const resultLimited = createMemoryStore({
     vaultDir: vault,
-    profile: harryProfile,
+    profile: exampleProfile,
     resourceLimits: { maxSearchResults: 2 },
   });
   await assert.rejects(
@@ -489,10 +489,10 @@ test('search candidate and result ceilings fail generically while bounded top-k 
 
 test('namespace and stable-profile quotas reject only new unique writes without eviction', async (t) => {
   const vault = await temporaryVault(t);
-  const harryProfile = profile('harry');
+  const exampleProfile = profile('example');
   const limited = createMemoryStore({
     vaultDir: vault,
-    profile: harryProfile,
+    profile: exampleProfile,
     resourceLimits: {
       maxRecordsPerNamespace: 2,
       maxRecordsPerProfile: 2,
@@ -505,14 +505,14 @@ test('namespace and stable-profile quotas reject only new unique writes without 
   assert.equal(duplicate.duplicate_count, 1);
   await assert.rejects(() => limited.recordEvents([event('quota.3')]), assertGenericResourceError);
   assert.equal((await limited.get(first.results[0].event.event_id)).event.content, firstInput.content);
-  assert.equal((await createMemoryStore({ vaultDir: vault, profile: harryProfile }).status()).counts.events, 2);
+  assert.equal((await createMemoryStore({ vaultDir: vault, profile: exampleProfile }).status()).counts.events, 2);
 
   const eventDirectory = path.join(vault, '.safire', 'memory', 'v1', 'records', 'events');
   const [eventName] = await fs.readdir(eventDirectory);
   const firstEventBytes = (await fs.stat(path.join(eventDirectory, eventName))).size;
   const byteLimited = createMemoryStore({
     vaultDir: vault,
-    profile: harryProfile,
+    profile: exampleProfile,
     resourceLimits: {
       maxBytesPerNamespace: firstEventBytes * 2,
       maxBytesPerProfile: firstEventBytes * 2,
@@ -522,7 +522,7 @@ test('namespace and stable-profile quotas reject only new unique writes without 
 
   const existingOverQuota = createMemoryStore({
     vaultDir: vault,
-    profile: harryProfile,
+    profile: exampleProfile,
     resourceLimits: { maxRecordsPerProfile: 1, maxRecordsPerNamespace: 1 },
   });
   assert.equal((await existingOverQuota.get(first.results[0].event.event_id)).event.event_id,
@@ -532,10 +532,10 @@ test('namespace and stable-profile quotas reject only new unique writes without 
 
 test('concurrent batches serialize quota checks and never overcommit', async (t) => {
   const vault = await temporaryVault(t, 'safire-memory-concurrent-quota-');
-  const harryProfile = profile('harry');
+  const exampleProfile = profile('example');
   const limits = { maxRecordsPerProfile: 3, maxRecordsPerNamespace: 3 };
-  const first = createMemoryStore({ vaultDir: vault, profile: harryProfile, resourceLimits: limits });
-  const second = createMemoryStore({ vaultDir: vault, profile: harryProfile, resourceLimits: limits });
+  const first = createMemoryStore({ vaultDir: vault, profile: exampleProfile, resourceLimits: limits });
+  const second = createMemoryStore({ vaultDir: vault, profile: exampleProfile, resourceLimits: limits });
   await first.recordEvents([event('concurrent.base')]);
   const outcomes = await Promise.allSettled([
     first.recordEvents([event('concurrent.a1'), event('concurrent.a2')]),
@@ -549,12 +549,12 @@ test('concurrent batches serialize quota checks and never overcommit', async (t)
 
 test('profile quota ownership is isolated in a shared namespace and metrics retain stable actors', async (t) => {
   const vault = await temporaryVault(t);
-  const harryProfile = profile('harry');
+  const exampleProfile = profile('example');
   const syntheticProfile = profile('synthetic');
   const quota = { maxRecordsPerProfile: 1, maxRecordsPerNamespace: 10 };
-  const harryLimited = createMemoryStore({ vaultDir: vault, profile: harryProfile, resourceLimits: quota });
+  const exampleLimited = createMemoryStore({ vaultDir: vault, profile: exampleProfile, resourceLimits: quota });
   const syntheticLimited = createMemoryStore({ vaultDir: vault, profile: syntheticProfile, resourceLimits: quota });
-  const harryRecord = await harryLimited.recordEvents([event('shared.harry', {
+  const exampleRecord = await exampleLimited.recordEvents([event('shared.example', {
     namespace: 'shared/demo',
     content: 'Shared stable actor metric target.',
   })]);
@@ -564,7 +564,7 @@ test('profile quota ownership is isolated in a shared namespace and metrics reta
     content: 'A second profile can use its own quota in the shared namespace.',
   })]);
   await assert.rejects(
-    () => harryLimited.recordEvents([event('shared.harry.2', { namespace: 'shared/demo' })]),
+    () => exampleLimited.recordEvents([event('shared.example.2', { namespace: 'shared/demo' })]),
     assertGenericResourceError,
   );
   await assert.rejects(
@@ -574,23 +574,23 @@ test('profile quota ownership is isolated in a shared namespace and metrics reta
     assertGenericResourceError,
   );
 
-  const eventId = harryRecord.results[0].event.event_id;
-  const harry = createMemoryStore({ vaultDir: vault, profile: harryProfile });
+  const eventId = exampleRecord.results[0].event.event_id;
+  const example = createMemoryStore({ vaultDir: vault, profile: exampleProfile });
   const synthetic = createMemoryStore({ vaultDir: vault, profile: syntheticProfile });
-  await harry.recordFeedback([
+  await example.recordFeedback([
     {
       schema_version: 1,
       target: { type: 'event', id: eventId },
       signal: 'useful',
-      actor_id: 'agent:harry',
-      source: { stream: 'feedback.harry', event_id: 'agent' },
+      actor_id: 'agent:example',
+      source: { stream: 'feedback.example', event_id: 'agent' },
     },
     {
       schema_version: 1,
       target: { type: 'event', id: eventId },
       signal: 'not_useful',
-      actor_id: 'agent_instance:harry:desktop',
-      source: { stream: 'feedback.harry', event_id: 'instance' },
+      actor_id: 'agent_instance:example:desktop',
+      source: { stream: 'feedback.example', event_id: 'instance' },
     },
   ]);
   await synthetic.recordFeedback([{
@@ -600,26 +600,26 @@ test('profile quota ownership is isolated in a shared namespace and metrics reta
     actor_id: 'agent:synthetic',
     source: { stream: 'feedback.synthetic', event_id: 'agent' },
   }]);
-  const result = (await harry.search({ query: 'stable actor metric target' })).results[0];
-  assert.equal(result.activity_by_stable_actor['agent:harry'].events, 1);
-  assert.equal(result.activity_by_stable_actor['agent:harry'].feedback, 1);
-  assert.equal(result.activity_by_stable_actor['agent:harry'].signals.useful, 1);
-  assert.equal(result.activity_by_stable_actor['agent_instance:harry:desktop'].feedback, 1);
-  assert.equal(result.activity_by_stable_actor['agent_instance:harry:desktop'].signals.not_useful, 1);
+  const result = (await example.search({ query: 'stable actor metric target' })).results[0];
+  assert.equal(result.activity_by_stable_actor['agent:example'].events, 1);
+  assert.equal(result.activity_by_stable_actor['agent:example'].feedback, 1);
+  assert.equal(result.activity_by_stable_actor['agent:example'].signals.useful, 1);
+  assert.equal(result.activity_by_stable_actor['agent_instance:example:desktop'].feedback, 1);
+  assert.equal(result.activity_by_stable_actor['agent_instance:example:desktop'].signals.not_useful, 1);
   assert.equal(result.activity_by_stable_actor['agent:synthetic'].feedback, 1);
 });
 
 test('feedback and relation expansion limits are shared across an exact request', async (t) => {
   const vault = await temporaryVault(t);
-  const harryProfile = profile('harry');
-  const writer = createMemoryStore({ vaultDir: vault, profile: harryProfile });
+  const exampleProfile = profile('example');
+  const writer = createMemoryStore({ vaultDir: vault, profile: exampleProfile });
   const target = await writer.recordEvents([event('expansion.target')]);
   const targetId = target.results[0].event.event_id;
   await writer.recordFeedback(Array.from({ length: 3 }, (_, index) => ({
     schema_version: 1,
     target: { type: 'event', id: targetId },
     signal: 'useful',
-    actor_id: 'agent:harry',
+    actor_id: 'agent:example',
     source: { stream: 'feedback.expansion', event_id: `feedback.${index}` },
   })));
   await writer.recordEvents(Array.from({ length: 3 }, (_, index) => event(`relation.${index}`, {
@@ -627,7 +627,7 @@ test('feedback and relation expansion limits are shared across an exact request'
   })));
   const reader = createMemoryStore({
     vaultDir: vault,
-    profile: harryProfile,
+    profile: exampleProfile,
     resourceLimits: { maxFeedbackExpansion: 2, maxRelationExpansion: 2 },
   });
   assert.equal((await reader.get(targetId)).event.event_id, targetId);
@@ -643,12 +643,12 @@ test('feedback and relation expansion limits are shared across an exact request'
 
 test('legacy display-name digests retry safely while stable actor changes conflict', async (t) => {
   const vault = await temporaryVault(t);
-  const oldProfile = profile('harry', {
-    principal: { id: 'agent:harry', type: 'agent', displayName: 'Old display label' },
+  const oldProfile = profile('example', {
+    principal: { id: 'agent:example', type: 'agent', displayName: 'Old display label' },
     allowedActors: [{
       id: 'automation:runner',
       type: 'automation',
-      delegatedBy: 'agent:harry',
+      delegatedBy: 'agent:example',
     }],
   });
   const input = event('legacy.display');
@@ -692,12 +692,12 @@ test('legacy display-name digests retry safely while stable actor changes confli
   );
   await fs.unlink(receiptPath);
 
-  const renamedProfile = profile('harry', {
-    principal: { id: 'agent:harry', type: 'agent', displayName: 'New display label' },
+  const renamedProfile = profile('example', {
+    principal: { id: 'agent:example', type: 'agent', displayName: 'New display label' },
     allowedActors: [{
       id: 'automation:runner',
       type: 'automation',
-      delegatedBy: 'agent:harry',
+      delegatedBy: 'agent:example',
     }],
   });
   const reopened = createMemoryStore({ vaultDir: vault, profile: renamedProfile });
@@ -707,7 +707,7 @@ test('legacy display-name digests retry safely while stable actor changes confli
   const changedActor = event('legacy.display', {
     actor_type: 'automation',
     actor_id: 'automation:runner',
-    delegated_by: 'agent:harry',
+    delegated_by: 'agent:example',
     kind: 'automation_decision',
   });
   delete changedActor.agent_instance_id;

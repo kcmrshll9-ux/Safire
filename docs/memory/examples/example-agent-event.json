@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "namespace": "agents/harry/conversations/reference",
+  "namespace": "agents/example/conversations/reference",
   "actor_type": "agent",
-  "actor_id": "agent:harry",
-  "agent_instance_id": "agent_instance:harry:desktop",
+  "actor_id": "agent:example",
+  "agent_instance_id": "agent_instance:example:desktop",
   "kind": "visible_agent_response",
   "speech_act": "proposal",
   "content": "I propose reviewing the synthetic rollout checklist on Friday.",

@@ -42,7 +42,7 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const { resolveVaultPath: resolveConfiguredVaultPath } = vaultConfig;
+const { initializeVault, resolveVaultPath: resolveConfiguredVaultPath } = vaultConfig;
 const LOOPBACK_HOST = '127.0.0.1';
 function loopbackHost(candidate) {
   return ['127.0.0.1', '::1'].includes(String(candidate || '').trim()) ? String(candidate).trim() : LOOPBACK_HOST;
@@ -111,20 +111,7 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '10mb' }));
 
 async function ensureVault() {
-  await fs.mkdir(VAULT_DIR, { recursive: true });
-  await fs.mkdir(path.join(VAULT_DIR, 'Daily Notes'), { recursive: true });
-  const welcome = path.join(VAULT_DIR, 'Welcome.md');
-  try {
-    await fs.writeFile(welcome, `# Welcome to Safire\n\nSafire is your privacy-focused, local-first Markdown workspace: warm, fast, portable, and yours.\n\n- Link notes with [[Ideas]]\n- Tag notes with #home or #projects\n- Use the graph view to see connections\n- Press Ctrl+K for the command palette\n- Press Ctrl+O for quick switcher\n- Press Ctrl+S to save\n\nCore note workflows stay on this computer. See PRIVACY.md for the network boundaries of optional features.\n`, { encoding: 'utf8', flag: 'wx' });
-  } catch (error) {
-    if (error?.code !== 'EEXIST') throw error;
-  }
-  const ideas = path.join(VAULT_DIR, 'Ideas.md');
-  try {
-    await fs.writeFile(ideas, `# Ideas\n\nThis note links back to [[Welcome]].\n\n#ideas\n`, { encoding: 'utf8', flag: 'wx' });
-  } catch (error) {
-    if (error?.code !== 'EEXIST') throw error;
-  }
+  VAULT_DIR = initializeVault(VAULT_DIR);
 }
 
 function slash(p) { return String(p).replace(/\\/g, '/'); }
@@ -282,6 +269,32 @@ async function collectIndexPaths(preferredPath = '') {
   return collectBoundedMarkdownPaths(fs, VAULT_DIR, { preferredPath });
 }
 
+async function collectProjectIndexPaths(rawProjectPath, preferredPath = '') {
+  const project = resolveVaultPath(rawProjectPath);
+  if (!project.rel || project.rel.includes('/') || project.rel.startsWith('.')) {
+    throw new Error('Project graph requires one top-level user folder');
+  }
+  const projectStat = await fs.lstat(project.abs);
+  if (!projectStat.isDirectory() || projectStat.isSymbolicLink()) throw new Error('Project folder not found');
+
+  const projectPrefix = `${project.rel}/`;
+  const pathKey = value => process.platform === 'win32' ? value.toLowerCase() : value;
+  const preferredKey = pathKey(slash(preferredPath));
+  const prefixKey = pathKey(projectPrefix);
+  const scopedPreferred = preferredKey.startsWith(prefixKey)
+    ? slash(preferredPath).slice(projectPrefix.length)
+    : '';
+  const discovery = await collectBoundedMarkdownPaths(fs, project.abs, { preferredPath: scopedPreferred });
+  const prefix = value => value ? `${project.rel}/${value}` : '';
+  return {
+    ...discovery,
+    paths: discovery.paths.map(prefix),
+    directoryPaths: discovery.directoryPaths.map(prefix),
+    preferredPath: prefix(discovery.preferredPath),
+    projectPath: project.rel,
+  };
+}
+
 async function noteMeta(rel, byteLimit = GENERIC_INDEX_LIMITS.noteBytes, state = createIndexOperationState()) {
   const { abs } = resolveNotePath(rel);
   const indexed = await readBoundedIndexNote(fs, abs, byteLimit);
@@ -358,11 +371,16 @@ function addWikiLinkIndexValue(index, key, value) {
   index.set(key, values);
 }
 
-function createWikiLinkResolver(notes) {
+function createWikiLinkResolver(notes, scopePath = '') {
   const paths = new Map();
   const titles = new Map();
+  const normalizedScope = slash(scopePath).replace(/^\/+|\/+$/g, '');
+  const scopePrefix = normalizedScope ? `${normalizedScope}/` : '';
   for (const note of notes) {
     addWikiLinkIndexValue(paths, note.rel.toLowerCase(), note.rel);
+    if (scopePrefix && note.rel.startsWith(scopePrefix)) {
+      addWikiLinkIndexValue(paths, note.rel.slice(scopePrefix.length).toLowerCase(), note.rel);
+    }
     const basename = path.posix.basename(note.rel).replace(/\.md$/i, '').toLowerCase();
     addWikiLinkIndexValue(titles, basename, note.rel);
   }
@@ -1011,7 +1029,9 @@ app.post('/api/rename', async (req, res, next) => {
 
 app.post('/api/daily', async (_req, res, next) => {
   try {
-    const rel = `Daily Notes/${todayName()}.md`;
+    const settings = await readSettings();
+    const dailyFolder = normalizeFolderPath(String(settings.dailyNotesFolder || 'Daily Notes')) || 'Daily Notes';
+    const rel = `${dailyFolder}/${todayName()}.md`;
     const { abs } = resolveUserMutationNotePath(rel);
     try {
       await noteMutator.create(abs, `# ${todayName()}\n\n## Notes\n\n## Tasks\n\n- [ ] \n\n#daily\n`);
@@ -1216,6 +1236,7 @@ app.post('/api/task/toggle', async (req, res, next) => {
 
 app.get('/api/graph', async (req, res, next) => {
   try {
+    const requestedProject = String(req.query.project || '').trim();
     let activePath = '';
     const requestedActive = String(req.query.active || '').trim();
     if (requestedActive) {
@@ -1232,12 +1253,23 @@ app.get('/api/graph', async (req, res, next) => {
         // indistinguishable and do not change the deterministic default page.
       }
     }
-    const discovery = await collectIndexPaths(activePath);
+    const discovery = requestedProject
+      ? await collectProjectIndexPaths(requestedProject, activePath)
+      : await collectIndexPaths(activePath);
+    const projectPath = discovery.projectPath || '';
     activePath = discovery.preferredPath || activePath;
     const notePaths = discovery.paths;
     const returnedPaths = selectGraphNotePaths(notePaths, activePath);
     const selectedNoteIds = new Set(returnedPaths);
-    const resolveWikiLink = createWikiLinkResolver(notePaths.map(rel => ({ rel })));
+    // Each top-level project is its own graph namespace. Bare titles and paths
+    // relative to the project root resolve only against entries in that project;
+    // equally named notes elsewhere in the vault cannot suppress its edges.
+    const resolverDiscovery = discovery;
+    const resolverPathKey = value => process.platform === 'win32' ? value.toLowerCase() : value;
+    const projectPrefixKey = projectPath ? `${resolverPathKey(projectPath)}/` : '';
+    const resolverPaths = new Map();
+    for (const rel of [...resolverDiscovery.paths, ...notePaths]) resolverPaths.set(resolverPathKey(rel), rel);
+    const resolveWikiLink = createWikiLinkResolver([...resolverPaths.values()].map(rel => ({ rel })), projectPath);
     const noteRecords = [];
     const candidateLinks = [];
     let sourceLinks = 0;
@@ -1283,6 +1315,17 @@ app.get('/api/graph', async (req, res, next) => {
         }
         if (retainedTargets.has(linkTitle)) continue;
         const resolution = resolveWikiLink(linkTitle);
+        if (projectPath && !resolverDiscovery.complete && resolution.resolution === 'unique-title') {
+          // A bounded project name index cannot prove title uniqueness.
+          // Fail closed instead of drawing a potentially false project edge.
+          omittedLink = true;
+          continue;
+        }
+        // A project graph is an intentionally closed view: links to another
+        // project and unresolved placeholders remain available in the
+        // vault-wide graph but do not leak into this project's map.
+        if (projectPath && !resolution.resolved) continue;
+        if (projectPath && !resolverPathKey(resolution.target).startsWith(projectPrefixKey)) continue;
         if (resolution.resolved && !selectedNoteIds.has(resolution.target)) {
           omittedLink = true;
           continue;
@@ -1356,17 +1399,19 @@ app.get('/api/graph', async (req, res, next) => {
       meta: {
         sourceNotes: discovery.observedNotes,
         sourceNotesComplete: discovery.complete,
-        sourceLinks,
+        sourceLinks: projectPath ? candidateLinks.length : sourceLinks,
         sourceLinksComplete: discovery.complete
           && !linkDiscoveryStopped
           && omittedNoteContent === 0
-          && notePaths.length === returnedPaths.length,
+          && notePaths.length === returnedPaths.length
+          && (!projectPath || resolverDiscovery.complete),
         returnedNotes: nodes.length,
         returnedLinks: links.length,
         omittedNoteContent,
         omittedLinkFields,
         responseBytes: 0,
         truncated: !discovery.complete
+          || Boolean(projectPath && !resolverDiscovery.complete)
           || notePaths.length > nodes.length
           || omittedLink
           || omittedNoteContent > 0

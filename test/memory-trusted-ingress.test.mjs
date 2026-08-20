@@ -14,8 +14,8 @@ import {
 function profile() {
   return createTrustedBridgeProfile({
     profile_id: 'profile:trusted-ingress-test',
-    principal: { id: 'agent:harry', type: 'agent' },
-    agent_instance: { id: 'agent_instance:harry:bridge', type: 'agent_instance' },
+    principal: { id: 'agent:example', type: 'agent' },
+    agent_instance: { id: 'agent_instance:example:bridge', type: 'agent_instance' },
     ingested_by: { id: 'adapter:trusted-bridge:test' },
     source_identity: 'bridge:trusted-ingress-test',
     accept_user_events: true,
@@ -45,7 +45,7 @@ function attributedEvent(overrides = {}) {
     ...eventEnvelope(),
     actor_type: 'user',
     actor_id: 'user:owner',
-    agent_instance_id: 'agent_instance:harry:bridge',
+    agent_instance_id: 'agent_instance:example:bridge',
     ...overrides,
   };
 }
@@ -319,13 +319,13 @@ test('prototype hooks installed before or after bridge creation cannot reach the
           speech_act: 'assertion',
           content: 'A directly attributed agent response.',
           actor_type: 'agent',
-          actor_id: 'agent:harry',
+          actor_id: 'agent:example',
           source: { stream: 'host:conversation', event_id: `prototype.${phase}.agent` },
         })]);
         const agentEventId = agentResult.results[0].event.event_id;
         await access.store.recordFeedback([attributedFeedback(agentEventId, {
           signal: 'useful',
-          actor_id: 'agent:harry',
+          actor_id: 'agent:example',
           source: { stream: 'host:feedback', event_id: `prototype.${phase}.agent-feedback` },
         })]);
 

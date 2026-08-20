@@ -2,6 +2,11 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+const STARTER_STATE_DIRECTORY = '.safire';
+const STARTER_STATE_FILE = 'starter-notes.json';
+const WELCOME_NOTE = '# Welcome to Safire\n\nSafire is your privacy-focused, local-first Markdown workspace: warm, fast, portable, and yours.\n\n- Link notes with [[Ideas]]\n- Tag notes with #home or #projects\n- Use the graph view to see connections\n- Press Ctrl+K for the command palette\n- Press Ctrl+O for quick switcher\n- Press Ctrl+S to save\n\nCore note workflows stay on this computer. See PRIVACY.md for the network boundaries of optional features.\n';
+const IDEAS_NOTE = '# Ideas\n\nThis note links back to [[Welcome]].\n\n#ideas\n';
+
 function userHome(options = {}) {
   const platform = options.platform || process.platform;
   const environment = options.environment || process.env;
@@ -48,4 +53,96 @@ function resolveVaultPath(options = {}) {
   return path.resolve(explicit || readVaultPath(options) || defaultVaultPath());
 }
 
-module.exports = { defaultVaultPath, vaultConfigPath, readVaultPath, saveVaultPath, resolveVaultPath };
+function ensurePlainDirectory(directory) {
+  try {
+    fs.mkdirSync(directory);
+  } catch (error) {
+    if (error?.code !== 'EEXIST') throw error;
+  }
+  const metadata = fs.lstatSync(directory);
+  if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+    throw new Error('Safire internal paths cannot use symlinks or junctions');
+  }
+}
+
+function readStarterState(statePath) {
+  try {
+    const metadata = fs.lstatSync(statePath);
+    if (!metadata.isFile() || metadata.isSymbolicLink()) {
+      throw new Error('Safire starter state must be a plain file');
+    }
+    try {
+      const parsed = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+      return parsed?.version === 1 && parsed?.state === 'seeding' ? 'seeding' : 'initialized';
+    } catch (error) {
+      if (error instanceof SyntaxError) return 'initialized';
+      throw error;
+    }
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+function starterStateJson(state) {
+  return `${JSON.stringify({ version: 1, state }, null, 2)}\n`;
+}
+
+function hasExistingVaultContent(vaultDir) {
+  for (const entry of fs.readdirSync(vaultDir, { withFileTypes: true })) {
+    if (entry.name !== STARTER_STATE_DIRECTORY) return true;
+    if (!entry.isDirectory() || entry.isSymbolicLink()) {
+      throw new Error('Safire internal paths cannot use symlinks or junctions');
+    }
+    const internalEntries = fs.readdirSync(path.join(vaultDir, STARTER_STATE_DIRECTORY));
+    if (internalEntries.some(name => name !== STARTER_STATE_FILE)) return true;
+  }
+  return false;
+}
+
+function createStarterFile(target, content) {
+  try {
+    fs.writeFileSync(target, content, { encoding: 'utf8', flag: 'wx' });
+  } catch (error) {
+    if (error?.code !== 'EEXIST') throw error;
+  }
+}
+
+function initializeVault(rawVaultPath) {
+  const requestedVault = path.resolve(rawVaultPath);
+  fs.mkdirSync(requestedVault, { recursive: true });
+  const vaultDir = fs.realpathSync(requestedVault);
+  const stateDirectory = path.join(vaultDir, STARTER_STATE_DIRECTORY);
+  ensurePlainDirectory(stateDirectory);
+  const statePath = path.join(stateDirectory, STARTER_STATE_FILE);
+  let state = readStarterState(statePath);
+
+  if (state === null) {
+    const firstUse = !hasExistingVaultContent(vaultDir);
+    try {
+      state = firstUse ? 'seeding' : 'initialized';
+      fs.writeFileSync(statePath, starterStateJson(state), { encoding: 'utf8', flag: 'wx' });
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+      state = readStarterState(statePath);
+    }
+  }
+
+  if (state === 'seeding') {
+    createStarterFile(path.join(vaultDir, 'Welcome.md'), WELCOME_NOTE);
+    createStarterFile(path.join(vaultDir, 'Ideas.md'), IDEAS_NOTE);
+    fs.writeFileSync(statePath, starterStateJson('initialized'), 'utf8');
+  }
+
+  fs.mkdirSync(path.join(vaultDir, 'Daily Notes'), { recursive: true });
+  return vaultDir;
+}
+
+module.exports = {
+  defaultVaultPath,
+  initializeVault,
+  readVaultPath,
+  resolveVaultPath,
+  saveVaultPath,
+  vaultConfigPath,
+};

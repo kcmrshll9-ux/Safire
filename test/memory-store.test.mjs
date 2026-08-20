@@ -20,20 +20,20 @@ import {
   escapeRegExp,
 } from '../test-support/memory-sensitive-fixtures.mjs';
 
-function harryProfile(overrides = {}) {
+function exampleProfile(overrides = {}) {
   return createPortableMcpProfile({
-    profileId: 'profile:harry-local',
-    principal: { id: 'agent:harry', type: 'agent', displayName: 'Harry' },
-    agentInstance: { id: 'agent_instance:harry:desktop', type: 'agent_instance' },
-    ingestedBy: { id: 'adapter:safire-memory-mcp:harry' },
-    sourceIdentity: 'mcp:harry-local',
+    profileId: 'profile:example-local',
+    principal: { id: 'agent:example', type: 'agent', displayName: 'Example' },
+    agentInstance: { id: 'agent_instance:example:desktop', type: 'agent_instance' },
+    ingestedBy: { id: 'adapter:safire-memory-mcp:example' },
+    sourceIdentity: 'mcp:example-local',
     allowedActors: [
-      { id: 'automation:moltbook', type: 'automation', delegatedBy: 'agent:harry' },
+      { id: 'automation:indexer', type: 'automation', delegatedBy: 'agent:example' },
       { id: 'external_service:browser', type: 'external_service' },
     ],
     namespaceGrants: [
-      { namespace: 'agents/harry', read: true, write: true, descendants: true },
-      { namespace: 'automation/moltbook', read: true, write: true, descendants: true },
+      { namespace: 'agents/example', read: true, write: true, descendants: true },
+      { namespace: 'automation/indexer', read: true, write: true, descendants: true },
       { namespace: 'shared/demo', read: true, write: true, descendants: true },
     ],
     ...overrides,
@@ -57,15 +57,15 @@ function syntheticProfile(overrides = {}) {
 
 function trustedProfile() {
   return createTrustedBridgeProfile({
-    profileId: 'profile:harry-bridge',
-    principal: { id: 'agent:harry', type: 'agent' },
-    agentInstance: { id: 'agent_instance:harry:bridge', type: 'agent_instance' },
-    ingestedBy: { id: 'adapter:trusted-bridge:harry' },
-    sourceIdentity: 'bridge:harry-local',
+    profileId: 'profile:example-bridge',
+    principal: { id: 'agent:example', type: 'agent' },
+    agentInstance: { id: 'agent_instance:example:bridge', type: 'agent_instance' },
+    ingestedBy: { id: 'adapter:trusted-bridge:example' },
+    sourceIdentity: 'bridge:example-local',
     acceptUserEvents: true,
     allowedActors: [{ id: 'user:owner', type: 'user', displayName: 'Vault owner' }],
     namespaceGrants: [
-      { namespace: 'agents/harry', read: true, write: true, descendants: true },
+      { namespace: 'agents/example', read: true, write: true, descendants: true },
       { namespace: 'shared/demo', read: true, write: true, descendants: true },
     ],
   });
@@ -74,10 +74,10 @@ function trustedProfile() {
 function event(overrides = {}) {
   return {
     schema_version: 1,
-    namespace: 'agents/harry',
+    namespace: 'agents/example',
     actor_type: 'agent',
-    actor_id: 'agent:harry',
-    agent_instance_id: 'agent_instance:harry:desktop',
+    actor_id: 'agent:example',
+    agent_instance_id: 'agent_instance:example:desktop',
     kind: 'visible_agent_response',
     speech_act: 'proposal',
     content: 'Use the crimson launch checklist.',
@@ -141,7 +141,7 @@ test('initializes a stable sidecar and records fully attributed event-backed mem
   const vault = await temporaryVault(t);
   const notePath = path.join(vault, 'Existing.md');
   await fs.writeFile(notePath, '# Existing\n', 'utf8');
-  const store = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
+  const store = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
 
   const recorded = await store.recordEvents([event()]);
   assert.equal(recorded.created_count, 1);
@@ -150,12 +150,12 @@ test('initializes a stable sidecar and records fully attributed event-backed mem
   assert.match(memory.memory_id, /^mem_/);
   assert.equal(memory.event_id, storedEvent.event_id);
   assert.deepEqual(memory.source_event_ids, [storedEvent.event_id]);
-  assert.equal(storedEvent.actor.id, 'agent:harry');
-  assert.equal(storedEvent.ingested_by.id, 'adapter:safire-memory-mcp:harry');
-  assert.equal(storedEvent.agent_instance.id, 'agent_instance:harry:desktop');
+  assert.equal(storedEvent.actor.id, 'agent:example');
+  assert.equal(storedEvent.ingested_by.id, 'adapter:safire-memory-mcp:example');
+  assert.equal(storedEvent.agent_instance.id, 'agent_instance:example:desktop');
   assert.equal(storedEvent.delegated_by, null);
   assert.deepEqual(storedEvent.source, {
-    identity: 'mcp:harry-local', stream: 'conversation.alpha', event_id: 'turn.1',
+    identity: 'mcp:example-local', stream: 'conversation.alpha', event_id: 'turn.1',
   });
 
   const status = await store.status();
@@ -170,7 +170,7 @@ test('initializes a stable sidecar and records fully attributed event-backed mem
 
 test('source-tuple idempotency returns the original event without content deduplication', async (t) => {
   const vault = await temporaryVault(t);
-  const store = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
+  const store = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
   const first = await store.recordEvents([event()]);
   const duplicate = await store.recordEvents([event()]);
   assert.equal(duplicate.duplicate_count, 1);
@@ -188,24 +188,24 @@ test('source-tuple idempotency returns the original event without content dedupl
   assert.equal((await store.status()).counts.events, 2);
 });
 
-test('Moltbook remains an automation delegated by Harry and never becomes user interest', async (t) => {
+test('Indexer remains an automation delegated by Example and never becomes user interest', async (t) => {
   const vault = await temporaryVault(t);
-  const store = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
+  const store = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
   const result = await store.recordEvents([event({
-    namespace: 'automation/moltbook/daily',
+    namespace: 'automation/indexer/daily',
     actor_type: 'automation',
-    actor_id: 'automation:moltbook',
-    delegated_by: 'agent:harry',
+    actor_id: 'automation:indexer',
+    delegated_by: 'agent:example',
     kind: 'automation_decision',
     speech_act: 'conclusion',
     content: 'The scheduled public check completed with no visible changes.',
-    context: { automation_run_id: 'moltbook.run.1' },
-    source: { stream: 'moltbook.daily', event_id: 'run.1' },
+    context: { automation_run_id: 'indexer.run.1' },
+    source: { stream: 'indexer.daily', event_id: 'run.1' },
   })]);
   const stored = result.results[0].event;
   assert.equal(stored.actor.type, 'automation');
-  assert.equal(stored.delegated_by.id, 'agent:harry');
-  assert.equal(stored.agent_instance.id, 'agent_instance:harry:desktop');
+  assert.equal(stored.delegated_by.id, 'agent:example');
+  assert.equal(stored.agent_instance.id, 'agent_instance:example:desktop');
 
   const search = await store.search({ query: 'scheduled public check' });
   assert.equal(search.results[0].actor.type, 'automation');
@@ -215,9 +215,9 @@ test('Moltbook remains an automation delegated by Harry and never becomes user i
 
 test('namespace ACLs isolate a synthetic second agent and make sharing explicit', async (t) => {
   const vault = await temporaryVault(t);
-  const harry = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
-  const privateRecord = await harry.recordEvents([event()]);
-  await harry.recordEvents([event({
+  const example = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
+  const privateRecord = await example.recordEvents([event()]);
+  await example.recordEvents([event({
     namespace: 'shared/demo',
     content: 'An explicitly shared invented fact.',
     source: { stream: 'shared.demo', event_id: 'shared.1' },
@@ -234,7 +234,7 @@ test('namespace ACLs isolate a synthetic second agent and make sharing explicit'
   })]);
   assert.equal((await synthetic.search({ query: '' })).count, 1);
   await assert.rejects(() => synthetic.get(privateRecord.results[0].event.event_id), MemoryNotFoundError);
-  await assert.rejects(() => synthetic.search({ namespaces: ['agents/harry'] }), /not granted/i);
+  await assert.rejects(() => synthetic.search({ namespaces: ['agents/example'] }), /not granted/i);
   await assert.rejects(
     () => synthetic.recordEvents([event({ namespace: 'agents/synthetic' })]),
     /actor is not allowlisted/i,
@@ -263,7 +263,7 @@ test('namespace ACLs isolate a synthetic second agent and make sharing explicit'
 
 test('ACL projections and replays disclose no hidden provenance, dependent feedback, digest, or shape oracle', async (t) => {
   const vault = await temporaryVault(t);
-  const broad = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
+  const broad = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
   const privateTarget = await broad.recordEvents([event()]);
   const privateEventId = privateTarget.results[0].event.event_id;
   const privateMemoryId = privateTarget.results[0].memory.memory_id;
@@ -289,8 +289,8 @@ test('ACL projections and replays disclose no hidden provenance, dependent feedb
     schema_version: 1,
     target: { type: 'event', id: privateEventId },
     signal: 'useful',
-    actor_id: 'agent:harry',
-    source: { stream: 'feedback.harry', event_id: 'acl-replay.1' },
+    actor_id: 'agent:example',
+    source: { stream: 'feedback.example', event_id: 'acl-replay.1' },
   };
   await broad.recordFeedback([privateFeedback]);
   const relatedFeedback = await broad.recordFeedback([{
@@ -298,8 +298,8 @@ test('ACL projections and replays disclose no hidden provenance, dependent feedb
     target: { type: 'event', id: sharedEventId },
     signal: 'superseded',
     related_target: { type: 'memory', id: privateMemoryId },
-    actor_id: 'agent:harry',
-    source: { stream: 'feedback.harry', event_id: 'acl-replay.shared-related' },
+    actor_id: 'agent:example',
+    source: { stream: 'feedback.example', event_id: 'acl-replay.shared-related' },
   }]);
   const hiddenDigests = [
     sharedRecord.results[0].event.integrity.digest,
@@ -309,7 +309,7 @@ test('ACL projections and replays disclose no hidden provenance, dependent feedb
 
   const narrow = createMemoryStore({
     vaultDir: vault,
-    profile: harryProfile({
+    profile: exampleProfile({
       namespaceGrants: [
         { namespace: 'shared/demo', read: true, write: true, descendants: true },
       ],
@@ -361,7 +361,7 @@ test('ACL projections and replays disclose no hidden provenance, dependent feedb
 
 test('credential-like identifiers and echoed queries fail before persistence without value disclosure', async (t) => {
   const vault = await temporaryVault(t, 'safire-memory-sensitive-identifiers-');
-  const store = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
+  const store = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
   const credentials = [
     { family: 'github_fine_grained', value: `github_pat_${'A'.repeat(82)}` },
     ...SYNTHETIC_SENSITIVE_FIXTURES,
@@ -406,8 +406,8 @@ test('credential-like identifiers and echoed queries fail before persistence wit
         target: { type: 'event', id: seed.results[0].event.event_id },
         signal: 'correction',
         correction: value,
-        actor_id: 'agent:harry',
-        source: { stream: 'feedback.harry', event_id: `feedback-${family}-correction` },
+        actor_id: 'agent:example',
+        source: { stream: 'feedback.example', event_id: `feedback-${family}-correction` },
       }]),
       error => error.code === 'MEMORY_SCHEMA_VALIDATION_FAILED'
         && !pattern.test(error.message)
@@ -419,8 +419,8 @@ test('credential-like identifiers and echoed queries fail before persistence wit
         schema_version: 1,
         target: { type: 'event', id: seed.results[0].event.event_id },
         signal: 'useful',
-        actor_id: 'agent:harry',
-        source: { stream: 'feedback.harry', event_id: value },
+        actor_id: 'agent:example',
+        source: { stream: 'feedback.example', event_id: value },
       }]),
       error => error.code === 'MEMORY_SCHEMA_VALIDATION_FAILED'
         && !pattern.test(error.message)
@@ -448,20 +448,20 @@ test('credential-like identifiers and echoed queries fail before persistence wit
 
 test('stable actor IDs reject conflicting automation delegation across profiles', async (t) => {
   const vault = await temporaryVault(t);
-  const harry = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
-  await harry.status();
+  const example = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
+  await example.status();
   const conflicting = syntheticProfile({
     allowedActors: [
-      { id: 'automation:moltbook', type: 'automation', delegatedBy: 'agent:synthetic' },
+      { id: 'automation:indexer', type: 'automation', delegatedBy: 'agent:synthetic' },
     ],
   });
   const synthetic = createMemoryStore({ vaultDir: vault, profile: conflicting });
   await assert.rejects(() => synthetic.status(), /stable actor ID/i);
 });
 
-test('trusted user messages remain requests and Harry proposals never become user preferences', async (t) => {
+test('trusted user messages remain requests and Example proposals never become user preferences', async (t) => {
   const vault = await temporaryVault(t);
-  const portable = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
+  const portable = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
   await assert.rejects(() => portable.recordEvents([event({
     actor_type: 'user',
     actor_id: 'user:owner',
@@ -475,7 +475,7 @@ test('trusted user messages remain requests and Harry proposals never become use
   await assert.rejects(() => untrustedBridgeStore.recordEvents([event({
     actor_type: 'user',
     actor_id: 'user:owner',
-    agent_instance_id: 'agent_instance:harry:bridge',
+    agent_instance_id: 'agent_instance:example:bridge',
     kind: 'visible_user_message',
     speech_act: 'request',
     content: 'Please use the crimson checklist.',
@@ -487,7 +487,7 @@ test('trusted user messages remain requests and Harry proposals never become use
     profile: trustedProfile(),
     authenticate: async (_metadata, context) => (context?.role === 'user'
       ? { authenticated: true, role: 'user', actor_id: 'user:owner' }
-      : { authenticated: true, role: 'agent', actor_id: 'agent:harry' }),
+      : { authenticated: true, role: 'agent', actor_id: 'agent:example' }),
   });
   const user = (await bridge.ingest(trustedEventEnvelope({
     kind: 'visible_user_message',
@@ -495,16 +495,16 @@ test('trusted user messages remain requests and Harry proposals never become use
     content: 'Please use the crimson checklist.',
     source: { stream: 'conversation.alpha', event_id: 'user.1' },
   }), { role: 'user' })).record_result;
-  const harry = (await bridge.ingest(trustedEventEnvelope({
+  const example = (await bridge.ingest(trustedEventEnvelope({
     speech_act: 'proposal',
     content: 'I propose using the crimson checklist.',
     source: { stream: 'conversation.alpha', event_id: 'agent.1' },
   }), { role: 'agent' })).record_result;
   assert.equal(user.results[0].event.actor.type, 'user');
   assert.equal(user.results[0].event.speech_act, 'request');
-  assert.equal(harry.results[0].event.actor.type, 'agent');
-  assert.equal(harry.results[0].event.speech_act, 'proposal');
-  assert.notEqual(harry.results[0].event.speech_act, 'preference');
+  assert.equal(example.results[0].event.actor.type, 'agent');
+  assert.equal(example.results[0].event.speech_act, 'proposal');
+  assert.notEqual(example.results[0].event.speech_act, 'preference');
   await assert.rejects(() => bridge.ingest(trustedEventEnvelope({
     kind: 'explicit_conclusion',
     speech_act: 'conclusion',
@@ -515,16 +515,16 @@ test('trusted user messages remain requests and Harry proposals never become use
 
 test('actor-specific feedback is append-only and search always returns attribution', async (t) => {
   const vault = await temporaryVault(t);
-  const harry = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
-  const recorded = await harry.recordEvents([event()]);
+  const example = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
+  const recorded = await example.recordEvents([event()]);
   const eventId = recorded.results[0].event.event_id;
   const memoryId = recorded.results[0].memory.memory_id;
-  await harry.recordFeedback([{
+  await example.recordFeedback([{
     schema_version: 1,
     target: { type: 'memory', id: memoryId },
     signal: 'useful',
-    actor_id: 'agent:harry',
-    source: { stream: 'feedback.harry', event_id: 'feedback.1' },
+    actor_id: 'agent:example',
+    source: { stream: 'feedback.example', event_id: 'feedback.1' },
   }]);
 
   const untrustedBridgeStore = createMemoryStore({ vaultDir: vault, profile: trustedProfile() });
@@ -536,12 +536,12 @@ test('actor-specific feedback is append-only and search always returns attributi
     source: { stream: 'feedback.user', event_id: 'feedback.unauthenticated' },
   }]), /authenticated bridge ingestion/i);
 
-  await assert.rejects(() => harry.recordFeedback([{
+  await assert.rejects(() => example.recordFeedback([{
     schema_version: 1,
     target: { type: 'event', id: eventId },
     signal: 'user_confirmed',
-    actor_id: 'agent:harry',
-    source: { stream: 'feedback.harry', event_id: 'feedback.invalid-user-signal' },
+    actor_id: 'agent:example',
+    source: { stream: 'feedback.example', event_id: 'feedback.invalid-user-signal' },
   }]), /trusted user actor/i);
 
   const { bridge } = createTrustedMemoryBridge({
@@ -568,24 +568,24 @@ test('actor-specific feedback is append-only and search always returns attributi
   })).record_result;
   assert.equal(correction.created_count, 1);
 
-  const exact = await harry.get(memoryId, { includeFeedback: true });
+  const exact = await example.get(memoryId, { includeFeedback: true });
   assert.equal(exact.event.event_id, eventId);
   assert.equal(exact.feedback.length, 3);
   assert.equal(exact.activity.user, 2);
   assert.equal(exact.activity.agent, 2);
   assert.equal(exact.signals_by_actor.user.user_confirmed, 1);
   assert.equal(exact.signals_by_actor.user.correction, 1);
-  const search = await harry.search({ query: 'crimson checklist' });
-  assert.equal(search.results[0].actor.id, 'agent:harry');
-  assert.equal(search.results[0].source.identity, 'mcp:harry-local');
-  assert.equal(search.results[0].ingested_by.profile_id, 'profile:harry-local');
+  const search = await example.search({ query: 'crimson checklist' });
+  assert.equal(search.results[0].actor.id, 'agent:example');
+  assert.equal(search.results[0].source.identity, 'mcp:example-local');
+  assert.equal(search.results[0].ingested_by.profile_id, 'profile:example-local');
   assert.equal(search.results[0].activity.user, 2);
-  assert.equal((await harry.status()).counts.events, 1);
+  assert.equal((await example.status()).counts.events, 1);
 });
 
 test('derived memory retains every supporting event and corrections preserve originals', async (t) => {
   const vault = await temporaryVault(t);
-  const store = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
+  const store = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
   const first = await store.recordEvents([event()]);
   const second = await store.recordEvents([event({
     content: 'The launch date is August 15.',
@@ -613,8 +613,8 @@ test('derived memory retains every supporting event and corrections preserve ori
 
 test('corrections, approvals, rejections, contradictions, and supersession retain source provenance', async (t) => {
   const vault = await temporaryVault(t);
-  const harry = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
-  const original = await harry.recordEvents([event({
+  const example = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
+  const original = await example.recordEvents([event({
     content: 'The invented rollout date is Friday.',
     speech_act: 'assertion',
     source: { stream: 'conversation.provenance', event_id: 'original.1' },
@@ -643,7 +643,7 @@ test('corrections, approvals, rejections, contradictions, and supersession retai
       source: { stream: 'conversation.provenance', event_id: sourceId },
     }))).record_result.results[0].event);
   }
-  const contradiction = (await harry.recordEvents([event({
+  const contradiction = (await example.recordEvents([event({
     content: 'The visible correction contradicts the original Friday date.',
     speech_act: 'assertion',
     relations: [{ type: 'contradicts', target_event_id: originalId }],
@@ -692,7 +692,7 @@ test('journal recovery completes every event-ingestion stage after an injected o
       let failed = false;
       const crashing = createMemoryStore({
         vaultDir: vault,
-        profile: harryProfile(),
+        profile: exampleProfile(),
         faultInjector(stage) {
           if (!failed && stage === failureStage) {
             failed = true;
@@ -708,7 +708,7 @@ test('journal recovery completes every event-ingestion stage after an injected o
         assert.equal((await crashing.status()).pending_transactions, 0);
       }
 
-      const recovered = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
+      const recovered = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
       const status = await recovered.status();
       assert.equal(status.counts.events, 1);
       assert.equal(status.counts.memories, 1);
@@ -724,19 +724,19 @@ test('journal recovery completes feedback append after injected operation failur
   for (const failureStage of ['after_journal_create', 'after_feedback_create', 'after_idempotency_create']) {
     await t.test(failureStage, async (t) => {
       const vault = await temporaryVault(t, `safire-feedback-${failureStage}-`);
-      const base = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
+      const base = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
       const target = await base.recordEvents([event()]);
       const input = {
         schema_version: 1,
         target: { type: 'memory', id: target.results[0].memory.memory_id },
         signal: 'useful',
-        actor_id: 'agent:harry',
-        source: { stream: 'feedback.harry', event_id: 'feedback.crash.1' },
+        actor_id: 'agent:example',
+        source: { stream: 'feedback.example', event_id: 'feedback.crash.1' },
       };
       let failed = false;
       const crashing = createMemoryStore({
         vaultDir: vault,
-        profile: harryProfile(),
+        profile: exampleProfile(),
         faultInjector(stage) {
           if (!failed && stage === failureStage) {
             failed = true;
@@ -752,7 +752,7 @@ test('journal recovery completes feedback append after injected operation failur
         assert.equal((await crashing.status()).pending_transactions, 0);
       }
 
-      const recovered = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
+      const recovered = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
       assert.equal((await recovered.status()).counts.feedback, 1);
       assert.equal((await recovered.status()).pending_transactions, 0);
       assert.equal((await recovered.recordFeedback([input])).duplicate_count, 1);
@@ -762,7 +762,7 @@ test('journal recovery completes feedback append after injected operation failur
 
 test('exact reads fail closed when valid memory files are swapped', async (t) => {
   const vault = await temporaryVault(t);
-  const store = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
+  const store = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
   const first = await store.recordEvents([event()]);
   const second = await store.recordEvents([event({
     content: 'A second valid event-backed memory.',
@@ -781,7 +781,7 @@ test('exact reads fail closed when valid memory files are swapped', async (t) =>
 test('collection scans reject event and feedback records copied under another opaque key', async (t) => {
   await t.test('event storage key', async (t) => {
     const vault = await temporaryVault(t, 'safire-memory-event-key-');
-    const store = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
+    const store = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
     const recorded = await store.recordEvents([event()]);
     const directory = path.join(vault, '.safire', 'memory', 'v1', 'records', 'events');
     const original = path.join(directory, opaqueJsonFilename(recorded.results[0].event.event_id));
@@ -791,14 +791,14 @@ test('collection scans reject event and feedback records copied under another op
 
   await t.test('feedback storage key', async (t) => {
     const vault = await temporaryVault(t, 'safire-memory-feedback-key-');
-    const store = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
+    const store = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
     const recorded = await store.recordEvents([event()]);
     const feedback = await store.recordFeedback([{
       schema_version: 1,
       target: { type: 'event', id: recorded.results[0].event.event_id },
       signal: 'useful',
-      actor_id: 'agent:harry',
-      source: { stream: 'feedback.harry', event_id: 'copied-key.1' },
+      actor_id: 'agent:example',
+      source: { stream: 'feedback.example', event_id: 'copied-key.1' },
     }]);
     const directory = path.join(vault, '.safire', 'memory', 'v1', 'records', 'feedback');
     const original = path.join(directory, opaqueJsonFilename(feedback.results[0].feedback.feedback_id));
@@ -812,7 +812,7 @@ test('journal recovery rejects an entry renamed away from its transaction identi
   let failed = false;
   const crashing = createMemoryStore({
     vaultDir: vault,
-    profile: harryProfile(),
+    profile: exampleProfile(),
     faultInjector(stage) {
       if (!failed && stage === 'after_journal_create') {
         failed = true;
@@ -827,14 +827,14 @@ test('journal recovery rejects an entry renamed away from its transaction identi
   assert.notEqual(entry, renamed);
   await fs.rename(path.join(directory, entry), path.join(directory, renamed));
 
-  const recovering = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
+  const recovering = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
   await assert.rejects(() => recovering.status(), /journal entry identity/i);
 });
 
 test('concurrent duplicate delivery across store instances creates one event', async (t) => {
   const vault = await temporaryVault(t);
-  const left = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
-  const right = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
+  const left = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
+  const right = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
   const results = await Promise.all([left.recordEvents([event()]), right.recordEvents([event()])]);
   assert.equal(results.reduce((sum, result) => sum + result.created_count, 0), 1);
   assert.equal(results.reduce((sum, result) => sum + result.duplicate_count, 0), 1);
@@ -852,7 +852,7 @@ test('reads hold one vault snapshot while identity regeneration waits for the lo
   let gateNextEventRead = false;
   const reader = createMemoryStore({
     vaultDir: vault,
-    profile: harryProfile(),
+    profile: exampleProfile(),
     async faultInjector(stage, metadata) {
       if (!gateNextEventRead
           || stage !== 'before_collection_record_read'
@@ -862,7 +862,7 @@ test('reads hold one vault snapshot while identity regeneration waits for the lo
       await readGate;
     },
   });
-  const writer = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
+  const writer = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
   await reader.recordEvents([event()]);
   await writer.status();
 
@@ -894,12 +894,12 @@ test('vault copy preserves identity by default and explicit clone regeneration r
   const originalPath = path.join(root, 'Original');
   const copyPath = path.join(root, 'Copy');
   await fs.mkdir(originalPath);
-  const original = createMemoryStore({ vaultDir: originalPath, profile: harryProfile() });
+  const original = createMemoryStore({ vaultDir: originalPath, profile: exampleProfile() });
   const recorded = await original.recordEvents([event()]);
   const originalStatus = await original.status();
   await fs.cp(originalPath, copyPath, { recursive: true });
 
-  const copied = createMemoryStore({ vaultDir: copyPath, profile: harryProfile() });
+  const copied = createMemoryStore({ vaultDir: copyPath, profile: exampleProfile() });
   assert.equal((await copied.status()).vault_id, originalStatus.vault_id);
   await assert.rejects(() => copied.regenerateVaultIdentity(), /literal confirmation/i);
   await assert.rejects(
@@ -921,13 +921,13 @@ test('vault copy preserves identity by default and explicit clone regeneration r
 
 test('a missing manifest in a populated sidecar fails closed without replacing vault identity', async (t) => {
   const vault = await temporaryVault(t);
-  const store = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
+  const store = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
   const recorded = await store.recordEvents([event()]);
   const manifestPath = path.join(vault, '.safire', 'memory', 'v1', 'manifest.json');
   const originalVaultId = (await store.status()).vault_id;
   await fs.unlink(manifestPath);
 
-  const reopened = createMemoryStore({ vaultDir: vault, profile: harryProfile() });
+  const reopened = createMemoryStore({ vaultDir: vault, profile: exampleProfile() });
   await assert.rejects(() => reopened.status(), /manifest is missing from a nonempty sidecar/i);
   assert.equal(await fs.stat(manifestPath).then(() => true, () => false), false);
   assert.equal(
@@ -948,12 +948,12 @@ test('a missing manifest in a populated sidecar fails closed without replacing v
 test('relative and filesystem-root vault paths are rejected before filesystem mutation', async () => {
   const relative = `safire-memory-relative-${process.pid}-${Date.now()}`;
   assert.throws(
-    () => createMemoryStore({ vaultDir: relative, profile: harryProfile() }),
+    () => createMemoryStore({ vaultDir: relative, profile: exampleProfile() }),
     /absolute non-root path/i,
   );
   assert.equal(await fs.stat(path.resolve(relative)).then(() => true, () => false), false);
   assert.throws(
-    () => createMemoryStore({ vaultDir: path.parse(path.resolve(relative)).root, profile: harryProfile() }),
+    () => createMemoryStore({ vaultDir: path.parse(path.resolve(relative)).root, profile: exampleProfile() }),
     /absolute non-root path/i,
   );
 });

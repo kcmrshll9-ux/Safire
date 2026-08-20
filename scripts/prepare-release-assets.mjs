@@ -35,14 +35,17 @@ for (const name of expectedArtifacts) {
 const checksumName = `Safire-${version}-checksums.txt`;
 await fs.writeFile(path.join(artifactDirectory, checksumName), `${checksumLines.join('\n')}\n`, 'utf8');
 
-const notes = `Safire ${version} brings the local-first Markdown workspace to Windows, macOS, and Linux.
+const notes = `Safire ${version} brings a calmer, more focused local-first Markdown workspace to Windows, macOS, and Linux.
 
 ## Highlights
 
-- Added native desktop packages for macOS on Apple Silicon and Intel.
-- Added Linux AppImage and Debian packages for x64 systems.
-- Added platform-native launchers for the optional packaged memory MCP runtime.
-- Extended CI and packaged security validation across all supported operating systems and architectures.
+- Consolidated secondary workspace actions into overflow menus.
+- Aligned interface padding, gaps, and margins to an 8-pixel spacing scale.
+- Reserved bright accent colors for primary calls to action.
+- Reduced card borders and dividers in favor of spacing and subtle surface contrast.
+- Added a searchable Help Center with complete workflows, use cases, Hermes/OpenClaw setup, copy-ready AI prompts, troubleshooting, privacy guidance, and licensing.
+- Reworked Home around named projects, with each project’s entries and isolated relationship graph kept together.
+- Made starter notes first-use-only so edits and deletions remain exactly as the user leaves them.
 
 ## Downloads
 
@@ -69,7 +72,7 @@ const notes = `Safire ${version} brings the local-first Markdown workspace to Wi
 ## More information
 
 - [MIT License](https://github.com/kcmrshll9-ux/Safire/blob/v${version}/LICENSE)
-- [Full changes since 1.4.2](https://github.com/kcmrshll9-ux/Safire/compare/v1.4.2...v${version})
+- [Full changes since 1.5.0](https://github.com/kcmrshll9-ux/Safire/compare/v1.5.0...v${version})
 `;
 
 await fs.writeFile(notesPath, notes, 'utf8');

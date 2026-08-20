@@ -1,6 +1,6 @@
 # Safire Press Kit
 
-This directory contains the current Safire 1.5.0 press kit. For supported downloads and complete release notes, see the root [README](../README.md) and [changelog](../CHANGELOG.md).
+This directory contains the current Safire 1.6.0 press kit. For supported downloads and complete release notes, see the root [README](../README.md) and [changelog](../CHANGELOG.md).
 
 ## Media inquiries
 

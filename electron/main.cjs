@@ -16,8 +16,9 @@ function localPath(...parts) {
 }
 
 function useVault(vault) {
-  const selected = vaultConfig.saveVaultPath(vault);
+  const selected = path.resolve(vault);
   fs.mkdirSync(selected, { recursive: true });
+  vaultConfig.saveVaultPath(selected);
   process.env.SAFIRE_VAULT_PATH = selected;
   return selected;
 }
@@ -69,7 +70,12 @@ function changeVaultLocation() {
     message: 'Safire will restart with the selected vault.',
     detail: vault,
   }).finally(() => {
-    app.relaunch();
+    const portableLauncher = process.env.PORTABLE_EXECUTABLE_FILE;
+    if (app.isPackaged && process.platform === 'win32' && portableLauncher && path.isAbsolute(portableLauncher) && fs.existsSync(portableLauncher)) {
+      app.relaunch({ execPath: portableLauncher, args: process.argv.slice(1) });
+    } else {
+      app.relaunch();
+    }
     app.exit(0);
   });
 }
@@ -83,8 +89,12 @@ function openExternalUrl(rawUrl) {
   }
 }
 
+function openSafireHelp() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.executeJavaScript('window.dispatchEvent(new Event("safire:open-help"))').catch(() => {});
+}
+
 function createMenu() {
-  const guidePath = localPath('docs', 'Safire User Guide.html');
   const viewMenu = [
     { role: 'reload' },
     ...(!app.isPackaged ? [{ role: 'forceReload' }] : []),
@@ -96,7 +106,6 @@ function createMenu() {
     {
       label: 'Safire',
       submenu: [
-        { label: 'Open User Guide', click: () => shell.openPath(guidePath) },
         { label: 'Open Vault Folder', click: () => shell.openPath(process.env.SAFIRE_VAULT_PATH) },
         { label: 'Change Vault Location…', click: changeVaultLocation },
         { type: 'separator' },
@@ -110,8 +119,9 @@ function createMenu() {
     {
       label: 'Help',
       submenu: [
-        { label: 'Safire User Guide', click: () => shell.openPath(guidePath) },
-        { label: 'About Safire', click: () => dialog.showMessageBox({ type: 'info', title: 'Safire', message: 'Safire', detail: 'A privacy-focused, local-first Markdown knowledge forge. Local files. Connected thinking.' }) },
+        { label: 'Safire Help', click: openSafireHelp },
+        { type: 'separator' },
+        { label: 'About Safire', click: () => dialog.showMessageBox(mainWindow, { type: 'info', title: 'About Safire', message: `Safire ${app.getVersion()}`, detail: 'A privacy-focused, local-first Markdown knowledge forge.\n\nCopyright (c) 2026 Safire\nSafire’s original project code is licensed under the MIT License.\n\nThird-party components are not relicensed by Safire and retain their own licenses and notices.' }) },
       ],
     },
   ];
@@ -141,7 +151,13 @@ async function createWindow() {
   });
   mainWindow.webContents.session.setPermissionCheckHandler(() => false);
   mainWindow.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  const revealMainWindow = () => {
+    if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isVisible()) return;
+    mainWindow.show();
+    mainWindow.focus();
+  };
+  mainWindow.once('ready-to-show', revealMainWindow);
+  mainWindow.webContents.once('did-finish-load', revealMainWindow);
   mainWindow.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
     openExternalUrl(targetUrl);
     return { action: 'deny' };
@@ -163,6 +179,7 @@ async function createWindow() {
     }
   });
   await mainWindow.loadURL(url);
+  revealMainWindow();
 }
 
 app.setName('Safire');

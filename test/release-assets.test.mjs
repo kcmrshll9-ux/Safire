@@ -19,18 +19,18 @@ test('multi-platform release assets receive a complete deterministic checksum ma
   await fs.mkdir(artifacts);
 
   const names = [
-    'Safire-Setup-1.5.0.exe',
-    'Safire-Portable-1.5.0.exe',
-    'Safire-1.5.0-linux-x64.AppImage',
-    'Safire-1.5.0-linux-x64.deb',
-    'Safire-1.5.0-macos-x64.dmg',
-    'Safire-1.5.0-macos-arm64.dmg',
+    'Safire-Setup-1.6.0.exe',
+    'Safire-Portable-1.6.0.exe',
+    'Safire-1.6.0-linux-x64.AppImage',
+    'Safire-1.6.0-linux-x64.deb',
+    'Safire-1.6.0-macos-x64.dmg',
+    'Safire-1.6.0-macos-arm64.dmg',
   ];
   await Promise.all(names.map((name) => fs.writeFile(path.join(artifacts, name), `synthetic:${name}`, 'utf8')));
 
-  await execFileAsync(process.execPath, [preparer, artifacts, '1.5.0', notes], { cwd: projectRoot });
+  await execFileAsync(process.execPath, [preparer, artifacts, '1.6.0', notes], { cwd: projectRoot });
 
-  const manifest = await fs.readFile(path.join(artifacts, 'Safire-1.5.0-checksums.txt'), 'utf8');
+  const manifest = await fs.readFile(path.join(artifacts, 'Safire-1.6.0-checksums.txt'), 'utf8');
   const lines = manifest.trim().split(/\r?\n/);
   assert.equal(lines.length, names.length);
   for (const name of names) {
@@ -38,8 +38,15 @@ test('multi-platform release assets receive a complete deterministic checksum ma
   }
 
   const releaseNotes = await fs.readFile(notes, 'utf8');
-  assert.match(releaseNotes, /^Safire 1\.5\.0 brings the local-first Markdown workspace to Windows, macOS, and Linux\./);
+  assert.match(releaseNotes, /^Safire 1\.6\.0 brings a calmer, more focused local-first Markdown workspace to Windows, macOS, and Linux\./);
+  assert.match(releaseNotes, /overflow menus/);
+  assert.match(releaseNotes, /8-pixel spacing scale/);
+  assert.match(releaseNotes, /searchable Help Center/);
+  assert.match(releaseNotes, /Hermes\/OpenClaw setup/);
+  assert.match(releaseNotes, /named projects/);
+  assert.match(releaseNotes, /isolated relationship graph/);
+  assert.match(releaseNotes, /starter notes first-use-only/);
   assert.match(releaseNotes, /not code-signed/);
-  assert.match(releaseNotes, /Safire-1\.5\.0-macos-arm64\.dmg/);
-  assert.match(releaseNotes, /Safire-1\.5\.0-linux-x64\.AppImage/);
+  assert.match(releaseNotes, /Safire-1\.6\.0-macos-arm64\.dmg/);
+  assert.match(releaseNotes, /Safire-1\.6\.0-linux-x64\.AppImage/);
 });

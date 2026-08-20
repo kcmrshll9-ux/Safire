@@ -458,6 +458,20 @@ test('concurrent same-path creates accept exactly one complete note', async (t) 
   });
 });
 
+test('reopening the notes MCP service does not resurrect renamed or deleted starter notes', async (t) => {
+  await withVault(t, async (vault) => {
+    await createNotesMcpService({ vaultDir: vault });
+    await fs.rm(path.join(vault, 'Welcome.md'));
+    await fs.rename(path.join(vault, 'Ideas.md'), path.join(vault, 'My Ideas.md'));
+
+    const reopened = await createNotesMcpService({ vaultDir: vault });
+    const listed = await reopened.listNotes();
+    assert.deepEqual(listed.notes.map(note => note.path), ['My Ideas.md']);
+    await assert.rejects(() => fs.access(path.join(vault, 'Welcome.md')), { code: 'ENOENT' });
+    await assert.rejects(() => fs.access(path.join(vault, 'Ideas.md')), { code: 'ENOENT' });
+  });
+});
+
 test('concurrent updates are serialized and preserve every accepted predecessor', async (t) => {
   await withVault(t, async (vault) => {
     const service = await createNotesMcpService({ vaultDir: vault });

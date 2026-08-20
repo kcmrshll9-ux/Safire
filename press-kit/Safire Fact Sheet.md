@@ -3,7 +3,7 @@
 | Field | Detail |
 | --- | --- |
 | Product | Safire |
-| Version | 1.5.0 |
+| Version | 1.6.0 |
 | Category | Privacy-focused, local-first Markdown knowledge workspace |
 | Platform | Windows x64, macOS Apple Silicon and Intel, Linux x64; local browser/developer mode |
 | Storage | Plain `.md` files in a user-selected local vault |

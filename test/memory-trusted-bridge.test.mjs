@@ -20,25 +20,25 @@ import {
 
 const profile = ({ acceptUserEvents = true, allowedActors, namespaceGrants } = {}) => createTrustedBridgeProfile({
   profile_id: 'profile:trusted-bridge-test',
-  principal: { id: 'agent:harry', type: 'agent' },
-  agent_instance: { id: 'agent_instance:harry:bridge', type: 'agent_instance' },
+  principal: { id: 'agent:example', type: 'agent' },
+  agent_instance: { id: 'agent_instance:example:bridge', type: 'agent_instance' },
   ingested_by: { id: 'adapter:trusted-bridge:test' },
   source_identity: 'bridge:invented',
   accept_user_events: acceptUserEvents,
   allowed_actors: allowedActors || [
     { id: 'user:example-owner', type: 'user' },
-    { id: 'automation:moltbook', type: 'automation', delegated_by: 'agent:harry' },
+    { id: 'automation:indexer', type: 'automation', delegated_by: 'agent:example' },
     { id: 'external_service:research-api', type: 'external_service' },
   ],
   namespace_grants: namespaceGrants || [
     { namespace: 'examples/invented', read: true, write: true, descendants: true },
-    { namespace: 'harry/projects', read: true, write: true, descendants: true },
+    { namespace: 'example/projects', read: true, write: true, descendants: true },
   ],
 });
 
 const envelope = (overrides = {}) => ({
   schema_version: 1,
-  namespace: 'Harry/Projects',
+  namespace: 'Example/Projects',
   kind: 'visible_user_message',
   speech_act: 'request',
   content: 'Please inspect the visible project result.',
@@ -94,7 +94,7 @@ test('authentication receives frozen metadata and auth context, never visible co
   assert.equal(receivedContext, authContext);
   assert.equal(receivedMetadata.operation, 'event');
   assert.equal(receivedMetadata.envelope_schema, TRUSTED_BRIDGE_ENVELOPE_SCHEMA_ID);
-  assert.equal(receivedMetadata.namespace, 'harry/projects');
+  assert.equal(receivedMetadata.namespace, 'example/projects');
   assert.equal(receivedMetadata.content_length > 0, true);
   assert.match(receivedMetadata.content_sha256, /^[a-f0-9]{64}$/);
   assert.match(receivedMetadata.payload_sha256, /^[a-f0-9]{64}$/);
@@ -116,8 +116,8 @@ test('normalized actor attribution comes only from successful authentication', a
   assert.equal(recorded.length, 1);
   assert.equal(recorded[0].actor_type, 'user');
   assert.equal(recorded[0].actor_id, 'user:example-owner');
-  assert.equal(recorded[0].agent_instance_id, 'agent_instance:harry:bridge');
-  assert.equal(recorded[0].namespace, 'harry/projects');
+  assert.equal(recorded[0].agent_instance_id, 'agent_instance:example:bridge');
+  assert.equal(recorded[0].namespace, 'example/projects');
   assert.deepEqual(result.event, recorded[0]);
   assert.deepEqual(result.record_result, { accepted: 1 });
 });
@@ -287,12 +287,12 @@ test('credential-like authenticated attribution identifiers fail closed without 
     successfulAuthentication({ actor_id: GITHUB_TOKEN_IDENTIFIER }),
     successfulAuthentication({
       role: 'agent',
-      actor_id: 'agent:harry',
+      actor_id: 'agent:example',
       agent_instance_id: GITHUB_TOKEN_IDENTIFIER,
     }),
     successfulAuthentication({
       role: 'automation',
-      actor_id: 'automation:moltbook',
+      actor_id: 'automation:indexer',
       delegated_by: GITHUB_TOKEN_IDENTIFIER,
     }),
     {
@@ -476,13 +476,13 @@ test('feedback role, actor, and user-only signal authorization fail before recor
   const cases = [
     successfulAuthentication({
       role: 'agent',
-      actor_id: 'agent:harry',
-      agent_instance_id: 'agent_instance:harry:bridge',
+      actor_id: 'agent:example',
+      agent_instance_id: 'agent_instance:example:bridge',
     }),
     successfulAuthentication({
       role: 'agent',
       actor_id: 'user:example-owner',
-      agent_instance_id: 'agent_instance:harry:bridge',
+      agent_instance_id: 'agent_instance:example:bridge',
     }),
   ];
 
@@ -533,9 +533,9 @@ test('authenticated roles have closed exact-kind grants', async () => {
 
   const representative = [
     ['user', 'user:example-owner', 'visible_user_message', 'user'],
-    ['agent', 'agent:harry', 'visible_agent_response', 'agent'],
-    ['agent', 'agent_instance:harry:bridge', 'tool_call', 'agent_instance'],
-    ['automation', 'automation:moltbook', 'automation_decision', 'automation'],
+    ['agent', 'agent:example', 'visible_agent_response', 'agent'],
+    ['agent', 'agent_instance:example:bridge', 'tool_call', 'agent_instance'],
+    ['automation', 'automation:indexer', 'automation_decision', 'automation'],
     ['external_service', 'external_service:research-api', 'tool_result', 'external_service'],
   ];
   for (const [role, actorId, kind, expectedActorType] of representative) {
@@ -545,7 +545,7 @@ test('authenticated roles have closed exact-kind grants', async () => {
       authenticate: async () => successfulAuthentication({
         role,
         actor_id: actorId,
-        ...(role === 'agent' ? { agent_instance_id: 'agent_instance:harry:bridge' } : {}),
+        ...(role === 'agent' ? { agent_instance_id: 'agent_instance:example:bridge' } : {}),
       }),
       recordEvents: async events => { recorded = events; },
     });
@@ -559,8 +559,8 @@ test('role-kind mismatches are rejected without recording', async () => {
   let recordingCalls = 0;
   const pairs = [
     ['user', 'user:example-owner', 'visible_agent_response'],
-    ['agent', 'agent:harry', 'visible_user_message'],
-    ['automation', 'automation:moltbook', 'tool_result'],
+    ['agent', 'agent:example', 'visible_user_message'],
+    ['automation', 'automation:indexer', 'tool_result'],
     ['external_service', 'external_service:research-api', 'automation_decision'],
   ];
   for (const [role, actorId, kind] of pairs) {
@@ -581,7 +581,7 @@ test('authenticated role must match the allowlisted actor type', async () => {
     authenticate: async () => successfulAuthentication({
       role: 'agent',
       actor_id: 'user:example-owner',
-      agent_instance_id: 'agent_instance:harry:bridge',
+      agent_instance_id: 'agent_instance:example:bridge',
     }),
     recordEvents: async () => { recordingCalls += 1; },
   });
@@ -613,7 +613,7 @@ test('user events require explicit trusted_bridge user-event trust', async () =>
     profile: profile({
       acceptUserEvents: false,
       allowedActors: [
-        { id: 'automation:moltbook', type: 'automation', delegated_by: 'agent:harry' },
+        { id: 'automation:indexer', type: 'automation', delegated_by: 'agent:example' },
         { id: 'external_service:research-api', type: 'external_service' },
       ],
     }),
@@ -630,14 +630,14 @@ test('delegation and agent-instance attribution can only arrive in authenticated
     profile: profile(),
     authenticate: async () => successfulAuthentication({
       role: 'automation',
-      actor_id: 'automation:moltbook',
-      delegated_by: 'agent:harry',
+      actor_id: 'automation:indexer',
+      delegated_by: 'agent:example',
     }),
     recordEvents: async events => { recorded = events; },
   });
   await bridge.ingest(envelope({ kind: 'automation_decision' }));
   assert.equal(recorded[0].actor_type, 'automation');
-  assert.equal(recorded[0].delegated_by, 'agent:harry');
+  assert.equal(recorded[0].delegated_by, 'agent:example');
 });
 
 test('simulateTrustedBridge is explicit and uses only the invented envelope', async () => {

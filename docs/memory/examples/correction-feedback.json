@@ -6,7 +6,7 @@
   },
   "signal": "correction",
   "correction": "The synthetic review is scheduled for Thursday, not Friday.",
-  "actor_id": "agent:harry",
+  "actor_id": "agent:example",
   "source": {
     "stream": "feedback:reference",
     "event_id": "reference_correction_source_event_01"
