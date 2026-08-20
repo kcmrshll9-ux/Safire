@@ -8,6 +8,7 @@
 | Platform | Windows x64, macOS Apple Silicon and Intel, Linux x64; local browser/developer mode |
 | Storage | Plain `.md` files in a user-selected local vault |
 | Repository | https://github.com/kcmrshll9-ux/Safire |
+| X contact | [@run4ourfun](https://x.com/run4ourfun) |
 | License | MIT License |
 
 ## One-line description

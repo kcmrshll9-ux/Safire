@@ -74,6 +74,7 @@ const notes = `Safire ${version} brings a calmer, more focused Markdown workspac
 
 ## More information
 
+- [Contact Safire on X: @run4ourfun](https://x.com/run4ourfun)
 - [MIT License](https://github.com/kcmrshll9-ux/Safire/blob/v${version}/LICENSE)
 - [Full changes since 1.5.0](https://github.com/kcmrshll9-ux/Safire/compare/v1.5.0...v${version})
 `;
