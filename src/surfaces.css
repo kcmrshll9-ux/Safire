@@ -282,6 +282,6 @@ html[data-theme] .graph-relationship-workspace .graph-2d-stage { min-height: 240
   html[data-theme] .app-shell.focus-writing { grid-template-columns: 48px minmax(0, 1fr); }
 }
 
-.settings-note { color: var(--ink-muted); font-size: 12px; line-height: 1.6; }
+.settings-note { color: var(--muted); font-size: 12px; line-height: 1.6; }
 
 html[data-theme] .project-graph-content { display: flex; flex: 1; min-width: 0; width: 100%; }
