@@ -48,11 +48,14 @@ export async function verifyPackagedVisuals({ cdp, sessionId, vaultDir, pollUnti
   for (const theme of ['light', 'dark']) {
     await reload(theme);
     await cdp.send('Page.bringToFront', {}, sessionId);
+    await wait('native window focus', 'document.hasFocus()');
     await capture(`safire-workspace-${theme}`);
     const opener = await evaluate(`(() => { const button=[...document.querySelectorAll('.desk-actions button')].find(b=>b.textContent.includes('Quick capture')); button.focus(); button.click(); return button.textContent; })()`);
     await wait('quick capture dialog', `Boolean(document.querySelector('.capture-panel[role="dialog"]'))`);
     assert.equal(await evaluate(`document.querySelector('.capture-panel').contains(document.activeElement)`), true);
-    await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }, sessionId);
+    // Match a real non-text key press after the dialog's first painted frame.
+    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+    await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }, sessionId);
     await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }, sessionId);
     await wait(`${theme} dialog dismissal`, `!document.querySelector('.capture-panel')`);
     assert.equal(await evaluate('document.activeElement.textContent'), opener);
