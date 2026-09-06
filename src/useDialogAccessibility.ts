@@ -8,7 +8,8 @@ export function useDialogAccessibility<T extends HTMLElement = HTMLElement>(open
   const wasOpen = React.useRef(false);
   if (open && !wasOpen.current) opener.current = document.activeElement as HTMLElement | null;
   wasOpen.current = open;
-  React.useEffect(() => {
+  // Install keyboard handling with focus, before the opened dialog is painted.
+  React.useLayoutEffect(() => {
     if (!open) return;
     const previous = opener.current;
     const panel = ref.current;
