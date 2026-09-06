@@ -17,6 +17,8 @@
 
 Safire keeps notes as ordinary Markdown files in a vault you choose. It adds a focused desktop workspace for writing, linking, research capture, graph exploration, tasks, attachments, and recovery without requiring a cloud account.
 
+This branch contains the **working product preview**, built on 1.6.2. Its redesigned workspace adds protected drafts, conflict review, link-aware renames, a paged library, and a research desk with portable reports. These changes are not yet a tagged release. See [the working-product guide](docs/PRODUCT_WORK.md) for workflows, verification, and current limits.
+
 <p align="center">
   <img src="docs/assets/safire-graph.png" alt="Safire mouse-rotatable full-screen 3D project graph" width="100%" />
 </p>

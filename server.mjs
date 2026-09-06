@@ -7,6 +7,11 @@ import dns from 'node:dns/promises';
 import net from 'node:net';
 import { Agent, fetch as undiciFetch } from 'undici';
 import vaultConfig from './vault-config.cjs';
+import { noteRevision } from './lib/note-revision.mjs';
+import { createDraftStore } from './lib/draft-store.mjs';
+import { createVaultCatalog } from './lib/vault-catalog.mjs';
+import { planLinkedRename } from './lib/rename-plan.mjs';
+import { resolveWikiPath } from './lib/wiki-links.mjs';
 import {
   excerpt,
   genericIndexContent,
@@ -82,11 +87,16 @@ const DEFAULT_DIST_DIR = path.join(__dirname, 'dist');
 let VAULT_DIR = resolveConfiguredVaultPath();
 let DIST_DIR = DEFAULT_DIST_DIR;
 let noteMutator;
+let draftStore;
+let catalog;
 const IS_CLI = process.argv[1] && path.resolve(process.argv[1]) === __filename;
 
 const app = express();
 app.disable('x-powered-by');
 app.use((req, res, next) => {
+  if (['POST', 'PUT', 'DELETE'].includes(req.method) && !req.path.startsWith('/api/draft') && !req.path.startsWith('/api/library')) {
+    res.once('finish', () => { if (res.statusCode < 300) catalog?.invalidate(); });
+  }
   const embeddedAttachment = req.path === '/api/attachment' && req.query.raw === '1';
   const frameAncestors = embeddedAttachment ? "'self'" : "'none'";
   res.setHeader('Content-Security-Policy', `default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; frame-ancestors ${frameAncestors}; img-src 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self'`);
@@ -948,12 +958,45 @@ app.get('/api/notes', async (_req, res, next) => {
   } catch (err) { next(err); }
 });
 
+app.get('/api/library', async (req, res, next) => {
+  try {
+    res.json({ vault: publicVaultLabel(), ...await catalog.page({ query: req.query.q, project: req.query.project, offset: req.query.offset, limit: req.query.limit, evidenceOnly: req.query.evidence === '1' }) });
+  } catch (error) { next(error); }
+});
+app.post('/api/library/refresh', async (_req, res, next) => {
+  try { res.json(await catalog.refresh(true)); } catch (error) { next(error); }
+});
+
+app.get('/api/drafts', async (_req, res, next) => {
+  try { res.json(await draftStore.list()); } catch (error) { next(error); }
+});
+app.get('/api/draft', async (req, res, next) => {
+  try {
+    const { rel } = resolveUserMutationNotePath(req.query.path);
+    const draft = await draftStore.get(rel);
+    res.json({ draft: draft?.cleared ? null : draft });
+  } catch (error) { next(error); }
+});
+app.put('/api/draft', async (req, res, next) => {
+  try {
+    const { rel } = resolveUserMutationNotePath(req.body.path);
+    res.json(await draftStore.put(rel, req.body));
+  } catch (error) { next(error); }
+});
+app.delete('/api/draft', async (req, res, next) => {
+  try {
+    const { rel } = resolveUserMutationNotePath(req.body.path);
+    await draftStore.clear(rel, req.body.revision);
+    res.json({ ok: true });
+  } catch (error) { next(error); }
+});
+
 app.get('/api/note', async (req, res, next) => {
   try {
     const { rel, abs } = resolveNotePath(req.query.path || 'Welcome.md');
     const content = await fs.readFile(abs, 'utf8');
     const metadata = publicNoteMetadata(content);
-    res.json({ path: rel, title: titleFromPath(rel), content, tags: metadata.tags, links: metadata.links });
+    res.json({ path: rel, title: titleFromPath(rel), content, revision: noteRevision(content), tags: metadata.tags, links: metadata.links });
   } catch (err) { next(err); }
 });
 
@@ -976,8 +1019,8 @@ app.post('/api/note', async (req, res, next) => {
 app.put('/api/note', async (req, res, next) => {
   try {
     const { rel, abs } = resolveUserMutationNotePath(req.body.path);
-    const { backup } = await noteMutator.replace(abs, String(req.body.content ?? ''));
-    res.json({ ok: true, path: rel, backup });
+    const { backup, revision } = await noteMutator.replace(abs, String(req.body.content ?? ''), { expectedRevision: req.body.revision });
+    res.json({ ok: true, path: rel, backup, revision });
   } catch (err) { next(err); }
 });
 
@@ -998,6 +1041,22 @@ app.post('/api/folder', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+app.get('/api/resolve-link', async (req, res, next) => {
+  try {
+    const from = resolveUserMutationNotePath(req.query.from).rel;
+    const { paths } = await catalog.paths();
+    res.json({ path: resolveWikiPath(from, String(req.query.target || ''), paths) });
+  } catch (error) { next(error); }
+});
+app.get('/api/rename-preview', async (req, res, next) => {
+  try {
+    const from = resolveUserMutationNotePath(req.query.from).rel;
+    const to = resolveUserMutationNotePath(req.query.to).rel;
+    const plan = await planLinkedRename(VAULT_DIR, from, to, catalog);
+    res.json({ from, to, changes: plan.rewrites.map(({ path, count })=>({ path, count })), skipped: plan.skipped });
+  } catch (error) { next(error); }
+});
+
 app.post('/api/rename', async (req, res, next) => {
   try {
     const fromRaw = req.body.from;
@@ -1008,6 +1067,13 @@ app.post('/api/rename', async (req, res, next) => {
     const to = toIsNote ? resolveUserMutationNotePath(toRaw) : resolveUserMutationFolderPath(toRaw);
     if (fromIsNote) {
       try {
+        if (req.body.updateLinks === true) {
+          const plan = await planLinkedRename(VAULT_DIR, from.rel, to.rel, catalog);
+          if (plan.skipped.length) throw new Error('Some note bodies could not be checked. Resolve those files before updating links.');
+          const result = await noteMutator.renameWithLinks(from.abs, to.abs, plan.rewrites);
+          catalog.invalidate();
+          return res.json({ ok: true, from: from.rel, to: to.rel, ...result });
+        }
         await noteMutator.rename(from.abs, to.abs);
       } catch (error) {
         if (error?.code === 'ENOENT') return res.status(404).json({ error: 'Source not found' });
@@ -1787,6 +1853,7 @@ function publicErrorMessage(error) {
 
 app.use((err, _req, res, _next) => {
   const message = publicErrorMessage(err);
+  if (err?.code === 'NOTE_CONFLICT') return res.status(409).json({ error: message, code: err.code });
   console.error(`Safire request failed: ${message}`);
   res.status(400).json({ error: message });
 });
@@ -1797,11 +1864,15 @@ export async function startSafireServer(options = {}) {
   await ensureVault();
   VAULT_DIR = await fs.realpath(VAULT_DIR);
   noteMutator = createNoteMutator({ ...(options.noteMutationOptions || {}), vaultDir: VAULT_DIR });
+  draftStore = await createDraftStore(VAULT_DIR);
+  catalog = await createVaultCatalog(VAULT_DIR);
   const host = loopbackHost(options.host || HOST);
   const port = Number(options.port ?? PORT);
   const log = typeof options.log === 'function' ? options.log : console.log;
   return await new Promise((resolve) => {
     const server = app.listen(port, host, () => {
+      const serverCatalog = catalog;
+      server.once('close', () => { void serverCatalog.close(); });
       const address = server.address();
       const actualPort = typeof address === 'object' && address ? address.port : port;
       const urlHost = host === '::1' ? '[::1]' : host;

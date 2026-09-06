@@ -4,6 +4,26 @@ Notable changes to Safire are recorded here. Application versions follow the ver
 
 ## [Unreleased]
 
+### Added
+
+- A redesigned writing workspace with light paper and dark forest themes, recent notes, focus mode, and a dedicated research desk.
+- Evidence filters, source review, and portable Markdown or designed HTML research briefs. Private receipt fields are excluded from these exports.
+- Local draft checkpoints, a recovery panel, conflicting-version comparison, and recovery copies.
+- A persistent, rebuildable vault catalog with paged search beyond 1,000 notes, incremental refresh, explicit capacity notices, and damaged-cache fallback.
+- Markdown file import, paginated search results, and bounded folder rendering.
+
+### Fixed
+
+- Unsaved work survives navigation and reloads; desktop shutdown and vault switching wait for draft checkpoints.
+- Conditional note writes check content revisions under the vault mutation lock. Saving an older snapshot keeps subsequent typing dirty.
+- Rename previews update resolved wikilinks, preserve aliases and headings, and keep outgoing relative links working when a note changes folders. Changed notes receive backups.
+- Notes MCP reads return revisions, and updates can supply them for conflict protection.
+
+### Validation
+
+- Added backend regressions and an extended packaged desktop gate for draft recovery, conflicts, and typing during a pending save.
+
+
 ## [1.6.2] - 2026-08-20
 
 ### Fixed

@@ -230,7 +230,7 @@ export function ProjectHome({ hidden, tree, notes, activePath, selectedProjectPa
     <header className="home-header project-home-header">
       <div>
         <span>Project workspace</span>
-        <h2 ref={homeHeadingRef} tabIndex={-1}>Home</h2>
+        <h2 ref={homeHeadingRef} tabIndex={-1}>Your projects</h2>
         <p>{projects.length ? `${projects.length} ${projects.length === 1 ? 'project' : 'projects'}${projectIndexComplete ? ' in this vault.' : ' shown from the partial vault index.'}` : projectIndexComplete ? 'Create or select a vault that contains project folders.' : 'No project folders are visible in the partial vault index.'}</p>
       </div>
       <button type="button" className="primary-action" onClick={() => void createProject()}>New project</button>

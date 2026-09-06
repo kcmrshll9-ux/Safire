@@ -294,7 +294,9 @@ function NotesTopic() {
       <li>Use the note header’s <strong>…</strong> menu for <strong>Rename or move</strong>. Include a folder in the new path to move it.</li>
       <li>From a project, use an entry’s <strong>…</strong> menu and <strong>Delete entry</strong>. From the editor, use <strong>Delete note</strong>. Check the path; Safire creates a recoverable backup before removal.</li>
     </ol>
-    <div className="help-callout warning"><b>Before moving a linked note</b><span>Wikilinks are text. Review backlinks and update any links that depend on the old name or path.</span></div>
+    <div className="help-callout"><b>Rename with confidence</b><span>Safire previews the wikilinks it can resolve before renaming. It preserves aliases and headings, updates links inside moved notes, and backs up every changed note. Ambiguous or missing links remain unchanged; ordinary Markdown links and attachment paths are not rewritten.</span></div>
+    <h3>Protected writing</h3>
+    <p>Unsaved edits are checkpointed locally even with autosave off. Check the status below the note title before closing. <strong>Draft recovery</strong> on Home lets you continue a draft or recover a separate copy. If another editor changed the saved file, compare both versions, save your draft as a copy, or review your merged text before saving. <strong>Focus</strong> hides the side panels while you write.</p>
     <h3>Edit and preview</h3>
     <p><strong>Split</strong> shows editor and rendered output together. <strong>Edit</strong> maximizes the Markdown source. <strong>Preview</strong> shows rendered content. The formatting toolbar inserts headings, emphasis, links, quotes, lists, task boxes, wikilinks, code blocks, evidence, and attachments.</p>
     <CopyBlock label="Portable Markdown example" value={MARKDOWN_EXAMPLE} wrap />
@@ -367,6 +369,10 @@ function TemplatesTopic() {
 function ResearchTopic() {
   return <>
     <TopicHeader eyebrow="Research & recovery" title="Keep sources visible and edits recoverable">Use attachments, evidence receipts, the relationship graph, vault health, and backups as complementary tools. None of them replaces an independent copy of the vault.</TopicHeader>
+    <h3>Your research desk</h3>
+    <p>Select <strong>Research desk</strong> in the rail to find notes with evidence receipts. Filter by recorded status or overdue review, search a claim or source, and select notes for a brief. Add your conclusion, then export portable Markdown or a designed HTML report you can open or print in a browser. Evidence statuses describe the author's assessments; Safire does not independently verify claims.</p>
+    <h3>Bring your notes with you</h3>
+    <p>Choose <strong>Import Markdown notes</strong> from the workspace menu. Safire copies selected files into <code>Imports/</code>, leaving the source files intact and skipping name collisions. Imports support individual Markdown files up to 1 MB.</p>
     <h3>Attachments and images</h3>
     <ul>
       <li>Use <strong>Attach file</strong>, drag files onto the workspace, or paste clipboard files. Safire copies them into the vault and inserts a Markdown link.</li>

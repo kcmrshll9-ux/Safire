@@ -67,12 +67,13 @@ registerTool(
 registerTool(
   server,
   'update_note',
-  'Create or replace a Markdown note. Replacing an existing note creates a dated Safire backup first.',
+  'Replace an existing Markdown note with a dated backup. Pass the revision returned by read_note to reject conflicting edits. Use create_note for new files.',
   {
     path: z.string().trim().min(1).max(500).describe('Vault-relative path for the note.'),
     content: z.string().max(1_000_000).describe('Complete replacement Markdown body.'),
+    revision: z.string().regex(/^[a-f0-9]{64}$/).optional().describe('Revision returned by read_note. Supply it to prevent overwriting newer edits.'),
   },
-  async ({ path: notePath, content }) => notes.updateNote(notePath, content),
+  async ({ path: notePath, content, revision }) => notes.updateNote(notePath, content, revision),
 );
 
 registerTool(

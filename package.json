@@ -117,7 +117,12 @@
       "LICENSE",
       "PRIVACY.md",
       "THIRD_PARTY_NOTICES.md",
-      "TRADEMARKS.md"
+      "TRADEMARKS.md",
+      "lib/note-revision.mjs",
+      "lib/draft-store.mjs",
+      "lib/vault-catalog.mjs",
+      "lib/wiki-links.mjs",
+      "lib/rename-plan.mjs"
     ],
     "directories": {
       "output": "release"
