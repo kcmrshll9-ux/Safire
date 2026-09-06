@@ -260,14 +260,14 @@ function StartTopic() {
     <ol className="help-steps">
       <li><span>1</span><div><b>Choose the parent vault</b><p>Choose the folder that will contain all of your project folders. For example, if <code>Safire Vault/Website Launch/</code> is one project, select <code>Safire Vault/</code>. Later use <strong>Safire → Change Vault Location…</strong>. Safire never moves folders when you switch.</p></div></li>
       <li><span>2</span><div><b>Create your first project</b><p>Open <strong>Home</strong> and select <strong>New project</strong>. Safire creates one named top-level folder inside the selected vault.</p></div></li>
-      <li><span>3</span><div><b>Add a project entry</b><p>Open the project card and select <strong>New entry</strong>. Entries are ordinary Markdown notes stored inside that project folder and are not mixed into the main Home screen.</p></div></li>
+      <li><span>3</span><div><b>Add a project entry</b><p>Open the project card and select <strong>New entry</strong>. Entries are ordinary Markdown notes stored inside that project folder and appear in recent writing on Home when you return to them.</p></div></li>
       <li><span>4</span><div><b>Write, connect, and see relationships</b><p>Select an entry to edit it. Type <code>[[Seed Suppliers]]</code> to link another note, add a tag such as <code>#garden</code>, or switch to <strong>Project graph</strong> to see only this project’s notes and links.</p></div></li>
       <li><span>5</span><div><b>Edit or delete safely</b><p>Save changes in the editor. To remove an entry, return to its project, open the entry’s <strong>…</strong> menu, select <strong>Delete entry</strong>, and confirm the exact path. Safire creates a backup before removal.</p></div></li>
       <li><span>6</span><div><b>Find anything again</b><p>Use sidebar search, <kbd>Ctrl/Cmd+O</kbd> for the quick switcher, or <kbd>Ctrl/Cmd+K</kbd> for commands. Autosave is on by default; <kbd>Ctrl/Cmd+S</kbd> saves immediately.</p></div></li>
     </ol>
     <h3>Workspace map</h3>
     <div className="help-card-grid">
-      <section><b>Home</b><p>Browse one card per top-level project folder, then open a project to see its entries and project-only graph.</p></section>
+      <section><b>Home</b><p>Pick up recent writing, recover drafts, capture ideas, or open a project to see its entries and project-only graph.</p></section>
       <section><b>Sidebar</b><p>Create notes, search, browse folders, select tags, and verify the active vault.</p></section>
       <section><b>Workspace</b><p>Use tabs and switch among Split, Edit, and Preview. Open Project graph from a project or from one of its entries.</p></section>
       <section><b>Inspector</b><p>Review the outline, evidence status, backlinks, outgoing links, properties, and vault health.</p></section>
@@ -281,7 +281,7 @@ function NotesTopic() {
     <h3>Create and open a project</h3>
     <ol>
       <li>On Home, select <strong>New project</strong>, enter a portable folder name, and confirm.</li>
-      <li>Select the project card to enter it. Home itself continues to show project cards only.</li>
+      <li>Select the project card to enter it. Home also keeps recent notes, draft recovery, and quick capture close at hand.</li>
       <li>Select <strong>New entry</strong> to create a Markdown file beneath that project folder and open it for editing.</li>
       <li>Switch between <strong>Entries</strong> and <strong>Project graph</strong>. The project graph contains only notes and internal links from that project. Bare links such as <code>[[Plan]]</code> and project-relative paths such as <code>[[Notes/Decision]]</code> resolve inside the opened project, even when another project uses the same entry names. The Graph rail action opens this same project-only view.</li>
       <li>Existing top-level user folders are projects too. Safire excludes operational folders such as <code>Inbox/</code>, <code>Daily Notes/</code>, <code>Templates/</code>, and <code>Attachments/</code>.</li>
@@ -306,7 +306,7 @@ function NotesTopic() {
       <li><strong>Backlinks:</strong> the inspector lists notes that point to the active note.</li>
       <li><strong>Tags:</strong> write inline tags such as <code>#project</code>; select a sidebar tag to search it.</li>
       <li><strong>Tabs:</strong> keep working notes open. Closing a tab does not delete its file.</li>
-      <li><strong>Projects:</strong> Home treats each top-level user folder as one project card. Notes inside it appear only after the project opens.</li>
+      <li><strong>Projects:</strong> Home treats each top-level user folder as one project card. Open the project for its complete entry list, or return to an entry from recent writing.</li>
       <li><strong>Project graphs:</strong> show only relationships whose notes both belong to the opened project.</li>
     </ul>
   </>;
@@ -370,7 +370,7 @@ function ResearchTopic() {
   return <>
     <TopicHeader eyebrow="Research & recovery" title="Keep sources visible and edits recoverable">Use attachments, evidence receipts, the relationship graph, vault health, and backups as complementary tools. None of them replaces an independent copy of the vault.</TopicHeader>
     <h3>Your research desk</h3>
-    <p>Select <strong>Research desk</strong> in the rail to find notes with evidence receipts. Filter by recorded status or overdue review, search a claim or source, and select notes for a brief. Add your conclusion, then export portable Markdown or a designed HTML report you can open or print in a browser. Evidence statuses describe the author's assessments; Safire does not independently verify claims.</p>
+    <p>Select <strong>Research desk</strong> in the rail to find notes with evidence receipts. Filter by recorded status or overdue review, search a claim or source, and select notes for a brief. Add your conclusion, then export portable Markdown or a designed HTML report you can open or print in a browser. Briefs exclude receipt blocks from prose excerpts and include only permitted receipt fields and HTTP(S) source URLs. Your own prose and summary remain included, so review them before sharing. Evidence statuses describe the author's assessments; Safire does not independently verify claims.</p>
     <h3>Bring your notes with you</h3>
     <p>Choose <strong>Import Markdown notes</strong> from the workspace menu. Safire copies selected files into <code>Imports/</code>, leaving the source files intact and skipping name collisions. Imports support individual Markdown files up to 1 MB.</p>
     <h3>Attachments and images</h3>
@@ -398,7 +398,7 @@ function ResearchTopic() {
     </ul>
     <h3>Backups and restore</h3>
     <ol>
-      <li>Safire creates dated backups before replacement saves and destructive note changes.</li>
+      <li>Safire creates dated backups before replacement saves and destructive note changes. Backups remain until you remove them; Safire does not expire them automatically.</li>
       <li>Open <strong>Backups</strong> for the active note, select a version, and preview it before restoring.</li>
       <li>Restore only the version you inspected. Restoring changes the active note, so save or copy current work first.</li>
       <li>Use <strong>Vault health</strong> to review note/link counts, missing wikilinks, orphan notes, and backup counts.</li>

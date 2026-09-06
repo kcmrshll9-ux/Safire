@@ -1,4 +1,4 @@
-export type LibraryNote = { path: string; title: string; folder: string; size: number; mtime: number; tags: string[]; links: string[]; excerpt: string };
+export type LibraryNote = { path: string; title: string; folder: string; size: number; mtime: number; tags: string[]; links: string[]; excerpt: string; reportExcerpt?: string };
 export type LibraryTree = { type: 'folder' | 'note'; name: string; path: string; title?: string; children?: LibraryTree[] };
 
 export function libraryTree(notes: LibraryNote[]): LibraryTree[] {

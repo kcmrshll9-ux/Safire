@@ -1,6 +1,6 @@
-# Working product upgrade
+# Safire 1.7.0 — writing and research workspace
 
-Base: Safire 1.6.2 (`6c1c7ab`). This work improves the existing local desktop product.
+Safire 1.7.0 builds on 1.6.2 with protected writing, a consistent interface, and a practical research workflow.
 
 ## Acceptance criteria
 
@@ -15,7 +15,7 @@ Commercial infrastructure, team hosting, and paid certificates are not prerequis
 
 ## Try it
 
-On Windows, launch `release/Safire-Working-Preview.exe`. The portable build uses Safire's existing vault selection, or asks you to choose a vault on first launch. It is an unsigned development preview, retains the base application version 1.6.2, and has not been published as a GitHub release.
+Install Safire 1.7.0 from the [official release](https://github.com/kcmrshll9-ux/Safire/releases/tag/v1.7.0). Windows offers an installer and portable executable; macOS offers separate Apple Silicon and Intel disk images; Linux offers AppImage and Debian packages. Existing vault selection is preserved.
 
 For source development, use Node 22.19 or newer, `npm ci`, then `npm run build` and `npm start`. Set `SAFIRE_VAULT_PATH` to a disposable vault for testing. `npm run desktop` opens the Electron application after its dependencies and frontend have been built.
 
@@ -34,11 +34,11 @@ The new library has a persistent SQLite catalog with incremental scans, paginati
 ## Verification
 
 - Clean install from `package-lock.json`; TypeScript and production build pass.
-- Full suite: 455 passing tests, including the two packaged memory-launcher checks; zero skips and zero failures.
+- The release runs the complete test suite, typecheck, production build, dependency audit, and native packaged checks on Windows, Linux, and both macOS architectures.
 - Ten new backend regressions cover concurrent saves, draft cleanup, 1,025-note discovery, private-field exclusion, damaged catalogs, combined evidence filters, outgoing links, stale rename plans, backups, and rollback with external edits.
 - The packaged Windows gate verifies Markdown sanitization, draft navigation and reload recovery, conflicting external writes, recovery copies, typing while a save response is delayed, and the desktop checkpoint handshake. These checks use invented notes in an isolated profile.
 - Browser checks cover recovery across server restarts, the research board, source URLs, designed report export, keyboard dialog dismissal, and the visual workspace.
-- The portable executable's archive passes its integrity check, and its application payload matches the unpacked application used by the Windows gates. A SHA-256 checksum is provided beside the executable.
+- The release workflow checks the native packaged app before staging each platform's downloads. It downloads the staged assets again and verifies every SHA-256 checksum before making the release public.
 
 ## Current boundaries
 
@@ -48,4 +48,4 @@ The new library has a persistent SQLite catalog with incremental scans, paginati
 - Catalog refresh is on demand with a short cache interval. Use **Refresh library** after external changes. If the disk catalog is damaged, search rebuilds in memory for that session; the original Markdown remains authoritative.
 - Renaming updates resolvable wikilinks, not ordinary Markdown links or attachment references. Ambiguous links remain unchanged. A complete rename review requires readable note bodies within a 64 MiB review budget. Multi-file changes have backups and rollback, but are not a crash-atomic filesystem transaction.
 - Desktop and browser saves supply content revisions. The HTTP and MCP update APIs accept optional revisions for compatibility; external clients must pass the revision from their read to receive conflict protection.
-- Windows x64 is packaged and tested locally. macOS and Linux require their native CI/build environments before release.
+- Platform packages are built and checked on their native GitHub Actions runners before publication. Windows and macOS packages are unsigned.

@@ -8,6 +8,8 @@ import net from 'node:net';
 import { Agent, fetch as undiciFetch } from 'undici';
 import vaultConfig from './vault-config.cjs';
 import { noteRevision } from './lib/note-revision.mjs';
+import { createVaultJsonStore } from './lib/vault-json-store.mjs';
+import { readClippableHtml, MAX_CLIP_CHARACTERS } from './lib/web-response.mjs';
 import { createDraftStore } from './lib/draft-store.mjs';
 import { createVaultCatalog } from './lib/vault-catalog.mjs';
 import { planLinkedRename } from './lib/rename-plan.mjs';
@@ -94,10 +96,11 @@ const IS_CLI = process.argv[1] && path.resolve(process.argv[1]) === __filename;
 const app = express();
 app.disable('x-powered-by');
 app.use((req, res, next) => {
-  if (['POST', 'PUT', 'DELETE'].includes(req.method) && !req.path.startsWith('/api/draft') && !req.path.startsWith('/api/library')) {
+  const securityPath = req.path.toLowerCase();
+  if (['POST', 'PUT', 'DELETE'].includes(req.method) && !securityPath.startsWith('/api/draft') && !securityPath.startsWith('/api/library')) {
     res.once('finish', () => { if (res.statusCode < 300) catalog?.invalidate(); });
   }
-  const embeddedAttachment = req.path === '/api/attachment' && req.query.raw === '1';
+  const embeddedAttachment = securityPath === '/api/attachment' && req.query.raw === '1';
   const frameAncestors = embeddedAttachment ? "'self'" : "'none'";
   res.setHeader('Content-Security-Policy', `default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; frame-ancestors ${frameAncestors}; img-src 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self'`);
   res.setHeader('Referrer-Policy', 'no-referrer');
@@ -108,7 +111,7 @@ app.use((req, res, next) => {
   const requestHost = loopbackAuthority(req.get('host'));
   if (!requestHost) return res.status(403).json({ error: 'Request rejected' });
 
-  if (req.path === '/api' || req.path.startsWith('/api/')) {
+  if (securityPath === '/api' || securityPath.startsWith('/api/')) {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -412,7 +415,7 @@ function createWikiLinkResolver(notes, scopePath = '') {
 }
 
 function settingsDir() { return resolveVaultPath('.safire').abs; }
-function settingsPath() { return path.join(settingsDir(), 'settings.json'); }
+function vaultJson() { return createVaultJsonStore(VAULT_DIR); }
 const DEFAULT_SETTINGS = {
   autosave: true,
   autosaveDelay: 900,
@@ -426,16 +429,10 @@ const DEFAULT_SETTINGS = {
 };
 
 async function readSettings() {
-  await fs.mkdir(settingsDir(), { recursive: true });
-  try {
-    const parsed = JSON.parse(await fs.readFile(settingsPath(), 'utf8'));
-    const merged = { ...DEFAULT_SETTINGS, ...parsed };
-    if (!['dark', 'light'].includes(merged.theme)) merged.theme = 'dark';
-    return merged;
-  } catch {
-    await fs.writeFile(settingsPath(), JSON.stringify(DEFAULT_SETTINGS, null, 2), 'utf8');
-    return { ...DEFAULT_SETTINGS };
-  }
+  const parsed = await vaultJson().read('settings.json', DEFAULT_SETTINGS, { initialize: true });
+  const merged = { ...DEFAULT_SETTINGS, ...parsed };
+  if (!['dark', 'light'].includes(merged.theme)) merged.theme = 'dark';
+  return merged;
 }
 
 async function writeSettings(patch = {}) {
@@ -450,7 +447,7 @@ async function writeSettings(patch = {}) {
   if (typeof patch.confirmDeletes === 'boolean') next.confirmDeletes = patch.confirmDeletes;
   if (typeof patch.theme === 'string' && ['dark', 'light'].includes(patch.theme.trim())) next.theme = patch.theme.trim();
   if (typeof patch.fitImagesToPage === 'boolean') next.fitImagesToPage = patch.fitImagesToPage;
-  await fs.writeFile(settingsPath(), JSON.stringify(next, null, 2), 'utf8');
+  await vaultJson().write('settings.json', next);
   return next;
 }
 
@@ -517,21 +514,18 @@ function todayName() {
 }
 
 const DEFAULT_WORKSPACE = { pinnedNotes: [], recentNotes: [], savedSearches: [] };
-function workspacePath() { return path.join(VAULT_DIR, '.safire', 'workspace.json'); }
 function workspaceId() { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`; }
 async function readWorkspace() {
-  try {
-    const parsed = JSON.parse(await fs.readFile(workspacePath(), 'utf8'));
+    const parsed = await vaultJson().read('workspace.json', DEFAULT_WORKSPACE);
     return {
       pinnedNotes: Array.isArray(parsed.pinnedNotes) ? [...new Set(parsed.pinnedNotes.filter(p => typeof p === 'string'))].slice(0, 24) : [],
       recentNotes: Array.isArray(parsed.recentNotes) ? parsed.recentNotes.filter(item => item && typeof item.path === 'string' && Number.isFinite(item.openedAt)).slice(0, 12) : [],
       savedSearches: Array.isArray(parsed.savedSearches) ? parsed.savedSearches.filter(item => item && typeof item.id === 'string' && typeof item.name === 'string' && typeof item.query === 'string' && Number.isFinite(item.createdAt)).slice(0, 20) : [],
     };
-  } catch { return { ...DEFAULT_WORKSPACE, pinnedNotes: [], recentNotes: [], savedSearches: [] }; }
+
 }
 async function writeWorkspace(next) {
-  await fs.mkdir(path.dirname(workspacePath()), { recursive: true });
-  await fs.writeFile(workspacePath(), JSON.stringify(next, null, 2), 'utf8');
+  await vaultJson().write('workspace.json', next);
   return next;
 }
 async function pruneWorkspace(workspace) {
@@ -606,7 +600,6 @@ const DEFAULT_WEB_CLIP_TEMPLATES = [
   { id: 'academic-paper', name: 'Academic paper', folder: 'Academic Papers', description: 'Abstract, authors, citations, code, and math-friendly Markdown.' },
 ];
 
-function webClipTemplatesPath() { return path.join(settingsDir(), 'web-clip-templates.json'); }
 function clipText(value = '') { return decodeHtml(String(value)).replace(/\s+/g, ' ').trim(); }
 function decodeHtml(value = '') {
   return String(value)
@@ -765,8 +758,8 @@ function safeWebClipTemplate(template = {}) {
   return { id, name, folder, description: clipText(template.description || 'Custom web clip template').slice(0, 200), body };
 }
 async function readWebClipTemplates() {
+  const parsed = await vaultJson().read('web-clip-templates.json', { custom: [] });
   try {
-    const parsed = JSON.parse(await fs.readFile(webClipTemplatesPath(), 'utf8'));
     const custom = Array.isArray(parsed?.custom) ? parsed.custom.map(safeWebClipTemplate) : [];
     return [...DEFAULT_WEB_CLIP_TEMPLATES, ...custom.filter(item => !DEFAULT_WEB_CLIP_TEMPLATES.some(defaultTemplate => defaultTemplate.id === item.id))];
   } catch { return [...DEFAULT_WEB_CLIP_TEMPLATES]; }
@@ -777,8 +770,7 @@ async function saveWebClipTemplate(input) {
   const existing = await readWebClipTemplates();
   const custom = existing.filter(item => item.body && item.id !== template.id);
   custom.push(template);
-  await fs.mkdir(settingsDir(), { recursive: true });
-  await fs.writeFile(webClipTemplatesPath(), JSON.stringify({ custom }, null, 2), 'utf8');
+  await vaultJson().write('web-clip-templates.json', { custom });
   return template;
 }
 function renderWebClip(template, data) {
@@ -849,12 +841,7 @@ async function fetchWebPage(sourceUrl) {
   const parsed = new URL(sourceUrl);
   await assertPublicWebUrl(parsed);
   const response = await undiciFetch(parsed, { dispatcher: webClipAgent, redirect: 'error', signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'Safire Web Clipper/1.0', Accept: 'text/html,application/xhtml+xml' } });
-  if (!response.ok) throw new Error(`Could not fetch page (${response.status})`);
-  const contentType = response.headers.get('content-type') || '';
-  if (!contentType.includes('html')) throw new Error('The page did not return HTML');
-  const html = await response.text();
-  if (html.length > 2_000_000) throw new Error('The page is too large to clip');
-  return html;
+  return readClippableHtml(response);
 }
 async function createWebClip(input = {}) {
   const url = String(input.url || '').trim();
@@ -862,9 +849,10 @@ async function createWebClip(input = {}) {
   try { parsedUrl = new URL(url); } catch { throw new Error('A valid source URL is required'); }
   if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error('A web clip needs an http or https URL');
   const html = typeof input.html === 'string' && input.html.trim() ? input.html : await fetchWebPage(parsedUrl.toString());
-  if (html.length > 2_000_000) throw new Error('The captured page is too large');
-  const templates = await readWebClipTemplates();
-  const template = templates.find(item => item.id === String(input.templateId || 'article'));
+  if (html.length > MAX_CLIP_CHARACTERS) throw new Error('The captured page is too large');
+  const templateId = String(input.templateId || 'article');
+  const template = DEFAULT_WEB_CLIP_TEMPLATES.find(item => item.id === templateId)
+    || (await readWebClipTemplates()).find(item => item.id === templateId);
   if (!template) throw new Error('Unknown web clip template');
   const schema = extractJsonLd(html);
   const recipe = firstSchema(schema, 'Recipe');
@@ -1124,7 +1112,10 @@ app.post('/api/capture', async (req, res, next) => {
 });
 
 app.get('/api/web-clip/templates', async (_req, res, next) => {
-  try { res.json({ templates: await readWebClipTemplates() }); } catch (err) { next(err); }
+  try { res.json({ templates: await readWebClipTemplates() }); } catch (err) {
+    if (err.code === 'VAULT_CONFIG_TOO_LARGE') return res.json({ templates: DEFAULT_WEB_CLIP_TEMPLATES, warning: 'Custom templates exceed the 8 MiB limit. Your file is preserved; built-in templates are available. Reduce .safire/web-clip-templates.json before editing custom templates.' });
+    next(err);
+  }
 });
 
 app.post('/api/web-clip/templates', async (req, res, next) => {

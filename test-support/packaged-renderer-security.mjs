@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { WebSocket } from 'undici';
 import { verifyPackagedWorkspace } from './packaged-workspace-probe.mjs';
+import { verifyPackagedVisuals } from './packaged-visual-probe.mjs';
 
 const STARTUP_TIMEOUT_MS = 45_000;
 const RENDER_TIMEOUT_MS = 20_000;
@@ -482,6 +483,7 @@ async function main() {
 
     process.stdout.write('Packaged Chromium Markdown renderer security gate passed.\n');
     await verifyPackagedWorkspace({ cdp, sessionId, vaultDir, pollUntil });
+    await verifyPackagedVisuals({ cdp, sessionId, vaultDir, pollUntil });
   } catch (error) {
     const diagnostics = stderr.trim() ? `\nPackaged app diagnostics (tail):\n${stderr.trim()}` : '';
     error.message = `${error.message}${diagnostics}`;

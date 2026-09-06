@@ -1,15 +1,19 @@
 import React from 'react';
 
-export function useDialogAccessibility(open: boolean, close: () => void) {
-  const ref = React.useRef<HTMLElement>(null);
+export function useDialogAccessibility<T extends HTMLElement = HTMLElement>(open: boolean, close: () => void) {
+  const ref = React.useRef<T>(null);
   const onClose = React.useRef(close);
   onClose.current = close;
+  const opener = React.useRef<HTMLElement | null>(null);
+  const wasOpen = React.useRef(false);
+  if (open && !wasOpen.current) opener.current = document.activeElement as HTMLElement | null;
+  wasOpen.current = open;
   React.useEffect(() => {
     if (!open) return;
-    const previous = document.activeElement as HTMLElement | null;
+    const previous = opener.current;
     const panel = ref.current;
     const focusable = () => [...(panel?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),a[href],[tabindex="0"]') || [])].filter(element => element.getClientRects().length > 0);
-    focusable()[0]?.focus();
+    if (!panel?.contains(document.activeElement)) focusable()[0]?.focus();
     const keydown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose.current(); }
       if (event.key !== 'Tab') return;

@@ -303,6 +303,7 @@ test('ACL projections and replays disclose no hidden provenance, dependent feedb
   }]);
   const hiddenDigests = [
     sharedRecord.results[0].event.integrity.digest,
+    sharedRecord.results[0].event.idempotency.request_digest,
     sharedRecord.results[0].memory.integrity.digest,
     relatedFeedback.results[0].feedback.integrity.digest,
   ];
@@ -351,6 +352,22 @@ test('ACL projections and replays disclose no hidden provenance, dependent feedb
   assert.equal('integrity' in visibleControl.memory, false);
   assert.deepEqual(Object.keys(visibleExact.event).sort(), Object.keys(visibleControl.event).sort());
   assert.deepEqual(Object.keys(visibleExact.memory).sort(), Object.keys(visibleControl.memory).sort());
+  for (const reader of [narrow, broad]) {
+    for (const includeRelations of [false, true]) {
+      for (const id of [sharedEventId, sharedRecord.results[0].memory.memory_id, controlEventId]) {
+        const result = await reader.get(id, { includeRelations });
+        assert.equal('idempotency' in result.event, false);
+        assert.equal('integrity' in result.event, false);
+        assert.ok(result.event.content);
+      }
+      const recalled = await reader.recall([sharedEventId, controlEventId], { includeRelations });
+      assert.doesNotMatch(JSON.stringify(recalled), /request_digest/);
+      for (const digest of hiddenDigests) assert.equal(JSON.stringify(recalled).includes(digest), false);
+    }
+  }
+  const authorized = await broad.get(sharedEventId, { includeRelations: true });
+  assert.equal(authorized.event.relations[0].target_event_id, privateEventId);
+  assert.equal(authorized.event.derived.source_event_ids[0], privateEventId);
   const narrowStatus = await narrow.status();
   assert.equal(narrowStatus.counts.feedback, 0);
   for (const digest of hiddenDigests) {

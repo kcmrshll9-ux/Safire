@@ -1,6 +1,6 @@
 {
   "name": "safire",
-  "version": "1.6.2",
+  "version": "1.7.0",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
@@ -122,7 +122,9 @@
       "lib/draft-store.mjs",
       "lib/vault-catalog.mjs",
       "lib/wiki-links.mjs",
-      "lib/rename-plan.mjs"
+      "lib/rename-plan.mjs",
+      "lib/vault-json-store.mjs",
+      "lib/web-response.mjs"
     ],
     "directories": {
       "output": "release"

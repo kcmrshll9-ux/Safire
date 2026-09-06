@@ -1,0 +1,287 @@
+/* Shared surfaces for both the original app and the research workspace. */
+html[data-theme] .modal-backdrop {
+  padding: 32px 24px; place-items: center; background: var(--overlay); backdrop-filter: blur(5px);
+}
+html[data-theme] :is(.panel-modal, .safire-dialog, .palette) {
+  color: var(--ink); background: var(--paper); border: 1px solid var(--line);
+  border-radius: 14px; box-shadow: var(--shadow); max-height: calc(100dvh - 64px);
+  padding: 28px; overflow: auto;
+}
+html[data-theme] .panel-head {
+  gap: 24px; margin: 0 0 24px; padding: 0 0 20px; border-bottom: 1px solid var(--line);
+}
+html[data-theme] :is(.panel-head h2, .safire-dialog h2, .palette h2) {
+  margin: 0 0 8px; color: var(--ink); font: 28px/1.2 var(--font-display); text-transform: none; letter-spacing: -.5px;
+}
+html[data-theme] :is(.panel-head p, .safire-dialog p) { color: var(--muted); font-size: 13px; line-height: 1.65; }
+html[data-theme] .panel-head > button, html[data-theme] .attachment-close {
+  flex: 0 0 36px; width: 36px; height: 36px; padding: 0; font: 22px/1 var(--font-ui);
+  background: transparent; border: 1px solid var(--line); border-radius: 7px; color: var(--muted);
+}
+html[data-theme] :is(.panel-head > button, .attachment-close):hover { background: var(--surface); color: var(--ink); border-color: var(--accent); }
+html[data-theme] :is(.panel-modal, .safire-dialog, .palette) :is(input, textarea, select) {
+  color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 7px;
+  padding: 10px 12px; font: 13px/1.55 var(--font-ui); box-shadow: none;
+}
+html[data-theme] .panel-modal :is(input[type='checkbox'], input[type='radio']) { width: 17px; height: 17px; padding: 0; accent-color: var(--accent); }
+html[data-theme] :is(.panel-modal, .safire-dialog, .palette) :is(input, textarea, select):focus { border-color: var(--accent); box-shadow: none; }
+html[data-theme] .panel-modal label, html[data-theme] .panel-modal label > span { color: var(--ink); font-size: 13px; font-weight: 500; }
+html[data-theme] :is(.dialog-actions, .help-actions) {
+  display: flex; align-items: center; justify-content: flex-end; gap: 10px;
+  margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); background: var(--paper);
+}
+html[data-theme] :is(.dialog-actions, .help-actions) button { min-height: 38px; padding: 9px 15px; border-radius: 7px; font-size: 13px; }
+html[data-theme] :is(.primary, .primary-action, .back-to-note),
+html[data-theme] .sidebar .toolbar-row .primary,
+html[data-theme] :is(.dialog-actions, .desk-actions) .primary-action {
+  color: var(--accent-ink)!important; background: var(--accent)!important; background-image: none!important;
+  border: 1px solid transparent!important; box-shadow: none!important; font-weight: 600; text-shadow: none; filter: none;
+}
+html[data-theme] :is(.primary, .primary-action, .back-to-note):hover,
+html[data-theme] .sidebar .toolbar-row .primary:hover { background: var(--accent-hover)!important; }
+html[data-theme] .danger-action, html[data-theme] .safire-dialog .danger-action {
+  background: var(--danger-solid); color: var(--on-danger); border: 1px solid transparent; box-shadow: none; font-weight: 600;
+}
+html[data-theme] .form-error { padding: 12px 14px; border: 1px solid var(--danger); border-radius: 7px; color: var(--danger); background: var(--danger-soft); font-size: 13px; }
+
+/* Menus, command palette, and small floating controls. */
+html[data-theme] :is(.overflow-menu-popover, .image-size-popover) {
+  background: var(--paper); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-popover);
+  color: var(--ink); padding: 6px;
+}
+html[data-theme] .overflow-menu .overflow-menu-popover .overflow-menu-item {
+  min-height: 40px; padding: 9px 11px; color: var(--ink); background: transparent; border: 0; border-radius: 6px;
+  font-size: 13px; font-weight: 500; box-shadow: none;
+}
+html[data-theme] .overflow-menu .overflow-menu-popover .overflow-menu-item:is(:hover, :focus-visible) { background: var(--surface); color: var(--ink); }
+html[data-theme] .overflow-menu-hint { color: var(--muted); font-size: 11px; line-height: 1.5; }
+html[data-theme] .overflow-menu-separator { background: var(--line); }
+html[data-theme] .overflow-menu .overflow-menu-popover .overflow-menu-item.danger { color: var(--danger); }
+html[data-theme] .overflow-menu .overflow-menu-popover .overflow-menu-item.danger:hover { background: var(--danger-soft); }
+html[data-theme] .palette > button { color: var(--ink); background: transparent; padding: 13px; border: 1px solid transparent; border-radius: 7px; }
+html[data-theme] .palette > button:is(:hover, .selected) { color: var(--ink); background: var(--accent-soft); border-color: var(--accent); }
+html[data-theme] .palette button span, html[data-theme] .palette button kbd { color: var(--muted); }
+html[data-theme] .palette button kbd { background: var(--surface); border-color: var(--line); }
+html[data-theme] .image-size-popover :is(p, span) { color: var(--muted); }
+html[data-theme] .image-size-popover button { color: var(--ink); background: transparent; border-color: transparent; }
+html[data-theme] .image-size-popover button:is(:hover, .on) { background: var(--accent-soft); color: var(--accent); }
+
+/* Writing and note metadata. */
+html[data-theme] .markdown :is(h1, h2, h3, h4, h5, h6) { color: var(--ink); text-transform: none; text-shadow: none; }
+html[data-theme] .markdown :is(code, pre) { background: var(--surface); color: var(--ink); font-family: var(--font-mono); border-radius: 7px; box-shadow: none; }
+html[data-theme] .markdown pre { border: 1px solid var(--line); padding: 18px; }
+html[data-theme] .markdown pre code { padding: 0; background: transparent; }
+html[data-theme] .markdown blockquote { margin-inline: 0; padding: 12px 18px; border-left: 3px solid var(--accent); border-radius: 0 7px 7px 0; background: var(--surface); color: var(--muted); }
+html[data-theme] .markdown a { color: var(--accent); border-bottom-color: var(--line); }
+html[data-theme] .markdown :is(th, td) { border-color: var(--line); color: var(--ink); }
+html[data-theme] .markdown th { background: var(--surface); }
+html[data-theme] .markdown tr:nth-child(even) { background: var(--surface); }
+html[data-theme] .markdown hr { background: var(--line); }
+html[data-theme] .markdown img { border: 1px solid var(--line); border-radius: 8px; box-shadow: none; }
+html[data-theme] .markdown .youtube-link-card { color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: none; }
+html[data-theme] .youtube-link-card :is(strong, .youtube-link-title) { color: var(--ink); }
+html[data-theme] .youtube-link-card :is(small, .youtube-link-meta, .youtube-link-description) { color: var(--muted); }
+html[data-theme] .youtube-link-card .youtube-link-icon { color: var(--accent); background: var(--accent-soft); }
+html[data-theme] :is(.note-row, .backlink) { background: transparent; color: var(--ink); border: 1px solid transparent; border-radius: 7px; box-shadow: none; }
+html[data-theme] :is(.note-row, .backlink):hover { background: var(--surface); border-color: var(--line); }
+html[data-theme] :is(.note-row, .backlink) span { color: var(--muted); }
+html[data-theme] .note-outline button { color: var(--ink); border: 0; background: transparent; font-size: 12px; }
+html[data-theme] .note-outline button:hover { background: var(--surface); }
+html[data-theme] .note-outline button span { color: var(--muted); }
+html[data-theme] .note-outline button b { font-weight: 500; }
+html[data-theme] .note-stats b, html[data-theme] .evidence-overview p b { color: var(--ink); }
+html[data-theme] .link-list button { color: var(--accent); background: var(--surface); border: 1px solid var(--line); font-size: 11px; }
+html[data-theme] .save-health.has-error { color: var(--warning); }
+.save-health-dot { background: var(--success); }
+html[data-theme] .sidebar :is(.file-row, .folder-row) { font-size: 12px; font-weight: 500; }
+html[data-theme] .sidebar h2, html[data-theme] .inspector h2 { font-size: 10px; text-transform: uppercase; letter-spacing: .12em; }
+html[data-theme] .toolbar-row button { font-weight: 500; }
+
+/* Settings, capture, templates, import, backups, and attachments. */
+html[data-theme] .settings-panel label { padding: 12px 0; border-bottom: 1px solid var(--line); }
+html[data-theme] :is(.capture-panel, .template-panel) > label { margin-top: 18px; gap: 10px; }
+html[data-theme] .capture-panel > textarea { min-height: 180px; padding: 16px; }
+html[data-theme] :is(.template-how, .template-empty, .template-token-help) { color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+html[data-theme] :is(.template-how, .template-empty) b { color: var(--ink); }
+html[data-theme] :is(.template-how, .template-empty) p { color: var(--muted); }
+html[data-theme] :is(.template-destination-hint, .clip-privacy-note, .clip-template-heading span) { color: var(--muted); font-size: 12px; line-height: 1.6; }
+html[data-theme] .clip-template-options label { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; }
+html[data-theme] .clip-template-options label:is(.selected, :hover) { background: var(--accent-soft); border-color: var(--accent); }
+html[data-theme] .clip-template-options label b { color: var(--ink); }
+html[data-theme] .clip-template-options label :is(span, small) { color: var(--muted); font-size: 12px; font-weight: 400; }
+html[data-theme] .web-clip-form textarea { font-family: var(--font-mono); }
+html[data-theme] .backup-list { border-color: var(--line); }
+html[data-theme] .backup-row { padding: 14px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--ink); }
+html[data-theme] .backup-row:is(.active, :hover) { background: var(--accent-soft); border-color: var(--accent); }
+html[data-theme] .backup-preview pre { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; font: 13px/1.7 var(--font-mono); }
+html[data-theme] .attachment-viewer { padding: 0; }
+html[data-theme] .attachment-toolbar { background: var(--paper); border-bottom: 1px solid var(--line); padding: 20px 24px; }
+html[data-theme] .attachment-title h2 { color: var(--ink); font: 24px/1.3 var(--font-display); text-transform: none; }
+html[data-theme] .attachment-title p { color: var(--muted); }
+html[data-theme] .attachment-frame { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; margin: 20px 24px; }
+html[data-theme] .attachment-frame.text-frame pre { color: var(--ink); background: transparent; font: 13px/1.7 var(--font-mono); }
+html[data-theme] .attachment-actions { padding: 0 24px 24px; }
+
+/* Evidence statuses use a single semantic palette in all three presentations. */
+html[data-theme] :is(.evidence-status, .evidence-badge, .receipt-state) {
+  display: inline-flex; align-items: center; width: fit-content; gap: 4px; padding: 3px 7px;
+  border: 1px solid var(--line); border-radius: 5px; background: var(--surface);
+  color: var(--muted); font: 600 10px/1.5 var(--font-ui); letter-spacing: .04em; text-transform: uppercase; box-shadow: none;
+}
+html[data-theme] :is(.evidence-status, .evidence-badge, .receipt-state).verified { background: var(--success-soft); color: var(--success); border-color: var(--success); }
+html[data-theme] :is(.evidence-status, .evidence-badge, .receipt-state):is(.stale, .expired) { background: var(--warning-soft); color: var(--warning); border-color: var(--warning); }
+html[data-theme] :is(.evidence-status, .evidence-badge, .receipt-state).conflicting { background: var(--danger-soft); color: var(--danger); border-color: var(--danger); }
+html[data-theme] :is(.evidence-status, .evidence-badge, .receipt-state).inferred { background: var(--info-soft); color: var(--info); border-color: var(--info); }
+html[data-theme] .safire-evidence-callout { color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; box-shadow: none; }
+html[data-theme] .safire-evidence-callout :is(p, small, code) { color: var(--muted); }
+html[data-theme] .safire-evidence-callout strong { color: var(--ink); }
+html[data-theme] .evidence-receipt-list label { color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+html[data-theme] .evidence-receipt-list label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+html[data-theme] .evidence-receipt-list small { color: var(--muted); }
+html[data-theme] .evidence-redactions { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; }
+html[data-theme] .evidence-redactions legend { padding-inline: 6px; color: var(--muted); font-size: 12px; }
+html[data-theme] .evidence-panel > .dialog-actions { background: var(--paper); margin: 24px 0 0; padding: 20px 0 0; bottom: 0; }
+html[data-theme] .evidence-details-toggle { color: var(--accent); background: transparent; border: 1px solid var(--line); }
+
+/* Projects, task lists, empty states, and the new research desk. */
+html[data-theme] :is(.tasks-view, .home-view) { background: var(--paper); color: var(--ink); }
+html[data-theme] .tasks-view { padding: 32px; }
+html[data-theme] :is(.tasks-header, .home-header) h2 { font: 30px/1.2 var(--font-display); color: var(--ink); text-transform: none; }
+html[data-theme] :is(.tasks-header, .home-header) p { color: var(--muted); font-size: 13px; }
+html[data-theme] .task-tabs { gap: 4px; padding: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+html[data-theme] .task-tabs button { background: transparent; border: 1px solid transparent; color: var(--muted); border-radius: 5px; }
+html[data-theme] .task-tabs button.on { background: var(--paper); border-color: var(--line); color: var(--accent); }
+html[data-theme] :is(.task-row, .home-task) { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; color: var(--ink); }
+html[data-theme] :is(.task-row, .home-task) > button { border: 0; background: transparent; color: var(--ink); box-shadow: none; }
+html[data-theme] :is(.task-row, .home-task) :is(span, small) { color: var(--muted); }
+html[data-theme] :is(.empty-vault, .empty-vault-view, .project-empty, .project-home-empty) { color: var(--muted); background: var(--surface); border: 1px solid var(--line); box-shadow: none; border-radius: 10px; }
+html[data-theme] :is(.empty-vault, .empty-vault-view, .project-empty, .project-home-empty) :is(h2, h3) { color: var(--ink); font-family: var(--font-display); }
+html[data-theme] .project-detail-header { padding: 24px; }
+html[data-theme] .project-detail-heading > span, html[data-theme] .project-card-kind { color: var(--muted); }
+html[data-theme] .project-detail-header h2 { font: 30px/1.2 var(--font-display); color: var(--ink); }
+html[data-theme] .project-detail-header p { color: var(--muted); }
+html[data-theme] .project-back { color: var(--accent); background: transparent; border-color: var(--line); }
+html[data-theme] .project-view-switch { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 4px; }
+html[data-theme] .project-view-switch button { border: 1px solid transparent; color: var(--muted); background: transparent; border-radius: 5px; }
+html[data-theme] .project-view-switch button:is(.on, [aria-pressed='true']) { background: var(--paper); color: var(--accent); border-color: var(--line); }
+html[data-theme] .project-entry-row { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 12px 0; }
+html[data-theme] .project-entry-open { color: var(--ink); background: transparent; border: 0; box-shadow: none; }
+html[data-theme] .project-entry-open:hover { background: var(--surface); }
+html[data-theme] .project-entry-open :is(span, small) { color: var(--muted); }
+html[data-theme] :is(.project-index-warning, .project-graph-error, .project-graph-prompt, .library-notice) { color: var(--warning); background: var(--warning-soft); border: 1px solid var(--line); border-radius: 7px; padding: 12px 14px; font-size: 12px; }
+html[data-theme] .project-card { transition: background .15s, border-color .15s; }
+html[data-theme] .project-card:focus-visible { outline-color: var(--accent); }
+html[data-theme] :is(.desk-actions, .research-toolbar, .conflict-panel) button { font-size: 13px; min-height: 36px; }
+html[data-theme] .research-toolbar button[aria-pressed='true'] { background: var(--accent-soft); }
+html[data-theme] .evidence-note-title { min-height: 0; }
+html[data-theme] .evidence-card footer button { background: transparent; color: var(--accent); border: 0; box-shadow: none; }
+html[data-theme] .resume-note { font-weight: 400; }
+html[data-theme] .section-label button { min-height: 32px; color: var(--muted); background: transparent; border: 0; box-shadow: none; font-size: 11px; }
+html[data-theme] .section-label button:hover { color: var(--accent); background: var(--surface); }
+
+/* Help shares the same surfaces instead of keeping its former blue theme. */
+html[data-theme] .help-panel { overflow: hidden; }
+html[data-theme] :is(.help-sidebar, .help-card-grid section, .help-recipe-list > section, .help-steps li, .help-details, .help-troubleshooting details, .help-prompt-list > section, .license-summary, .license-details) {
+  color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: none;
+}
+html[data-theme] .help-content { color: var(--ink); font-size: 14px; line-height: 1.7; }
+html[data-theme] .help-topic-header h2 { font: 32px/1.2 var(--font-display); color: var(--ink); text-transform: none; }
+html[data-theme] .help-content h3 { color: var(--ink); font: 21px/1.4 var(--font-display); }
+html[data-theme] :is(.help-topic-header > span, .help-recipe-list > section > span) { color: var(--accent); }
+html[data-theme] :is(.help-topic-header p, .help-card-grid p, .help-recipe-list p, .help-steps p, .help-callout span, .help-details > p, .help-troubleshooting details > p, .help-version, .help-nav button span, .help-identity p, .help-identity h3 span) { color: var(--muted); }
+html[data-theme] .help-nav button { color: var(--ink); background: transparent; border: 1px solid transparent; box-shadow: none; border-radius: 7px; }
+html[data-theme] .help-nav button:hover { background: var(--paper); border-color: var(--line); }
+html[data-theme] .help-nav button.active { background: var(--accent-soft); border-color: var(--accent); }
+html[data-theme] .help-callout { color: var(--ink); background: var(--accent-soft); border: 0; border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; }
+html[data-theme] .help-callout.warning { background: var(--warning-soft); border-left-color: var(--warning); }
+html[data-theme] .help-steps li > span { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--line); }
+html[data-theme] .help-content :is(code, kbd) { color: var(--accent); background: var(--surface); border-color: var(--line); }
+html[data-theme] .help-content a { color: var(--accent); }
+html[data-theme] .help-copy-block { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; }
+html[data-theme] .help-copy-head { background: var(--surface); border-bottom: 1px solid var(--line); color: var(--muted); }
+html[data-theme] :is(.help-copy-block pre, .license-details pre) { background: var(--paper); color: var(--ink); font: 12px/1.7 var(--font-mono); }
+html[data-theme] :is(.help-details, .help-troubleshooting details, .license-details) summary { color: var(--ink); }
+html[data-theme] .license-summary-head span { color: var(--accent); background: var(--accent-soft); }
+html[data-theme] :is(.help-table th, .help-table td) { color: var(--ink); border-color: var(--line); }
+html[data-theme] .help-table th { color: var(--muted); background: var(--surface); }
+
+/* Graphs keep meaningful group colors but share the workspace chrome and type. */
+html[data-theme] .graph-relationship-workspace {
+  --graph-canvas: var(--paper); --graph-canvas-deep: var(--paper);
+  --graph-surface: var(--surface); --graph-surface-strong: var(--paper);
+  --graph-control: var(--surface); --graph-control-hover: var(--accent-soft);
+  --graph-text: var(--ink); --graph-muted: var(--muted); --graph-border: var(--line);
+  --graph-border-strong: var(--accent); --graph-focus: var(--accent);
+  --graph-primary: var(--accent); --graph-primary-soft: var(--accent-soft);
+  --graph-link: var(--muted); --graph-link-active: var(--accent); --graph-active-note: var(--accent);
+  --graph-unresolved: var(--warning); --graph-missing: var(--warning);
+  --graph-group-color-0: var(--group-0); --graph-group-color-1: var(--group-1);
+  --graph-group-color-2: var(--group-2); --graph-group-color-3: var(--group-3);
+  --graph-group-color-4: var(--group-4); --graph-group-color-5: var(--group-5);
+  color: var(--ink); background: var(--paper); border: 0; border-radius: 0; box-shadow: none; padding: 16px; gap: 12px;
+}
+html[data-theme] .graph-relationship-workspace > .graph-relationship-head { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: none; padding: 20px; }
+html[data-theme] .graph-relationship-head h2 { color: var(--ink); font: 27px/1.2 var(--font-display); letter-spacing: -.5px; text-transform: none; }
+html[data-theme] .graph-relationship-head p { color: var(--muted); font-size: 12px; }
+html[data-theme] .graph-eyebrow { color: var(--muted); font-size: 10px; letter-spacing: .12em; }
+html[data-theme] .graph-relationship-workspace .graph-stats span { color: var(--muted); background: var(--paper); border: 1px solid var(--line); border-radius: 7px; }
+html[data-theme] .graph-relationship-workspace .graph-stats b { color: var(--ink); }
+html[data-theme] .graph-relationship-workspace button { min-height: 34px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: var(--surface); font-size: 12px; box-shadow: none; }
+html[data-theme] .graph-relationship-workspace button:hover { border-color: var(--accent); color: var(--ink); background: var(--accent-soft); }
+html[data-theme] .graph-relationship-workspace :is(.graph-layout-control, .graph-scope-control) { background: var(--surface); border: 1px solid var(--line); border-radius: 7px; padding: 3px; }
+html[data-theme] .graph-relationship-workspace :is(.graph-layout-control, .graph-scope-control) button { background: transparent; color: var(--muted); border-color: transparent; }
+html[data-theme] .graph-relationship-workspace button:is(.on, [aria-pressed='true']) { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+html[data-theme] .graph-relationship-workspace :is(input, select) { color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 7px; font-size: 12px; }
+html[data-theme] .graph-relationship-workspace .graph-2d-stage { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; box-shadow: none; }
+html[data-theme] .graph-relationship-workspace:is(:fullscreen, .graph-fullscreen-fallback) { background: var(--paper); }
+html[data-theme] .graph-map-summary { background: var(--surface); color: var(--muted); border: 1px solid var(--line); border-radius: 7px; }
+html[data-theme] .graph-cluster-surface { fill: color-mix(in srgb, var(--graph-node-color) 6%, var(--paper)); stroke: color-mix(in srgb, var(--graph-node-color) 30%, var(--line)); }
+html[data-theme] .graph-cluster-toggle .graph-cluster-toggle-surface { fill: var(--surface); stroke: var(--line); }
+html[data-theme] .graph-cluster-toggle:is(:hover, :focus-visible) .graph-cluster-toggle-surface { fill: var(--accent-soft); stroke: var(--accent); }
+html[data-theme] .graph-node-core { filter: none; }
+html[data-theme] .graph-node.home .graph-node-core { fill: var(--accent-soft); }
+html[data-theme] .graph-node-label { fill: var(--ink); stroke: var(--paper); font-family: var(--font-ui); }
+html[data-theme] :is(.graph-node-menu, .graph-settings-panel, .graph-node-navigator, .graph-selection-card, .graph-empty-state) { color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-popover); }
+html[data-theme] .graph-relationship-workspace .graph-selection-card { color: var(--ink); background: var(--paper); border: 1px solid var(--line); }
+html[data-theme] :is(.graph-settings-panel, .graph-node-navigator) :is(header, details, summary) { color: var(--ink); background: var(--surface); border-color: var(--line); }
+html[data-theme] .graph-settings-panel :is(p, small), html[data-theme] .graph-node-navigator p { color: var(--muted); }
+html[data-theme] .graph-node-navigator > div > button { background: transparent; color: var(--ink); border: 0; border-radius: 0; }
+html[data-theme] .graph-node-navigator > div > button:is(:hover, .selected) { background: var(--accent-soft); }
+html[data-theme] .graph-3d-axis { color: var(--muted); background: var(--surface); border-color: var(--line); box-shadow: none; }
+html[data-theme] .graph-canvas-help { color: var(--muted); text-shadow: none; }
+html[data-theme] .graph-limit-notice { color: var(--warning); background: var(--warning-soft); border: 1px solid var(--line); }
+
+@media (max-width: 850px) {
+  html[data-theme] .modal-backdrop { padding: 16px; }
+  html[data-theme] :is(.panel-modal, .safire-dialog, .palette) { max-height: calc(100dvh - 32px); padding: 20px; }
+  html[data-theme] .help-panel { padding: 16px; }
+  html[data-theme] .settings-panel label { grid-template-columns: minmax(130px, 1fr) minmax(120px, 1fr); }
+  html[data-theme] .backup-layout { grid-template-columns: minmax(0, 1fr); }
+  html[data-theme] .backup-list { max-height: 180px; border-right: 0; border-bottom: 1px solid var(--line); padding-bottom: 16px; }
+  html[data-theme] .graph-relationship-head { flex-wrap: wrap; }
+}
+
+/* Controls may grow when labels wrap; fixed icon buttons opt into their own size. */
+button, .secondary-action { height: auto; }
+html[data-theme] .help-nav { grid-auto-rows: max-content; }
+html[data-theme] .help-nav button { min-height: 58px; height: auto; padding: 10px 12px; }
+html[data-theme] .clip-template-options label { padding: 16px 16px 16px 44px; }
+html[data-theme] .clip-template-options input { top: 19px; left: 16px; }
+html[data-theme] .graph-3d-axis i { border-color: var(--accent); box-shadow: none; }
+html[data-theme] .graph-3d-axis i::after { background: var(--accent); box-shadow: none; }
+html[data-theme] .project-detail-view { display: flex; flex-direction: column; min-height: 100%; }
+html[data-theme] .project-detail-header { padding: 0 0 20px; background: transparent; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; }
+html[data-theme] .project-graph-panel { flex: 1; display: flex; min-height: 420px; margin-top: 16px; }
+html[data-theme] .project-graph-content > .graph-relationship-workspace { flex: 1; height: auto; min-height: 420px; padding: 0; }
+html[data-theme] .graph-relationship-workspace > .graph-relationship-head { padding: 12px 16px; }
+html[data-theme] .graph-relationship-workspace .graph-2d-stage { min-height: 240px; }
+@media (max-width: 850px) {
+  html[data-theme] .app-shell > .ribbon { display: flex; padding: 16px 4px; }
+  html[data-theme] .app-shell > .workspace { grid-column: 2; min-width: 0; }
+  html[data-theme] .ribbon > button, html[data-theme] .ribbon .overflow-trigger { width: 38px; padding: 0; }
+  html[data-theme] .app-shell.focus-writing { grid-template-columns: 48px minmax(0, 1fr); }
+}
+
+.settings-note { color: var(--ink-muted); font-size: 12px; line-height: 1.6; }
+
+html[data-theme] .project-graph-content { display: flex; flex: 1; min-width: 0; width: 100%; }

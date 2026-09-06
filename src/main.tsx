@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { marked, Renderer, type Tokens } from 'marked';
 import DOMPurify from 'dompurify';
 import pkg from '../package.json';
+import { useDialogAccessibility } from './useDialogAccessibility';
 import { HelpPanel } from './HelpPanel';
 import { OverflowMenu } from './OverflowMenu';
 import { ProjectHome } from './ProjectHome';
@@ -10,12 +11,14 @@ import { filterMarkdownClassName, getYouTubeVideoId, renderYouTubeLinkCard } fro
 import { selectAvailableNotePath } from './noteSelection';
 import { portableEntryNameError, projectForNotePath, projectNameError, projectSummaries } from './projectModel';
 import './styles.css';
+import './theme.css';
 import { useNoteWorkspace } from './useNoteWorkspace';
 import { libraryTree } from './libraryModel';
 import { WorkspaceDesk } from './WorkspaceDesk';
 import { ResearchDesk } from './ResearchDesk';
 import { RecoveryPanel } from './RecoveryPanel';
 import './workspace.css';
+import './surfaces.css';
 
 const APP_VERSION = pkg.version;
 
@@ -300,6 +303,7 @@ function App() {
   const [quickCaptureOpen, setQuickCaptureOpen] = React.useState(false);
   const [templatePickerOpen, setTemplatePickerOpen] = React.useState(false);
   const [webClipperOpen, setWebClipperOpen] = React.useState(false);
+  const [webClipWarning, setWebClipWarning] = React.useState('');
   const [webClipTemplates, setWebClipTemplates] = React.useState<WebClipTemplate[]>([]);
   const [attachmentViewer, setAttachmentViewer] = React.useState<AttachmentViewerState | null>(null);
   const [imageResizeMenu, setImageResizeMenu] = React.useState<ImageResizeMenuState | null>(null);
@@ -471,8 +475,9 @@ function App() {
   }, [loadTemplates]);
 
   const loadWebClipTemplates = React.useCallback(async () => {
-    const data = await api<{ templates: WebClipTemplate[] }>('/api/web-clip/templates');
+    const data = await api<{ templates: WebClipTemplate[]; warning?: string }>('/api/web-clip/templates');
     setWebClipTemplates(data.templates);
+    setWebClipWarning(data.warning || '');
     return data.templates;
   }, []);
 
@@ -1027,7 +1032,7 @@ function App() {
     { name: 'New folder', hint: 'Create a vault folder', run: createFolder },
     { name: 'Open daily note', hint: 'Create/open today in Daily Notes', run: openDaily },
     { name: autosave ? 'Turn autosave off' : 'Turn autosave on', hint: 'Toggle autosave', run: () => setAutosave(v => !v) },
-    { name: 'Settings', hint: 'Autosave, startup note, backup retention', run: () => setSettingsOpen(true) },
+    { name: 'Settings', hint: 'Autosave, startup note, appearance', run: () => setSettingsOpen(true) },
     { name: 'Safire Help', hint: 'Full guide, examples, AI connections, and licensing', run: openHelp },
     ...(activePath ? [
       { name: 'Insert evidence receipt', hint: 'Ctrl/Cmd+Shift+E · portable local Markdown', run: () => setEvidenceComposerOpen(true) },
@@ -1153,7 +1158,7 @@ function App() {
     {backupsOpen && <BackupsPanel activePath={activePath} backups={backups} preview={backupPreview} close={() => setBackupsOpen(false)} refresh={() => loadBackups(activePath)} show={previewBackup} restore={restoreBackup} />}
     {quickCaptureOpen && <QuickCapturePanel close={() => setQuickCaptureOpen(false)} capture={capture} />}
     {templatePickerOpen && <TemplatePicker templates={templates} close={() => setTemplatePickerOpen(false)} create={instantiateTemplate} />}
-    {webClipperOpen && <WebClipperPanel templates={webClipTemplates} close={() => setWebClipperOpen(false)} clip={clipWebPage} saveTemplate={saveWebClipTemplate} />}
+    {webClipperOpen && <WebClipperPanel warning={webClipWarning} templates={webClipTemplates} close={() => setWebClipperOpen(false)} clip={clipWebPage} saveTemplate={saveWebClipTemplate} />}
 
     {evidenceComposerOpen && <EvidenceComposer close={() => setEvidenceComposerOpen(false)} insert={insertEvidenceReceipt} />}
     {evidencePanelOpen && <EvidencePanel receipts={evidenceReceipts} close={() => setEvidencePanelOpen(false)} add={() => { setEvidencePanelOpen(false); setEvidenceComposerOpen(true); }} />}
@@ -1172,17 +1177,19 @@ function TasksView({ tasks, state, setState, openNote, toggleTask }: { tasks: Va
 }
 
 function QuickCapturePanel({ close, capture }: { close: () => void; capture: (text: string, tag: string) => Promise<void> }) {
+  const panelRef = useDialogAccessibility<HTMLFormElement>(true, close);
   const [text, setText] = React.useState(''); const [tag, setTag] = React.useState(''); const [error, setError] = React.useState('');
-  return <div className="modal-backdrop" onMouseDown={close}><form className="panel-modal capture-panel" onMouseDown={e => e.stopPropagation()} onSubmit={async e => { e.preventDefault(); try { await capture(text, tag); } catch (err) { setError(err instanceof Error ? err.message : 'Capture failed'); } }}><div className="panel-head"><div><h2>Quick capture</h2><p>Save a thought as portable Markdown in Inbox.</p></div><button type="button" onClick={close}>×</button></div><textarea autoFocus value={text} onChange={e => setText(e.target.value)} placeholder="What do you want to remember?" /><label><span>Optional tag</span><input value={tag} onChange={e => setTag(e.target.value)} placeholder="projects" /></label>{error && <p className="form-error">{error}</p>}<div className="dialog-actions"><button type="button" onClick={close}>Cancel</button><button className="primary-action" type="submit">Capture to Inbox</button></div></form></div>;
+  return <div className="modal-backdrop" onMouseDown={close}><form ref={panelRef} className="panel-modal capture-panel" role="dialog" aria-modal="true" aria-label="Quick capture" onMouseDown={e => e.stopPropagation()} onSubmit={async e => { e.preventDefault(); try { await capture(text, tag); } catch (err) { setError(err instanceof Error ? err.message : 'Capture failed'); } }}><div className="panel-head"><div><h2>Quick capture</h2><p>Save a thought as portable Markdown in Inbox.</p></div><button type="button" aria-label="Close dialog" onClick={close}>×</button></div><textarea autoFocus value={text} onChange={e => setText(e.target.value)} placeholder="What do you want to remember?" /><label><span>Optional tag</span><input value={tag} onChange={e => setTag(e.target.value)} placeholder="projects" /></label>{error && <p className="form-error">{error}</p>}<div className="dialog-actions"><button type="button" onClick={close}>Cancel</button><button className="primary-action" type="submit">Capture to Inbox</button></div></form></div>;
 }
 
 function TemplatePicker({ templates, close, create }: { templates: TemplateItem[]; close: () => void; create: (templatePath: string, destination: string, title: string) => Promise<void> }) {
+  const panelRef = useDialogAccessibility<HTMLFormElement>(true, close);
   const [selected, setSelected] = React.useState(templates[0]?.path || '');
   const [destination, setDestination] = React.useState('');
   const [title, setTitle] = React.useState('');
   const [error, setError] = React.useState('');
   return <div className="modal-backdrop" onMouseDown={close}>
-    <form className="panel-modal template-panel" role="dialog" aria-modal="true" aria-labelledby="template-picker-title" onMouseDown={e => e.stopPropagation()} onSubmit={async e => { e.preventDefault(); try { await create(selected, destination, title); } catch (err) { setError(err instanceof Error ? err.message : 'Could not create note'); } }}>
+    <form ref={panelRef} className="panel-modal template-panel" role="dialog" aria-modal="true" aria-labelledby="template-picker-title" onMouseDown={e => e.stopPropagation()} onSubmit={async e => { e.preventDefault(); try { await create(selected, destination, title); } catch (err) { setError(err instanceof Error ? err.message : 'Could not create note'); } }}>
       <div className="panel-head"><div><h2 id="template-picker-title">New from template</h2><p>Copy reusable Markdown into a new note.</p></div><button type="button" aria-label="Close template picker" onClick={close}>×</button></div>
       <div className="template-how"><b>How it works</b><p>Put a <code>.md</code> file under <code>Templates/</code>. Safire copies it, then replaces <code>{'{{title}}'}</code>, <code>{'{{date}}'}</code>, and <code>{'{{time}}'}</code>. The original template stays unchanged.</p></div>
       {templates.length ? <>
@@ -1200,7 +1207,8 @@ function TemplatePicker({ templates, close, create }: { templates: TemplateItem[
   </div>;
 }
 
-function WebClipperPanel({ templates, close, clip, saveTemplate }: { templates: WebClipTemplate[]; close: () => void; clip: (url: string, templateId: string, title: string) => Promise<void>; saveTemplate: (template: Omit<WebClipTemplate, 'body'> & { body: string }) => Promise<void> }) {
+function WebClipperPanel({ warning, templates, close, clip, saveTemplate }: { warning: string; templates: WebClipTemplate[]; close: () => void; clip: (url: string, templateId: string, title: string) => Promise<void>; saveTemplate: (template: Omit<WebClipTemplate, 'body'> & { body: string }) => Promise<void> }) {
+  const panelRef = useDialogAccessibility<HTMLDivElement>(true, close);
   const [url, setUrl] = React.useState('');
   const [title, setTitle] = React.useState('');
   const [templateId, setTemplateId] = React.useState('article');
@@ -1223,8 +1231,9 @@ function WebClipperPanel({ templates, close, clip, saveTemplate }: { templates: 
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not save template'); }
   };
   return <div className="modal-backdrop" onMouseDown={close}>
-    <div className="panel-modal web-clipper-panel" role="dialog" aria-modal="true" aria-label="Web clipper" onMouseDown={event => event.stopPropagation()}>
-      <div className="panel-head"><div><h2>{editingTemplate ? 'Create web clip template' : 'Web clipper'}</h2><p>{editingTemplate ? 'Use portable Markdown tokens to adapt Safire to a favorite site.' : 'Capture a public page into durable, offline-readable Markdown.'}</p></div><button type="button" onClick={close}>×</button></div>
+    <div ref={panelRef} className="panel-modal web-clipper-panel" role="dialog" aria-modal="true" aria-label="Web clipper" onMouseDown={event => event.stopPropagation()}>
+      <div className="panel-head"><div><h2>{editingTemplate ? 'Create web clip template' : 'Web clipper'}</h2><p>{editingTemplate ? 'Use portable Markdown tokens to adapt Safire to a favorite site.' : 'Capture a public page into durable, offline-readable Markdown.'}</p></div><button type="button" aria-label="Close dialog" onClick={close}>×</button></div>
+      {warning && <p className="form-error" role="status">{warning}</p>}
       {editingTemplate ? <form onSubmit={submitTemplate} className="web-clip-form">
         <div className="web-clip-grid"><label><span>Template name</span><input autoFocus value={draft.name} onChange={event => updateDraft('name', event.target.value)} placeholder="My site article" required /></label><label><span>Template id</span><input value={draft.id} onChange={event => updateDraft('id', event.target.value)} placeholder="my-site-article" required /></label></div>
         <label><span>Destination folder</span><input value={draft.folder} onChange={event => updateDraft('folder', event.target.value)} placeholder="Web Research" required /></label>
@@ -1251,6 +1260,7 @@ function withAttachmentParam(url: string, key: 'raw' | 'download') {
 }
 
 function AttachmentViewer({ viewer, close }: { viewer: AttachmentViewerState; close: () => void }) {
+  const panelRef = useDialogAccessibility<HTMLDivElement>(true, close);
   const [text, setText] = React.useState<string>('');
   const [error, setError] = React.useState<string>('');
   const rawUrl = React.useMemo(() => withAttachmentParam(viewer.url, 'raw'), [viewer.url]);
@@ -1272,7 +1282,7 @@ function AttachmentViewer({ viewer, close }: { viewer: AttachmentViewerState; cl
   }, [rawUrl, viewer.kind]);
 
   return <div className="modal-backdrop attachment-backdrop" onMouseDown={close}>
-    <div className="panel-modal attachment-viewer" role="dialog" aria-modal="true" aria-label={`Attachment preview: ${viewer.name}`} onMouseDown={e => e.stopPropagation()}>
+    <div ref={panelRef} className="panel-modal attachment-viewer" role="dialog" aria-modal="true" aria-label={`Attachment preview: ${viewer.name}`} onMouseDown={e => e.stopPropagation()}>
       <div className="attachment-toolbar">
         <button type="button" className="primary-action back-to-note" onClick={close}>← Back to note</button>
         <div className="attachment-title"><h2>{viewer.name}</h2><p>Attachment preview. Use Back to note, Esc, or × to return.</p></div>
@@ -1301,11 +1311,12 @@ function ImageResizeMenu({ menu, apply, close }: { menu: ImageResizeMenuState; a
 }
 
 function EvidenceComposer({ close, insert }: { close: () => void; insert: (draft: EvidenceDraft) => void }) {
+  const panelRef = useDialogAccessibility<HTMLFormElement>(true, close);
   const [draft, setDraft] = React.useState<EvidenceDraft>(defaultEvidenceDraft);
   const [details, setDetails] = React.useState(false);
   const update = <K extends keyof EvidenceDraft>(key: K, value: EvidenceDraft[K]) => setDraft(current => ({ ...current, [key]: value }));
-  return <div className="modal-backdrop" onMouseDown={close}><form className="panel-modal evidence-composer" onMouseDown={event => event.stopPropagation()} onSubmit={event => { event.preventDefault(); insert(draft); }}>
-    <div className="panel-head"><div><h2>Evidence receipt</h2><p>Private by default: this inserts portable local Markdown only. Nothing is shared or synced.</p></div><button type="button" onClick={close}>×</button></div>
+  return <div className="modal-backdrop" onMouseDown={close}><form ref={panelRef} className="panel-modal evidence-composer" role="dialog" aria-modal="true" aria-label="Evidence receipt" onMouseDown={event => event.stopPropagation()} onSubmit={event => { event.preventDefault(); insert(draft); }}>
+    <div className="panel-head"><div><h2>Evidence receipt</h2><p>Private by default: this inserts portable local Markdown only. Nothing is shared or synced.</p></div><button type="button" aria-label="Close dialog" onClick={close}>×</button></div>
     <div className="evidence-form-grid"><label className="wide"><span>Claim or label</span><input autoFocus value={draft.claim} onChange={event => update('claim', event.target.value)} placeholder="What important claim are you recording?" required /></label><label><span>Source type</span><select value={draft.sourceType} onChange={event => update('sourceType', event.target.value as EvidenceSourceType)}>{EVIDENCE_SOURCES.map(source => <option key={source.value} value={source.value}>{source.label}</option>)}</select></label><label><span>Result status</span><select value={draft.status} onChange={event => update('status', event.target.value as EvidenceStatus)}>{EVIDENCE_STATUSES.map(status => <option key={status} value={status}>{status}</option>)}</select></label><label className="wide"><span>Source URL or local path</span><input value={draft.source} onChange={event => update('source', event.target.value)} placeholder="https://… or C:\\…" /></label><label><span>Observed at</span><input type="datetime-local" value={draft.observedAt.slice(0, 16)} onChange={event => update('observedAt', event.target.value ? new Date(event.target.value).toISOString() : '')} /></label><label><span>Freshness / expiry</span><input type="datetime-local" value={draft.freshness.slice(0, 16)} onChange={event => update('freshness', event.target.value ? new Date(event.target.value).toISOString() : '')} /></label></div>
     <button type="button" className="evidence-details-toggle" onClick={() => setDetails(value => !value)}>{details ? 'Hide detailed evidence' : 'Add action, verification, excerpt, hash, and private notes'}</button>
     {details && <div className="evidence-form-grid evidence-details"><label className="wide"><span>Action performed</span><input value={draft.action} onChange={event => update('action', event.target.value)} placeholder="What was done?" /></label><label className="wide"><span>Verification predicate / test</span><input value={draft.verification} onChange={event => update('verification', event.target.value)} placeholder="What condition proves or challenges the claim?" /></label><label className="wide"><span>Evidence excerpt</span><textarea value={draft.excerpt} onChange={event => update('excerpt', event.target.value)} /></label><label><span>SHA-256 / hash</span><input value={draft.hash} onChange={event => update('hash', event.target.value)} /></label><label><span>Private notes</span><input value={draft.privateNotes} onChange={event => update('privateNotes', event.target.value)} /></label></div>}
@@ -1314,6 +1325,7 @@ function EvidenceComposer({ close, insert }: { close: () => void; insert: (draft
 }
 
 function EvidencePanel({ receipts, close, add }: { receipts: EvidenceReceipt[]; close: () => void; add: () => void }) {
+  const panelRef = useDialogAccessibility<HTMLElement>(true, close);
   const [selected, setSelected] = React.useState<string[]>(() => receipts.map(receipt => receipt.id));
   const [redactions, setRedactions] = React.useState<Set<keyof EvidenceDraft>>(() => new Set(['privateNotes']));
   const selectedReceipts = receipts.filter(receipt => selected.includes(receipt.id));
@@ -1327,7 +1339,7 @@ function EvidencePanel({ receipts, close, add }: { receipts: EvidenceReceipt[]; 
   const exportJson = () => { const blob = new Blob([JSON.stringify(selectedReceipts.map(clean), null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'safire-evidence-receipts.json'; anchor.click(); URL.revokeObjectURL(url); };
   const toggleReceipt = (id: string) => setSelected(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
   const toggleRedaction = (field: keyof EvidenceDraft) => setRedactions(current => { const next = new Set(current); next.has(field) ? next.delete(field) : next.add(field); return next; });
-  return <div className="modal-backdrop" onMouseDown={close}><section className="panel-modal evidence-panel" onMouseDown={event => event.stopPropagation()}><div className="panel-head"><div><h2>Evidence for this note</h2><p>Select receipt(s), redact fields, then copy portable Markdown or export local JSON.</p></div><button onClick={close}>×</button></div>{receipts.length ? <><div className="evidence-export-actions"><button onClick={() => setSelected(receipts.map(receipt => receipt.id))}>Select all</button><button onClick={() => setSelected([])}>Clear</button><button className="primary-action" disabled={!selectedReceipts.length} onClick={() => void copyMarkdown()}>Copy Markdown</button><button disabled={!selectedReceipts.length} onClick={exportJson}>Export JSON</button></div><div className="evidence-receipt-list">{receipts.map(receipt => <label key={receipt.id}><input type="checkbox" checked={selected.includes(receipt.id)} onChange={() => toggleReceipt(receipt.id)} /><span className={`evidence-status ${receipt.status}`}>{receipt.status}</span><b>{receipt.claim || 'Untitled receipt'}</b><small>{EVIDENCE_SOURCES.find(source => source.value === receipt.sourceType)?.label} · {receipt.observedAt ? new Date(receipt.observedAt).toLocaleString() : 'No timestamp'}{receipt.expired ? ' · expired' : ''}</small></label>)}</div><fieldset className="evidence-redactions"><legend>Redact before copy/export</legend>{EVIDENCE_FIELDS.map(field => <label key={field.key}><input type="checkbox" checked={redactions.has(field.key)} onChange={() => toggleRedaction(field.key)} /> {field.label}</label>)}</fieldset></> : <p className="empty-home">No receipts in this note yet.</p>}<div className="dialog-actions"><button onClick={close}>Close</button><button onClick={add}>Add receipt</button></div></section></div>;
+  return <div className="modal-backdrop" onMouseDown={close}><section ref={panelRef} className="panel-modal evidence-panel" role="dialog" aria-modal="true" aria-label="Evidence for this note" onMouseDown={event => event.stopPropagation()}><div className="panel-head"><div><h2>Evidence for this note</h2><p>Select receipt(s), redact fields, then copy portable Markdown or export local JSON.</p></div><button type="button" aria-label="Close dialog" onClick={close}>×</button></div>{receipts.length ? <><div className="evidence-export-actions"><button onClick={() => setSelected(receipts.map(receipt => receipt.id))}>Select all</button><button onClick={() => setSelected([])}>Clear</button><button className="primary-action" disabled={!selectedReceipts.length} onClick={() => void copyMarkdown()}>Copy Markdown</button><button disabled={!selectedReceipts.length} onClick={exportJson}>Export JSON</button></div><div className="evidence-receipt-list">{receipts.map(receipt => <label key={receipt.id}><input type="checkbox" checked={selected.includes(receipt.id)} onChange={() => toggleReceipt(receipt.id)} /><span className={`evidence-status ${receipt.status}`}>{receipt.status}</span><b>{receipt.claim || 'Untitled receipt'}</b><small>{EVIDENCE_SOURCES.find(source => source.value === receipt.sourceType)?.label} · {receipt.observedAt ? new Date(receipt.observedAt).toLocaleString() : 'No timestamp'}{receipt.expired ? ' · expired' : ''}</small></label>)}</div><fieldset className="evidence-redactions"><legend>Redact before copy/export</legend>{EVIDENCE_FIELDS.map(field => <label key={field.key}><input type="checkbox" checked={redactions.has(field.key)} onChange={() => toggleRedaction(field.key)} /> {field.label}</label>)}</fieldset></> : <p className="empty-home">No receipts in this note yet.</p>}<div className="dialog-actions"><button onClick={close}>Close</button><button onClick={add}>Add receipt</button></div></section></div>;
 }
 
 function MarkdownToolbar({ insert, attach, evidence }: { insert: (before: string, after?: string, placeholder?: string) => void; attach: () => void; evidence: () => void }) {
@@ -1354,29 +1366,33 @@ function MarkdownToolbar({ insert, attach, evidence }: { insert: (before: string
 }
 
 function SettingsPanel({ settings, close, save }: { settings: SafireSettings; close: () => void; save: (settings: SafireSettings) => Promise<void> }) {
+  const panelRef = useDialogAccessibility<HTMLFormElement>(true, close);
   const [draft, setDraft] = React.useState(settings);
+  const [error, setError] = React.useState('');
   const update = <K extends keyof SafireSettings>(key: K, value: SafireSettings[K]) => setDraft(prev => ({ ...prev, [key]: value }));
   return <div className="modal-backdrop" onMouseDown={close}>
-    <form className="panel-modal settings-panel" onMouseDown={e => e.stopPropagation()} onSubmit={async e => { e.preventDefault(); await save(draft); close(); }}>
-      <div className="panel-head"><div><h2>Safire Settings</h2><p>Vault-backed application preferences.</p></div><button type="button" onClick={close}>×</button></div>
+    <form ref={panelRef} className="panel-modal settings-panel" role="dialog" aria-modal="true" aria-label="Safire settings" onMouseDown={e => e.stopPropagation()} onSubmit={async e => { e.preventDefault(); try { await save(draft); close(); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not save settings'); } }}>
+      <div className="panel-head"><div><h2>Safire Settings</h2><p>Vault-backed application preferences.</p></div><button type="button" aria-label="Close dialog" onClick={close}>×</button></div>
       <label><span>Autosave</span><input type="checkbox" checked={draft.autosave} onChange={e => update('autosave', e.target.checked)} /></label>
       <label><span>Autosave delay, ms</span><input type="number" min={250} max={10000} step={50} value={draft.autosaveDelay} onChange={e => update('autosaveDelay', Number(e.target.value))} /></label>
       <label><span>Startup note</span><input value={draft.startupNote} onChange={e => update('startupNote', e.target.value)} /></label>
       <label><span>Default note view</span><select value={draft.defaultMode} onChange={e => update('defaultMode', e.target.value as NoteMode)}><option value="split">Split</option><option value="edit">Edit</option><option value="preview">Preview</option></select></label>
       <label><span>Daily notes folder</span><input value={draft.dailyNotesFolder} onChange={e => update('dailyNotesFolder', e.target.value)} /></label>
-      <label><span>Backup retention days</span><input type="number" min={1} max={365} value={draft.backupRetentionDays} onChange={e => update('backupRetentionDays', Number(e.target.value))} /></label>
+      <p className="settings-note">Backups stay in your vault until you remove them. Safire does not automatically expire them.</p>
       <label><span>Confirm deletes</span><input type="checkbox" checked={draft.confirmDeletes} onChange={e => update('confirmDeletes', e.target.checked)} /></label>
       <label><span>Fit images to page</span><input type="checkbox" checked={draft.fitImagesToPage !== false} onChange={e => update('fitImagesToPage', e.target.checked)} /></label>
       <label><span>Theme</span><select value={draft.theme} onChange={e => update('theme', e.target.value as ThemeMode)}><option value="dark">Dark</option><option value="light">Light</option></select></label>
+      {error && <p className="form-error" role="alert">{error}</p>}
       <div className="dialog-actions"><button type="button" onClick={close}>Cancel</button><button type="submit" className="primary-action">Save settings</button></div>
     </form>
   </div>;
 }
 
 function BackupsPanel({ activePath, backups, preview, close, refresh, show, restore }: { activePath: string; backups: BackupItem[]; preview: { item: BackupItem; content: string } | null; close: () => void; refresh: () => Promise<BackupItem[]>; show: (item: BackupItem) => Promise<void>; restore: (item: BackupItem) => Promise<void> }) {
+  const panelRef = useDialogAccessibility<HTMLDivElement>(true, close);
   return <div className="modal-backdrop" onMouseDown={close}>
-    <div className="panel-modal backups-panel" onMouseDown={e => e.stopPropagation()}>
-      <div className="panel-head"><div><h2>Backups for {activePath}</h2><p>Preview or restore the versions Safire created before saves/deletes.</p></div><button onClick={close}>×</button></div>
+    <div ref={panelRef} className="panel-modal backups-panel" role="dialog" aria-modal="true" aria-label="Note backups" onMouseDown={e => e.stopPropagation()}>
+      <div className="panel-head"><div><h2>Backups for {activePath}</h2><p>Preview or restore the versions Safire created before saves/deletes.</p></div><button type="button" aria-label="Close dialog" onClick={close}>×</button></div>
       <div className="backup-layout">
         <div className="backup-list">
           <button className="wide" onClick={() => refresh()}>Refresh backups</button>
@@ -1458,12 +1474,13 @@ function FileTree({ nodes, activePath, openNote, depth = 0 }: { nodes: TreeNode[
 }
 
 function Palette({ title, query, setQuery, close, items }: { title: string; query: string; setQuery: (q: string) => void; close: () => void; items: { label: string; sub: string; run: () => void|Promise<void> }[] }) {
+  const panelRef = useDialogAccessibility<HTMLDivElement>(true, close);
   const filtered = items.filter(i => (i.label + ' ' + i.sub).toLowerCase().includes(query.toLowerCase())).slice(0, 12);
   const [selected, setSelected] = React.useState(0);
   React.useEffect(() => { setSelected(0); }, [query, title]);
   React.useEffect(() => { const el = document.querySelector('.palette input') as HTMLInputElement | null; setTimeout(() => el?.focus(), 20); }, []);
   const runSelected = async () => { const item = filtered[Math.min(selected, Math.max(0, filtered.length - 1))]; if (item) await item.run(); };
-  return <div className="modal-backdrop" onMouseDown={close}><div className="palette" onMouseDown={e => e.stopPropagation()}><h2>{title}</h2><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Type to filter..." onKeyDown={e => {
+  return <div className="modal-backdrop" onMouseDown={close}><div ref={panelRef} className="palette" role="dialog" aria-modal="true" aria-label={title} onMouseDown={e => e.stopPropagation()}><h2>{title}</h2><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Type to filter..." onKeyDown={e => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setSelected(i => Math.min(filtered.length - 1, i + 1)); }
     if (e.key === 'ArrowUp') { e.preventDefault(); setSelected(i => Math.max(0, i - 1)); }
     if (e.key === 'Enter') { e.preventDefault(); runSelected(); }
