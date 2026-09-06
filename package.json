@@ -1,6 +1,6 @@
 {
   "name": "safire",
-  "version": "1.6.2",
+  "version": "1.7.0",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
@@ -117,7 +117,14 @@
       "LICENSE",
       "PRIVACY.md",
       "THIRD_PARTY_NOTICES.md",
-      "TRADEMARKS.md"
+      "TRADEMARKS.md",
+      "lib/note-revision.mjs",
+      "lib/draft-store.mjs",
+      "lib/vault-catalog.mjs",
+      "lib/wiki-links.mjs",
+      "lib/rename-plan.mjs",
+      "lib/vault-json-store.mjs",
+      "lib/web-response.mjs"
     ],
     "directories": {
       "output": "release"

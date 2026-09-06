@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { marked, Renderer, type Tokens } from 'marked';
 import DOMPurify from 'dompurify';
 import pkg from '../package.json';
+import { useDialogAccessibility } from './useDialogAccessibility';
 import { HelpPanel } from './HelpPanel';
 import { OverflowMenu } from './OverflowMenu';
 import { ProjectHome } from './ProjectHome';
@@ -10,6 +11,14 @@ import { filterMarkdownClassName, getYouTubeVideoId, renderYouTubeLinkCard } fro
 import { selectAvailableNotePath } from './noteSelection';
 import { portableEntryNameError, projectForNotePath, projectNameError, projectSummaries } from './projectModel';
 import './styles.css';
+import './theme.css';
+import { useNoteWorkspace } from './useNoteWorkspace';
+import { libraryTree } from './libraryModel';
+import { WorkspaceDesk } from './WorkspaceDesk';
+import { ResearchDesk } from './ResearchDesk';
+import { RecoveryPanel } from './RecoveryPanel';
+import './workspace.css';
+import './surfaces.css';
 
 const APP_VERSION = pkg.version;
 
@@ -32,7 +41,7 @@ type WorkspaceState = { pinnedNotes: string[]; recentNotes: { path: string; open
 type VaultTask = { id: string; path: string; line: number; text: string; completed: boolean };
 type TemplateItem = { path: string; title: string };
 type WebClipTemplate = { id: string; name: string; folder: string; description: string; body?: string };
-type WorkspaceView = 'note' | 'home' | 'tasks';
+type WorkspaceView = 'note' | 'home' | 'tasks' | 'research';
 type BackupItem = { id: string; notePath: string; size: number; createdAt: number };
 type VaultHealth = { noteCount: number; tagCount: number; linkCount: number; missingLinks: { from: string; target: string }[]; orphanNotes: string[]; backupCount: number };
 type AttachmentViewerState = { url: string; name: string; kind: 'image' | 'text' | 'document' };
@@ -48,7 +57,7 @@ type SafireDialog =
 
 const api = async <T,>(url: string, options?: RequestInit): Promise<T> => {
   const res = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...options });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `${res.status} ${res.statusText}`);
+  if (!res.ok) throw Object.assign(new Error((await res.json().catch(() => ({}))).error || `${res.status} ${res.statusText}`), { status: res.status });
   return res.json();
 };
 
@@ -247,11 +256,15 @@ function FlameMark() {
 function App() {
   const [notes, setNotes] = React.useState<NoteMeta[]>([]);
   const [tree, setTree] = React.useState<TreeNode[]>([]);
-  const [activePath, setActivePath] = React.useState('');
-  const [content, setContent] = React.useState('');
-  const [savedContent, setSavedContent] = React.useState('');
+  const editor = useNoteWorkspace(api);
+  const { path: activePath, content, savedContent, setContent } = editor;
   const [query, setQuery] = React.useState('');
   const [searchResults, setSearchResults] = React.useState<NoteMeta[]>([]);
+  const [libraryNotice, setLibraryNotice] = React.useState('');
+  const [searchTotal, setSearchTotal] = React.useState(0);
+  const [searchOffset, setSearchOffset] = React.useState<number | null>(null);
+  const searchVersion = React.useRef(0);
+  const [searchPending, setSearchPending] = React.useState(false);
   const [backlinks, setBacklinks] = React.useState<NoteMeta[]>([]);
   const [mode, setMode] = React.useState<NoteMode>(() => {
     const storedMode = localStorage.getItem('safireMode') as LegacyMode | null;
@@ -278,7 +291,10 @@ function App() {
   const [projectIndexComplete, setProjectIndexComplete] = React.useState(true);
   const [tasks, setTasks] = React.useState<VaultTask[]>([]);
   const [templates, setTemplates] = React.useState<TemplateItem[]>([]);
-  const [workspaceView, setWorkspaceView] = React.useState<WorkspaceView>('note');
+  const [workspaceView, setWorkspaceView] = React.useState<WorkspaceView>('home');
+  const [recoveryOpen, setRecoveryOpen] = React.useState(false);
+  const [focusWriting, setFocusWriting] = React.useState(false);
+  const [compareOpen, setCompareOpen] = React.useState(false);
   const [selectedProjectPath, setSelectedProjectPath] = React.useState<string | null>(null);
   const [projectView, setProjectView] = React.useState<'entries' | 'graph'>('entries');
   const [projectGraphPrompt, setProjectGraphPrompt] = React.useState(false);
@@ -287,6 +303,7 @@ function App() {
   const [quickCaptureOpen, setQuickCaptureOpen] = React.useState(false);
   const [templatePickerOpen, setTemplatePickerOpen] = React.useState(false);
   const [webClipperOpen, setWebClipperOpen] = React.useState(false);
+  const [webClipWarning, setWebClipWarning] = React.useState('');
   const [webClipTemplates, setWebClipTemplates] = React.useState<WebClipTemplate[]>([]);
   const [attachmentViewer, setAttachmentViewer] = React.useState<AttachmentViewerState | null>(null);
   const [imageResizeMenu, setImageResizeMenu] = React.useState<ImageResizeMenuState | null>(null);
@@ -294,6 +311,7 @@ function App() {
   const [evidencePanelOpen, setEvidencePanelOpen] = React.useState(false);
   const editorRef = React.useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const importInputRef = React.useRef<HTMLInputElement | null>(null);
   const workspaceRef = React.useRef<HTMLElement | null>(null);
   const helpReturnFocusRef = React.useRef<HTMLElement | null>(null);
   const dirty = content !== savedContent;
@@ -377,15 +395,27 @@ function App() {
 
 
   const loadIndex = React.useCallback(async () => {
-    const [notesData, treeData] = await Promise.all([
-      api<{ vault: string; notes: NoteMeta[]; meta?: { truncated?: boolean } }>('/api/notes'),
-      api<{ vault: string; tree: TreeNode[]; meta?: { truncated?: boolean } }>('/api/tree'),
-    ]);
-    setNotes(notesData.notes);
-    setTree(treeData.tree);
-    setProjectIndexComplete(notesData.meta?.truncated !== true && treeData.meta?.truncated !== true);
-    setVaultPath(notesData.vault);
-    return notesData.notes;
+    const collected: NoteMeta[] = [];
+    let offset: number | null = 0;
+    let complete = true;
+    let notice = '';
+    while (offset !== null && collected.length < 10000) {
+      const page: { vault: string; notes: NoteMeta[]; nextOffset: number | null; complete: boolean; reason: string } = await api(`/api/library?limit=500&offset=${offset}`);
+      collected.push(...page.notes);
+      offset = page.nextOffset;
+      complete = complete && page.complete;
+      notice = page.reason;
+      setVaultPath(page.vault);
+    }
+    // Empty folders remain available for creating the first project entry.
+    const emptyFolders = await api<{ tree: TreeNode[] }>('/api/tree');
+    const built = libraryTree(collected);
+    for (const folder of emptyFolders.tree.filter(item=>item.type === 'folder')) if (!built.some(item=>item.path===folder.path)) built.push(folder);
+    setNotes(collected);
+    setTree(built);
+    setProjectIndexComplete(complete && offset === null);
+    setLibraryNotice(offset !== null ? 'The file browser shows 10,000 notes. Search still covers the full indexed vault.' : notice);
+    return collected;
   }, []);
 
   const loadProjectGraph = React.useCallback((projectPath: string, projectActivePath: string) => (
@@ -445,8 +475,9 @@ function App() {
   }, [loadTemplates]);
 
   const loadWebClipTemplates = React.useCallback(async () => {
-    const data = await api<{ templates: WebClipTemplate[] }>('/api/web-clip/templates');
+    const data = await api<{ templates: WebClipTemplate[]; warning?: string }>('/api/web-clip/templates');
     setWebClipTemplates(data.templates);
+    setWebClipWarning(data.warning || '');
     return data.templates;
   }, []);
 
@@ -455,17 +486,16 @@ function App() {
     setBacklinks(data.backlinks);
   }, []);
 
-  const openNote = React.useCallback(async (path: string, addTab = true) => {
+  const openNote = React.useCallback(async (path: string, addTab = true, navigate = true) => {
     const normalized = path.endsWith('.md') ? path : `${path}.md`;
-    const data = await api<{ path: string; content: string }>(`/api/note?path=${encodeURIComponent(normalized)}`);
-    setActivePath(data.path);
-    setContent(data.content);
-    setSavedContent(data.content);
+    const data = await editor.open(normalized);
+    if (!data) return;
+    if (navigate) setWorkspaceView('note');
     if (addTab) setTabs(prev => prev.includes(data.path) ? prev : [...prev, data.path]);
     await loadBacklinks(data.path);
     api<WorkspaceState>('/api/workspace/recent', { method: 'POST', body: JSON.stringify({ path: data.path }) }).then(setWorkspaceState).catch(() => null);
     setStatus(`Opened ${data.path}`);
-  }, [loadBacklinks]);
+  }, [editor.open, loadBacklinks]);
 
   const openProjectEntry = React.useCallback(async (path: string, entryMode: 'preview' | 'edit') => {
     const focusDestination = () => window.setTimeout(() => {
@@ -504,14 +534,13 @@ function App() {
       document.documentElement.dataset.theme = appSettings.theme;
       document.documentElement.style.colorScheme = appSettings.theme;
       const indexedNotes = await loadIndex();
-      const selectedPath = selectAvailableNotePath(indexedNotes, [appSettings.startupNote, ...tabs]);
+      const recovery = await api<{ drafts: { path: string }[] }>('/api/drafts');
+      const selectedPath = selectAvailableNotePath(indexedNotes, [...recovery.drafts.map(draft=>draft.path), appSettings.startupNote, ...tabs]);
       const availablePaths = new Set(indexedNotes.map(note => note.path));
       setTabs(previous => previous.filter(notePath => availablePaths.has(notePath)));
-      if (selectedPath) await openNote(selectedPath);
+      if (selectedPath) await openNote(selectedPath, true, false);
       else {
-        setActivePath('');
-        setContent('');
-        setSavedContent('');
+        editor.clear();
         setBacklinks([]);
         setStatus('Vault is empty. Create a note to begin.');
       }
@@ -528,12 +557,22 @@ function App() {
   React.useEffect(() => { localStorage.setItem('safireAutosave', String(autosave)); }, [autosave]);
 
   React.useEffect(() => {
+    searchVersion.current++;
+    setSearchOffset(null);
+    const controller = new AbortController();
     const t = setTimeout(async () => {
-      if (!query.trim()) return setSearchResults([]);
-      const data = await api<{ results: NoteMeta[] }>(evidenceSearchUrl(query));
-      setSearchResults(data.results);
+      if (!query.trim()) { setSearchResults([]); setSearchTotal(0); setSearchPending(false); return; }
+      setSearchPending(true);
+      try {
+        const data = await api<{ notes: NoteMeta[]; total: number; reason: string; nextOffset: number | null }>(`/api/library?q=${encodeURIComponent(query)}&limit=100`, { signal: controller.signal });
+        setSearchResults(data.notes);
+        setSearchTotal(data.total);
+        setSearchOffset(data.nextOffset);
+        if (data.reason) setLibraryNotice(data.reason);
+      } catch (error) { if (!controller.signal.aborted) setStatus(error instanceof Error ? error.message : 'Search failed'); }
+      finally { if (!controller.signal.aborted) setSearchPending(false); }
     }, 150);
-    return () => clearTimeout(t);
+    return () => { clearTimeout(t); controller.abort(); };
   }, [query]);
 
   const save = React.useCallback(async () => {
@@ -541,19 +580,18 @@ function App() {
       setStatus('Create or open a note to save.');
       return;
     }
-    await api('/api/note', { method: 'PUT', body: JSON.stringify({ path: activePath, content }) });
-    setSavedContent(content);
+    await editor.save();
     setLastSavedAt(Date.now());
     await loadIndex();
     await loadBacklinks(activePath);
     setStatus(`Saved ${activePath}`);
-  }, [activePath, content, loadBacklinks, loadIndex]);
+  }, [activePath, editor.save, loadBacklinks, loadIndex]);
 
   React.useEffect(() => {
-    if (!autosave || !dirty) return;
+    if (!autosave || !dirty || editor.remote || editor.busy) return;
     const t = setTimeout(() => save().catch(e => setStatus(e.message)), settings?.autosaveDelay ?? 900);
     return () => clearTimeout(t);
-  }, [autosave, dirty, content, save, settings?.autosaveDelay]);
+  }, [autosave, dirty, content, savedContent, save, settings?.autosaveDelay, editor.remote, editor.busy]);
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -704,7 +742,13 @@ function App() {
       confirmLabel: 'Rename note',
     });
     if (!to?.trim() || to.trim() === activePath) return;
-    const data = await api<{ to: string }>('/api/rename', { method: 'POST', body: JSON.stringify({ from: activePath, to: to.trim() }) });
+    if (dirty) await save();
+    const preview = await api<{ changes: { path: string; count: number }[]; skipped: string[] }>(`/api/rename-preview?from=${encodeURIComponent(activePath)}&to=${encodeURIComponent(to.trim())}`);
+    if (preview.skipped.length) { setStatus('Some note bodies could not be checked. The rename was not applied.'); return; }
+    const links = preview.changes.reduce((sum,change)=>sum+change.count,0);
+    const proceed = await askConfirm({ title: 'Rename and keep your connections', message: `Rename to ${to.trim()} and update ${links} linked reference${links === 1 ? '' : 's'} in ${preview.changes.filter(change=>change.count).length} note(s)? Originals will be backed up first.`, confirmLabel: 'Rename and update links' });
+    if (!proceed) return;
+    const data = await api<{ to: string }>('/api/rename', { method: 'POST', body: JSON.stringify({ from: activePath, to: to.trim(), updateLinks: true }) });
     setTabs(prev => prev.map(t => t === activePath ? data.to : t));
     await loadIndex();
     await openNote(data.to);
@@ -731,9 +775,7 @@ function App() {
         const next = selectAvailableNotePath(indexedNotes, remainingTabs);
         if (next) await openNote(next);
         else {
-          setActivePath('');
-          setContent('');
-          setSavedContent('');
+          editor.clear();
           setBacklinks([]);
         }
       }
@@ -915,12 +957,15 @@ function App() {
   };
 
   const closeTab = async (path: string) => {
+    if (path === activePath) await editor.checkpoint();
     const nextTabs = tabs.filter(t => t !== path);
     setTabs(nextTabs.length ? nextTabs : activePath ? [activePath] : []);
     if (path === activePath && nextTabs[0]) await openNote(nextTabs[0], false);
   };
 
   const openWikiTarget = async (target: string) => {
+    const resolved = await api<{ path: string | null }>(`/api/resolve-link?from=${encodeURIComponent(activePath)}&target=${encodeURIComponent(target)}`);
+    if (resolved.path) { await openNote(resolved.path); return; }
     const direct = target.endsWith('.md') ? target : `${target}.md`;
     const found = notes.find(n => n.path.toLowerCase() === direct.toLowerCase() || n.title.toLowerCase() === target.toLowerCase());
     if (!found) {
@@ -987,7 +1032,7 @@ function App() {
     { name: 'New folder', hint: 'Create a vault folder', run: createFolder },
     { name: 'Open daily note', hint: 'Create/open today in Daily Notes', run: openDaily },
     { name: autosave ? 'Turn autosave off' : 'Turn autosave on', hint: 'Toggle autosave', run: () => setAutosave(v => !v) },
-    { name: 'Settings', hint: 'Autosave, startup note, backup retention', run: () => setSettingsOpen(true) },
+    { name: 'Settings', hint: 'Autosave, startup note, appearance', run: () => setSettingsOpen(true) },
     { name: 'Safire Help', hint: 'Full guide, examples, AI connections, and licensing', run: openHelp },
     ...(activePath ? [
       { name: 'Insert evidence receipt', hint: 'Ctrl/Cmd+Shift+E · portable local Markdown', run: () => setEvidenceComposerOpen(true) },
@@ -1003,10 +1048,26 @@ function App() {
     { name: 'Edit only', hint: 'Markdown editor', run: () => setMode('edit') },
   ];
 
-  return <div className="app-shell">
+  const startResearch = async () => {
+    const title = await askInput({ title: 'Start a research note', message: 'What question are you exploring?', placeholder: 'A question worth answering', confirmLabel: 'Create research note' });
+    if (!title?.trim()) return;
+    try {
+      const safe = title.trim().replace(/[<>:"/\\|?*]/g,'-');
+      const note = await api<{ path: string }>('/api/note', { method: 'POST', body: JSON.stringify({ path: `Research/${safe}.md`, content: `# ${title.trim()}\n\n## The question\n\nWhat do I want to understand?\n\n## Working conclusion\n\nWrite your current point of view. Update it as the evidence develops.\n\n## Sources & evidence\n\nCapture a source with Web Clipper, or use **Add evidence receipt** to connect a claim to its source.\n\n## Open questions\n\n- [ ] Find a primary source\n- [ ] Look for evidence that challenges the conclusion\n- [ ] Review and write the final brief\n` }) });
+      await loadIndex(); await openNote(note.path);
+    } catch (error) { setStatus(error instanceof Error ? error.message : 'Could not create research note'); }
+  };
+  const saveConflictCopy = async () => {
+    const stamp = new Date().toISOString().replace('T',' ').replace(/[:.]/g,'-').replace('Z','');
+    const copy = await api<{ path: string }>('/api/note', { method:'POST', body:JSON.stringify({path:activePath.replace(/\.md$/i,` (my copy ${stamp}).md`),content}) });
+    await loadIndex(); await openNote(copy.path);
+  };
+
+  return <div className={`app-shell ${workspaceView !== 'note' ? 'desk-layout' : ''} ${focusWriting && workspaceView === 'note' ? 'focus-writing' : ''}`}>
     <nav className="ribbon" aria-label="Workspace">
       <button className={workspaceView === 'home' && !selectedProjectPath ? 'active' : ''} aria-label="Home" title="Home" onClick={() => { selectProject(null); setProjectView('entries'); setWorkspaceView('home'); }}>⌂</button>
       <button className={workspaceView === 'tasks' ? 'active' : ''} aria-label="Tasks" title="Tasks" onClick={() => { setWorkspaceView('tasks'); loadTasks(taskState); }}>☑</button>
+      <button className={workspaceView === 'research' ? 'active' : ''} aria-label="Research desk" title="Research desk" onClick={() => setWorkspaceView('research')}>✳</button>
       <button aria-label="Quick capture" title="Quick capture" onClick={() => setQuickCaptureOpen(true)}>＋</button>
       <button className={workspaceView === 'note' ? 'active' : ''} aria-label="Files" title="Files" onClick={() => setWorkspaceView('note')}>▤</button>
       <button aria-label="Search" title="Search" onClick={() => setQuickOpen(true)}>⌕</button>
@@ -1016,6 +1077,9 @@ function App() {
         ...(activePath ? [{ label: 'Backups', hint: 'Preview or restore note versions', onSelect: openBackups }] : []),
         { label: 'Settings', hint: 'Preferences and vault behavior', onSelect: () => setSettingsOpen(true) },
         { label: 'Commands', hint: 'Open the command palette', onSelect: () => setPaletteOpen(true) },
+        { label: 'Draft recovery', hint: 'Continue or recover unsaved work', onSelect: () => setRecoveryOpen(true) },
+        { label: 'Import Markdown notes', hint: 'Add portable notes without replacing existing files', onSelect: () => importInputRef.current?.click() },
+        { label: 'Refresh library', hint: 'Pick up changes from other apps', onSelect: async () => { await api('/api/library/refresh', { method: 'POST' }); await loadIndex(); setStatus('Library refreshed'); } },
         { label: 'Safire Help', hint: 'Guide, examples, AI setup, and licenses', separator: true, onSelect: openHelp },
       ]} />
     </nav>
@@ -1027,17 +1091,21 @@ function App() {
         { label: 'Today’s note', onSelect: openDaily },
         { label: 'New from template', onSelect: () => void openTemplatePicker() },
       ]} /></div>
-      <input className="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search · status:verified source:url expired" />
+      <input className="search" aria-label="Search your library" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search your library…" />
       {query.trim() && <button className="save-search" onClick={saveSearch}>Save search</button>}
       <div className="vault-path" title={vaultPath}>{vaultPath}</div>
-      {query.trim() && <section><h2>Search</h2>{searchResults.map(n => <button className="note-row search-hit" key={n.path} onClick={() => openNote(n.path)}><b>{n.title}</b><span>{n.path} — {n.excerpt}</span></button>)}</section>}
+      {libraryNotice && <p className="library-notice" role="status">{libraryNotice}</p>}
+      {query.trim() && <p className="search-summary" role="status">{searchPending ? 'Searching the vault…' : `${searchTotal.toLocaleString()} matches${searchTotal > searchResults.length ? ` · showing ${searchResults.length}` : ''}`}</p>}
+      {query.trim() && <section><h2>Search</h2>{searchResults.map(n => <button className="note-row search-hit" key={n.path} onClick={() => openNote(n.path)}><b>{n.title}</b><span>{n.path} — {n.excerpt}</span></button>)}{searchOffset!==null&&<button className="load-more" disabled={searchPending} onClick={async()=>{const version=searchVersion.current;setSearchPending(true);try{const data=await api<{notes:NoteMeta[];nextOffset:number|null}>(`/api/library?q=${encodeURIComponent(query)}&limit=100&offset=${searchOffset}`);if(version===searchVersion.current){setSearchResults(previous=>[...previous,...data.notes]);setSearchOffset(data.nextOffset);}}catch{setStatus("Could not load more matches");}finally{if(version===searchVersion.current)setSearchPending(false);}}}>Load more matches</button>}</section>}
       <section><h2>Files</h2><FileTree nodes={tree} activePath={activePath} openNote={openNote} /></section>
       <section><h2>Tags</h2><div className="tag-cloud">{allTags.map(t => <button key={t} onClick={() => setQuery('#'+t)}>#{t}</button>)}</div></section>
     </aside>
 
     <main ref={workspaceRef} className="workspace" tabIndex={-1}>
+      {workspaceView === 'home' && !selectedProjectPath && <WorkspaceDesk notes={notes} create={()=>void createNote()} capture={()=>setQuickCaptureOpen(true)} research={()=>setWorkspaceView('research')} open={path=>void openNote(path)} recover={()=>setRecoveryOpen(true)} />}
+      {workspaceView === 'research' && <ResearchDesk open={path=>void openNote(path)} clip={()=>setWebClipperOpen(true)} create={()=>void startResearch()} />}
       <ProjectHome hidden={workspaceView !== 'home'} tree={tree} notes={notes} activePath={activePath} selectedProjectPath={selectedProjectPath} projectView={projectView} graphRefreshRevision={projectGraphRevision} showGraphPrompt={projectGraphPrompt} projectIndexComplete={projectIndexComplete} dailyNotesFolder={settings?.dailyNotesFolder} onSelectProject={selectProject} onSetProjectView={setProjectView} onCreateProject={createProject} onCreateEntry={createProjectEntry} onDeleteEntry={deleteNoteAtPath} loadProjectGraph={loadProjectGraph} onOpenEntry={openProjectEntry} />
-      {workspaceView !== 'home' && (workspaceView === 'tasks' ? <TasksView tasks={tasks} state={taskState} setState={(next) => { setTaskState(next); loadTasks(next); }} openNote={(path) => { setWorkspaceView('note'); openNote(path); }} toggleTask={toggleTask} /> : !activePath ? <EmptyVaultView createNote={() => void createNote()} openDaily={() => void openDaily()} capture={() => setQuickCaptureOpen(true)} /> : <>
+      {workspaceView !== 'home' && workspaceView !== 'research' && (workspaceView === 'tasks' ? <TasksView tasks={tasks} state={taskState} setState={(next) => { setTaskState(next); loadTasks(next); }} openNote={(path) => { setWorkspaceView('note'); openNote(path); }} toggleTask={toggleTask} /> : !activePath ? <EmptyVaultView createNote={() => void createNote()} openDaily={() => void openDaily()} capture={() => setQuickCaptureOpen(true)} /> : <>
         <div className="tabs">{tabs.map(t => <button key={t} className={t===activePath?'active':''} onClick={() => openNote(t, false)}><span>{titleFromPath(t)}</span><i onClick={(e) => { e.stopPropagation(); closeTab(t); }}>×</i></button>)}</div>
         <header className="topbar">
           <div><div className="crumb">{activePath}</div><h2>{activeMeta?.title || activePath}{dirty ? ' •' : ''}</h2><p>{autosave ? 'Autosave on' : 'Autosave off'}{lastSavedAt ? ` · saved ${new Date(lastSavedAt).toLocaleTimeString()}` : ''}</p></div>
@@ -1049,7 +1117,8 @@ function App() {
             </div>
             {selectedProject && projectView === 'graph' && <button onClick={() => openProjectGraph(selectedProject.path, false)}>← Back to {selectedProject.name} graph</button>}
             <button onClick={() => openProjectGraph()} title={activeNoteProject ? `Open ${activeNoteProject.name} project graph` : 'Choose a project graph'}>Project graph</button>
-            <button className="primary-action save-note" onClick={save} disabled={!dirty}>Save</button>
+            <button onClick={()=>setFocusWriting(value=>!value)} aria-pressed={focusWriting}>{focusWriting ? 'Exit focus' : 'Focus'}</button>
+            <button className="primary-action save-note" onClick={()=>void save().catch(error=>setStatus(error.message))} disabled={!dirty || editor.busy || !!editor.remote}>{editor.busy ? 'Saving…' : 'Save'}</button>
             <OverflowMenu label="More note actions" items={[
               { label: 'Add evidence receipt', hint: 'Insert portable evidence Markdown', onSelect: () => setEvidenceComposerOpen(true) },
               { label: workspaceState.pinnedNotes.includes(activePath) ? 'Unpin note' : 'Pin note', onSelect: togglePin },
@@ -1061,6 +1130,8 @@ function App() {
             ]} />
           </div>
         </header>
+        <div className={`save-health ${editor.error ? 'has-error' : ''}`} role="status"><span className="save-health-dot"/>{editor.error || (editor.remote ? 'A newer version is available. Your draft is protected.' : dirty ? editor.content === editor.checkpointContent ? 'Draft protected on this device' : 'Protecting your draft…' : 'All changes saved')}<span>{wordCount.toLocaleString()} words · {readingMinutes} min read</span></div>
+        {editor.remote && <section className="conflict-panel" role="alert"><div><strong>This note has a newer version.</strong><p>Your draft is safe. Compare both versions before deciding what to keep.</p></div><div><button onClick={()=>setCompareOpen(value=>!value)}>{compareOpen?'Hide comparison':'Compare versions'}</button><button onClick={()=>void saveConflictCopy().catch(error=>setStatus(error.message))}>Save mine as a copy</button><button onClick={()=>void editor.useLatest()}>View latest</button></div>{compareOpen&&<><div className="conflict-comparison"><div><h3>Your draft</h3><pre>{content}</pre></div><div><h3>Latest saved version</h3><pre>{editor.remote.content}</pre></div></div><p>Combine the text you want in the editor, then <button onClick={()=>{editor.mergeLatest();setCompareOpen(false);}}>use this edited version</button>. The next save backs up the latest version.</p></>}</section>}
         {(mode==='split'||mode==='edit') && <MarkdownToolbar insert={insertMarkdown} attach={() => fileInputRef.current?.click()} evidence={() => setEvidenceComposerOpen(true)} />}
         <div className={'panes '+mode} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); uploadFiles(e.dataTransfer.files).catch(err => setStatus(err.message)); }}>{(mode==='split'||mode==='edit') && <textarea ref={editorRef} className="editor" spellCheck="true" value={content} onChange={e => setContent(e.target.value)} onKeyDown={handleEditorKeyDown} onPaste={e => { if (e.clipboardData.files.length) { e.preventDefault(); uploadFiles(e.clipboardData.files).catch(err => setStatus(err.message)); } }} />}{(mode==='split'||mode==='preview') && <article className={`preview markdown ${settings?.fitImagesToPage === false ? '' : 'fit-images'}`} dangerouslySetInnerHTML={rendered} />}</div>
       </>)}
@@ -1070,13 +1141,24 @@ function App() {
 
     <input ref={fileInputRef} className="hidden-file" type="file" multiple onChange={e => { if (e.target.files) uploadFiles(e.target.files).catch(err => setStatus(err.message)); e.currentTarget.value = ''; }} />
     {dialog && <SafireModal dialog={dialog} close={() => { if (dialog.kind === 'confirm') (dialog.resolve as (value: boolean) => void)(false); else (dialog.resolve as (value: string | null) => void)(null); setDialog(null); }} done={(value) => { if (dialog.kind === 'confirm') (dialog.resolve as (value: boolean) => void)(value as boolean); else (dialog.resolve as (value: string | null) => void)(value as string | null); setDialog(null); }} />}
+    <input ref={importInputRef} type="file" accept=".md,.markdown,text/markdown" multiple hidden onChange={async event=>{
+      const files=Array.from(event.target.files||[]); event.currentTarget.value='';
+      let imported=0; const skipped:string[]=[];
+      for(const file of files){
+        if(file.size>1_000_000||!/\.(md|markdown)$/i.test(file.name)){skipped.push(file.name);continue;}
+        try{await api('/api/note',{method:'POST',body:JSON.stringify({path:`Imports/${file.name.replace(/\.markdown$/i,'.md')}`,content:await file.text()})});imported++;}catch{skipped.push(file.name);}
+      }
+      await loadIndex();setStatus(`Imported ${imported} notes${skipped.length?`. ${skipped.length} skipped (duplicate names, unsupported files, or files over 1 MB).`:'.'}`);
+    }}/>
+    <div className="product-status" role="status"><span className="status-dot"/>{status}</div>
+    {recoveryOpen && <RecoveryPanel close={()=>setRecoveryOpen(false)} open={path=>void openNote(path).catch(error=>setStatus(error.message))} />}
     {settingsOpen && settings && <SettingsPanel settings={settings} close={() => setSettingsOpen(false)} save={saveSettings} />}
     {imageResizeMenu && <ImageResizeMenu menu={imageResizeMenu} apply={applyImageSize} close={() => setImageResizeMenu(null)} />}
     {attachmentViewer && <AttachmentViewer viewer={attachmentViewer} close={() => setAttachmentViewer(null)} />}
     {backupsOpen && <BackupsPanel activePath={activePath} backups={backups} preview={backupPreview} close={() => setBackupsOpen(false)} refresh={() => loadBackups(activePath)} show={previewBackup} restore={restoreBackup} />}
     {quickCaptureOpen && <QuickCapturePanel close={() => setQuickCaptureOpen(false)} capture={capture} />}
     {templatePickerOpen && <TemplatePicker templates={templates} close={() => setTemplatePickerOpen(false)} create={instantiateTemplate} />}
-    {webClipperOpen && <WebClipperPanel templates={webClipTemplates} close={() => setWebClipperOpen(false)} clip={clipWebPage} saveTemplate={saveWebClipTemplate} />}
+    {webClipperOpen && <WebClipperPanel warning={webClipWarning} templates={webClipTemplates} close={() => setWebClipperOpen(false)} clip={clipWebPage} saveTemplate={saveWebClipTemplate} />}
 
     {evidenceComposerOpen && <EvidenceComposer close={() => setEvidenceComposerOpen(false)} insert={insertEvidenceReceipt} />}
     {evidencePanelOpen && <EvidencePanel receipts={evidenceReceipts} close={() => setEvidencePanelOpen(false)} add={() => { setEvidencePanelOpen(false); setEvidenceComposerOpen(true); }} />}
@@ -1095,17 +1177,19 @@ function TasksView({ tasks, state, setState, openNote, toggleTask }: { tasks: Va
 }
 
 function QuickCapturePanel({ close, capture }: { close: () => void; capture: (text: string, tag: string) => Promise<void> }) {
+  const panelRef = useDialogAccessibility<HTMLFormElement>(true, close);
   const [text, setText] = React.useState(''); const [tag, setTag] = React.useState(''); const [error, setError] = React.useState('');
-  return <div className="modal-backdrop" onMouseDown={close}><form className="panel-modal capture-panel" onMouseDown={e => e.stopPropagation()} onSubmit={async e => { e.preventDefault(); try { await capture(text, tag); } catch (err) { setError(err instanceof Error ? err.message : 'Capture failed'); } }}><div className="panel-head"><div><h2>Quick capture</h2><p>Save a thought as portable Markdown in Inbox.</p></div><button type="button" onClick={close}>×</button></div><textarea autoFocus value={text} onChange={e => setText(e.target.value)} placeholder="What do you want to remember?" /><label><span>Optional tag</span><input value={tag} onChange={e => setTag(e.target.value)} placeholder="projects" /></label>{error && <p className="form-error">{error}</p>}<div className="dialog-actions"><button type="button" onClick={close}>Cancel</button><button className="primary-action" type="submit">Capture to Inbox</button></div></form></div>;
+  return <div className="modal-backdrop" onMouseDown={close}><form ref={panelRef} className="panel-modal capture-panel" role="dialog" aria-modal="true" aria-label="Quick capture" onMouseDown={e => e.stopPropagation()} onSubmit={async e => { e.preventDefault(); try { await capture(text, tag); } catch (err) { setError(err instanceof Error ? err.message : 'Capture failed'); } }}><div className="panel-head"><div><h2>Quick capture</h2><p>Save a thought as portable Markdown in Inbox.</p></div><button type="button" aria-label="Close dialog" onClick={close}>×</button></div><textarea autoFocus value={text} onChange={e => setText(e.target.value)} placeholder="What do you want to remember?" /><label><span>Optional tag</span><input value={tag} onChange={e => setTag(e.target.value)} placeholder="projects" /></label>{error && <p className="form-error">{error}</p>}<div className="dialog-actions"><button type="button" onClick={close}>Cancel</button><button className="primary-action" type="submit">Capture to Inbox</button></div></form></div>;
 }
 
 function TemplatePicker({ templates, close, create }: { templates: TemplateItem[]; close: () => void; create: (templatePath: string, destination: string, title: string) => Promise<void> }) {
+  const panelRef = useDialogAccessibility<HTMLFormElement>(true, close);
   const [selected, setSelected] = React.useState(templates[0]?.path || '');
   const [destination, setDestination] = React.useState('');
   const [title, setTitle] = React.useState('');
   const [error, setError] = React.useState('');
   return <div className="modal-backdrop" onMouseDown={close}>
-    <form className="panel-modal template-panel" role="dialog" aria-modal="true" aria-labelledby="template-picker-title" onMouseDown={e => e.stopPropagation()} onSubmit={async e => { e.preventDefault(); try { await create(selected, destination, title); } catch (err) { setError(err instanceof Error ? err.message : 'Could not create note'); } }}>
+    <form ref={panelRef} className="panel-modal template-panel" role="dialog" aria-modal="true" aria-labelledby="template-picker-title" onMouseDown={e => e.stopPropagation()} onSubmit={async e => { e.preventDefault(); try { await create(selected, destination, title); } catch (err) { setError(err instanceof Error ? err.message : 'Could not create note'); } }}>
       <div className="panel-head"><div><h2 id="template-picker-title">New from template</h2><p>Copy reusable Markdown into a new note.</p></div><button type="button" aria-label="Close template picker" onClick={close}>×</button></div>
       <div className="template-how"><b>How it works</b><p>Put a <code>.md</code> file under <code>Templates/</code>. Safire copies it, then replaces <code>{'{{title}}'}</code>, <code>{'{{date}}'}</code>, and <code>{'{{time}}'}</code>. The original template stays unchanged.</p></div>
       {templates.length ? <>
@@ -1123,7 +1207,8 @@ function TemplatePicker({ templates, close, create }: { templates: TemplateItem[
   </div>;
 }
 
-function WebClipperPanel({ templates, close, clip, saveTemplate }: { templates: WebClipTemplate[]; close: () => void; clip: (url: string, templateId: string, title: string) => Promise<void>; saveTemplate: (template: Omit<WebClipTemplate, 'body'> & { body: string }) => Promise<void> }) {
+function WebClipperPanel({ warning, templates, close, clip, saveTemplate }: { warning: string; templates: WebClipTemplate[]; close: () => void; clip: (url: string, templateId: string, title: string) => Promise<void>; saveTemplate: (template: Omit<WebClipTemplate, 'body'> & { body: string }) => Promise<void> }) {
+  const panelRef = useDialogAccessibility<HTMLDivElement>(true, close);
   const [url, setUrl] = React.useState('');
   const [title, setTitle] = React.useState('');
   const [templateId, setTemplateId] = React.useState('article');
@@ -1146,8 +1231,9 @@ function WebClipperPanel({ templates, close, clip, saveTemplate }: { templates: 
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not save template'); }
   };
   return <div className="modal-backdrop" onMouseDown={close}>
-    <div className="panel-modal web-clipper-panel" role="dialog" aria-modal="true" aria-label="Web clipper" onMouseDown={event => event.stopPropagation()}>
-      <div className="panel-head"><div><h2>{editingTemplate ? 'Create web clip template' : 'Web clipper'}</h2><p>{editingTemplate ? 'Use portable Markdown tokens to adapt Safire to a favorite site.' : 'Capture a public page into durable, offline-readable Markdown.'}</p></div><button type="button" onClick={close}>×</button></div>
+    <div ref={panelRef} className="panel-modal web-clipper-panel" role="dialog" aria-modal="true" aria-label="Web clipper" onMouseDown={event => event.stopPropagation()}>
+      <div className="panel-head"><div><h2>{editingTemplate ? 'Create web clip template' : 'Web clipper'}</h2><p>{editingTemplate ? 'Use portable Markdown tokens to adapt Safire to a favorite site.' : 'Capture a public page into durable, offline-readable Markdown.'}</p></div><button type="button" aria-label="Close dialog" onClick={close}>×</button></div>
+      {warning && <p className="form-error" role="status">{warning}</p>}
       {editingTemplate ? <form onSubmit={submitTemplate} className="web-clip-form">
         <div className="web-clip-grid"><label><span>Template name</span><input autoFocus value={draft.name} onChange={event => updateDraft('name', event.target.value)} placeholder="My site article" required /></label><label><span>Template id</span><input value={draft.id} onChange={event => updateDraft('id', event.target.value)} placeholder="my-site-article" required /></label></div>
         <label><span>Destination folder</span><input value={draft.folder} onChange={event => updateDraft('folder', event.target.value)} placeholder="Web Research" required /></label>
@@ -1174,6 +1260,7 @@ function withAttachmentParam(url: string, key: 'raw' | 'download') {
 }
 
 function AttachmentViewer({ viewer, close }: { viewer: AttachmentViewerState; close: () => void }) {
+  const panelRef = useDialogAccessibility<HTMLDivElement>(true, close);
   const [text, setText] = React.useState<string>('');
   const [error, setError] = React.useState<string>('');
   const rawUrl = React.useMemo(() => withAttachmentParam(viewer.url, 'raw'), [viewer.url]);
@@ -1195,7 +1282,7 @@ function AttachmentViewer({ viewer, close }: { viewer: AttachmentViewerState; cl
   }, [rawUrl, viewer.kind]);
 
   return <div className="modal-backdrop attachment-backdrop" onMouseDown={close}>
-    <div className="panel-modal attachment-viewer" role="dialog" aria-modal="true" aria-label={`Attachment preview: ${viewer.name}`} onMouseDown={e => e.stopPropagation()}>
+    <div ref={panelRef} className="panel-modal attachment-viewer" role="dialog" aria-modal="true" aria-label={`Attachment preview: ${viewer.name}`} onMouseDown={e => e.stopPropagation()}>
       <div className="attachment-toolbar">
         <button type="button" className="primary-action back-to-note" onClick={close}>← Back to note</button>
         <div className="attachment-title"><h2>{viewer.name}</h2><p>Attachment preview. Use Back to note, Esc, or × to return.</p></div>
@@ -1224,11 +1311,12 @@ function ImageResizeMenu({ menu, apply, close }: { menu: ImageResizeMenuState; a
 }
 
 function EvidenceComposer({ close, insert }: { close: () => void; insert: (draft: EvidenceDraft) => void }) {
+  const panelRef = useDialogAccessibility<HTMLFormElement>(true, close);
   const [draft, setDraft] = React.useState<EvidenceDraft>(defaultEvidenceDraft);
   const [details, setDetails] = React.useState(false);
   const update = <K extends keyof EvidenceDraft>(key: K, value: EvidenceDraft[K]) => setDraft(current => ({ ...current, [key]: value }));
-  return <div className="modal-backdrop" onMouseDown={close}><form className="panel-modal evidence-composer" onMouseDown={event => event.stopPropagation()} onSubmit={event => { event.preventDefault(); insert(draft); }}>
-    <div className="panel-head"><div><h2>Evidence receipt</h2><p>Private by default: this inserts portable local Markdown only. Nothing is shared or synced.</p></div><button type="button" onClick={close}>×</button></div>
+  return <div className="modal-backdrop" onMouseDown={close}><form ref={panelRef} className="panel-modal evidence-composer" role="dialog" aria-modal="true" aria-label="Evidence receipt" onMouseDown={event => event.stopPropagation()} onSubmit={event => { event.preventDefault(); insert(draft); }}>
+    <div className="panel-head"><div><h2>Evidence receipt</h2><p>Private by default: this inserts portable local Markdown only. Nothing is shared or synced.</p></div><button type="button" aria-label="Close dialog" onClick={close}>×</button></div>
     <div className="evidence-form-grid"><label className="wide"><span>Claim or label</span><input autoFocus value={draft.claim} onChange={event => update('claim', event.target.value)} placeholder="What important claim are you recording?" required /></label><label><span>Source type</span><select value={draft.sourceType} onChange={event => update('sourceType', event.target.value as EvidenceSourceType)}>{EVIDENCE_SOURCES.map(source => <option key={source.value} value={source.value}>{source.label}</option>)}</select></label><label><span>Result status</span><select value={draft.status} onChange={event => update('status', event.target.value as EvidenceStatus)}>{EVIDENCE_STATUSES.map(status => <option key={status} value={status}>{status}</option>)}</select></label><label className="wide"><span>Source URL or local path</span><input value={draft.source} onChange={event => update('source', event.target.value)} placeholder="https://… or C:\\…" /></label><label><span>Observed at</span><input type="datetime-local" value={draft.observedAt.slice(0, 16)} onChange={event => update('observedAt', event.target.value ? new Date(event.target.value).toISOString() : '')} /></label><label><span>Freshness / expiry</span><input type="datetime-local" value={draft.freshness.slice(0, 16)} onChange={event => update('freshness', event.target.value ? new Date(event.target.value).toISOString() : '')} /></label></div>
     <button type="button" className="evidence-details-toggle" onClick={() => setDetails(value => !value)}>{details ? 'Hide detailed evidence' : 'Add action, verification, excerpt, hash, and private notes'}</button>
     {details && <div className="evidence-form-grid evidence-details"><label className="wide"><span>Action performed</span><input value={draft.action} onChange={event => update('action', event.target.value)} placeholder="What was done?" /></label><label className="wide"><span>Verification predicate / test</span><input value={draft.verification} onChange={event => update('verification', event.target.value)} placeholder="What condition proves or challenges the claim?" /></label><label className="wide"><span>Evidence excerpt</span><textarea value={draft.excerpt} onChange={event => update('excerpt', event.target.value)} /></label><label><span>SHA-256 / hash</span><input value={draft.hash} onChange={event => update('hash', event.target.value)} /></label><label><span>Private notes</span><input value={draft.privateNotes} onChange={event => update('privateNotes', event.target.value)} /></label></div>}
@@ -1237,6 +1325,7 @@ function EvidenceComposer({ close, insert }: { close: () => void; insert: (draft
 }
 
 function EvidencePanel({ receipts, close, add }: { receipts: EvidenceReceipt[]; close: () => void; add: () => void }) {
+  const panelRef = useDialogAccessibility<HTMLElement>(true, close);
   const [selected, setSelected] = React.useState<string[]>(() => receipts.map(receipt => receipt.id));
   const [redactions, setRedactions] = React.useState<Set<keyof EvidenceDraft>>(() => new Set(['privateNotes']));
   const selectedReceipts = receipts.filter(receipt => selected.includes(receipt.id));
@@ -1250,7 +1339,7 @@ function EvidencePanel({ receipts, close, add }: { receipts: EvidenceReceipt[]; 
   const exportJson = () => { const blob = new Blob([JSON.stringify(selectedReceipts.map(clean), null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'safire-evidence-receipts.json'; anchor.click(); URL.revokeObjectURL(url); };
   const toggleReceipt = (id: string) => setSelected(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
   const toggleRedaction = (field: keyof EvidenceDraft) => setRedactions(current => { const next = new Set(current); next.has(field) ? next.delete(field) : next.add(field); return next; });
-  return <div className="modal-backdrop" onMouseDown={close}><section className="panel-modal evidence-panel" onMouseDown={event => event.stopPropagation()}><div className="panel-head"><div><h2>Evidence for this note</h2><p>Select receipt(s), redact fields, then copy portable Markdown or export local JSON.</p></div><button onClick={close}>×</button></div>{receipts.length ? <><div className="evidence-export-actions"><button onClick={() => setSelected(receipts.map(receipt => receipt.id))}>Select all</button><button onClick={() => setSelected([])}>Clear</button><button className="primary-action" disabled={!selectedReceipts.length} onClick={() => void copyMarkdown()}>Copy Markdown</button><button disabled={!selectedReceipts.length} onClick={exportJson}>Export JSON</button></div><div className="evidence-receipt-list">{receipts.map(receipt => <label key={receipt.id}><input type="checkbox" checked={selected.includes(receipt.id)} onChange={() => toggleReceipt(receipt.id)} /><span className={`evidence-status ${receipt.status}`}>{receipt.status}</span><b>{receipt.claim || 'Untitled receipt'}</b><small>{EVIDENCE_SOURCES.find(source => source.value === receipt.sourceType)?.label} · {receipt.observedAt ? new Date(receipt.observedAt).toLocaleString() : 'No timestamp'}{receipt.expired ? ' · expired' : ''}</small></label>)}</div><fieldset className="evidence-redactions"><legend>Redact before copy/export</legend>{EVIDENCE_FIELDS.map(field => <label key={field.key}><input type="checkbox" checked={redactions.has(field.key)} onChange={() => toggleRedaction(field.key)} /> {field.label}</label>)}</fieldset></> : <p className="empty-home">No receipts in this note yet.</p>}<div className="dialog-actions"><button onClick={close}>Close</button><button onClick={add}>Add receipt</button></div></section></div>;
+  return <div className="modal-backdrop" onMouseDown={close}><section ref={panelRef} className="panel-modal evidence-panel" role="dialog" aria-modal="true" aria-label="Evidence for this note" onMouseDown={event => event.stopPropagation()}><div className="panel-head"><div><h2>Evidence for this note</h2><p>Select receipt(s), redact fields, then copy portable Markdown or export local JSON.</p></div><button type="button" aria-label="Close dialog" onClick={close}>×</button></div>{receipts.length ? <><div className="evidence-export-actions"><button onClick={() => setSelected(receipts.map(receipt => receipt.id))}>Select all</button><button onClick={() => setSelected([])}>Clear</button><button className="primary-action" disabled={!selectedReceipts.length} onClick={() => void copyMarkdown()}>Copy Markdown</button><button disabled={!selectedReceipts.length} onClick={exportJson}>Export JSON</button></div><div className="evidence-receipt-list">{receipts.map(receipt => <label key={receipt.id}><input type="checkbox" checked={selected.includes(receipt.id)} onChange={() => toggleReceipt(receipt.id)} /><span className={`evidence-status ${receipt.status}`}>{receipt.status}</span><b>{receipt.claim || 'Untitled receipt'}</b><small>{EVIDENCE_SOURCES.find(source => source.value === receipt.sourceType)?.label} · {receipt.observedAt ? new Date(receipt.observedAt).toLocaleString() : 'No timestamp'}{receipt.expired ? ' · expired' : ''}</small></label>)}</div><fieldset className="evidence-redactions"><legend>Redact before copy/export</legend>{EVIDENCE_FIELDS.map(field => <label key={field.key}><input type="checkbox" checked={redactions.has(field.key)} onChange={() => toggleRedaction(field.key)} /> {field.label}</label>)}</fieldset></> : <p className="empty-home">No receipts in this note yet.</p>}<div className="dialog-actions"><button onClick={close}>Close</button><button onClick={add}>Add receipt</button></div></section></div>;
 }
 
 function MarkdownToolbar({ insert, attach, evidence }: { insert: (before: string, after?: string, placeholder?: string) => void; attach: () => void; evidence: () => void }) {
@@ -1277,29 +1366,33 @@ function MarkdownToolbar({ insert, attach, evidence }: { insert: (before: string
 }
 
 function SettingsPanel({ settings, close, save }: { settings: SafireSettings; close: () => void; save: (settings: SafireSettings) => Promise<void> }) {
+  const panelRef = useDialogAccessibility<HTMLFormElement>(true, close);
   const [draft, setDraft] = React.useState(settings);
+  const [error, setError] = React.useState('');
   const update = <K extends keyof SafireSettings>(key: K, value: SafireSettings[K]) => setDraft(prev => ({ ...prev, [key]: value }));
   return <div className="modal-backdrop" onMouseDown={close}>
-    <form className="panel-modal settings-panel" onMouseDown={e => e.stopPropagation()} onSubmit={async e => { e.preventDefault(); await save(draft); close(); }}>
-      <div className="panel-head"><div><h2>Safire Settings</h2><p>Vault-backed application preferences.</p></div><button type="button" onClick={close}>×</button></div>
+    <form ref={panelRef} className="panel-modal settings-panel" role="dialog" aria-modal="true" aria-label="Safire settings" onMouseDown={e => e.stopPropagation()} onSubmit={async e => { e.preventDefault(); try { await save(draft); close(); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not save settings'); } }}>
+      <div className="panel-head"><div><h2>Safire Settings</h2><p>Vault-backed application preferences.</p></div><button type="button" aria-label="Close dialog" onClick={close}>×</button></div>
       <label><span>Autosave</span><input type="checkbox" checked={draft.autosave} onChange={e => update('autosave', e.target.checked)} /></label>
       <label><span>Autosave delay, ms</span><input type="number" min={250} max={10000} step={50} value={draft.autosaveDelay} onChange={e => update('autosaveDelay', Number(e.target.value))} /></label>
       <label><span>Startup note</span><input value={draft.startupNote} onChange={e => update('startupNote', e.target.value)} /></label>
       <label><span>Default note view</span><select value={draft.defaultMode} onChange={e => update('defaultMode', e.target.value as NoteMode)}><option value="split">Split</option><option value="edit">Edit</option><option value="preview">Preview</option></select></label>
       <label><span>Daily notes folder</span><input value={draft.dailyNotesFolder} onChange={e => update('dailyNotesFolder', e.target.value)} /></label>
-      <label><span>Backup retention days</span><input type="number" min={1} max={365} value={draft.backupRetentionDays} onChange={e => update('backupRetentionDays', Number(e.target.value))} /></label>
+      <p className="settings-note">Backups stay in your vault until you remove them. Safire does not automatically expire them.</p>
       <label><span>Confirm deletes</span><input type="checkbox" checked={draft.confirmDeletes} onChange={e => update('confirmDeletes', e.target.checked)} /></label>
       <label><span>Fit images to page</span><input type="checkbox" checked={draft.fitImagesToPage !== false} onChange={e => update('fitImagesToPage', e.target.checked)} /></label>
       <label><span>Theme</span><select value={draft.theme} onChange={e => update('theme', e.target.value as ThemeMode)}><option value="dark">Dark</option><option value="light">Light</option></select></label>
+      {error && <p className="form-error" role="alert">{error}</p>}
       <div className="dialog-actions"><button type="button" onClick={close}>Cancel</button><button type="submit" className="primary-action">Save settings</button></div>
     </form>
   </div>;
 }
 
 function BackupsPanel({ activePath, backups, preview, close, refresh, show, restore }: { activePath: string; backups: BackupItem[]; preview: { item: BackupItem; content: string } | null; close: () => void; refresh: () => Promise<BackupItem[]>; show: (item: BackupItem) => Promise<void>; restore: (item: BackupItem) => Promise<void> }) {
+  const panelRef = useDialogAccessibility<HTMLDivElement>(true, close);
   return <div className="modal-backdrop" onMouseDown={close}>
-    <div className="panel-modal backups-panel" onMouseDown={e => e.stopPropagation()}>
-      <div className="panel-head"><div><h2>Backups for {activePath}</h2><p>Preview or restore the versions Safire created before saves/deletes.</p></div><button onClick={close}>×</button></div>
+    <div ref={panelRef} className="panel-modal backups-panel" role="dialog" aria-modal="true" aria-label="Note backups" onMouseDown={e => e.stopPropagation()}>
+      <div className="panel-head"><div><h2>Backups for {activePath}</h2><p>Preview or restore the versions Safire created before saves/deletes.</p></div><button type="button" aria-label="Close dialog" onClick={close}>×</button></div>
       <div className="backup-layout">
         <div className="backup-list">
           <button className="wide" onClick={() => refresh()}>Refresh backups</button>
@@ -1375,16 +1468,19 @@ function SafireModal({ dialog, close, done }: { dialog: SafireDialog; close: () 
 
 function FileTree({ nodes, activePath, openNote, depth = 0 }: { nodes: TreeNode[]; activePath: string; openNote: (path: string) => void; depth?: number }) {
   const [closed, setClosed] = React.useState<Record<string, boolean>>({});
-  return <div className="file-tree">{nodes.map(n => n.type === 'folder' ? <div key={n.path}><button className="folder-row" style={{ paddingLeft: 8 + depth*16 }} onClick={() => setClosed(c => ({ ...c, [n.path]: !c[n.path] }))}>{closed[n.path] ? '▸' : '▾'} {n.name}</button>{!closed[n.path] && <FileTree nodes={n.children || []} activePath={activePath} openNote={openNote} depth={depth+1} />}</div> : <button key={n.path} className={'file-row '+(n.path===activePath?'active':'')} style={{ paddingLeft: 8 + depth*16 }} onClick={() => openNote(n.path)}>◦ {n.title}</button>)}</div>;
+  const [visible, setVisible] = React.useState(100);
+  const isClosed = (node: TreeNode) => closed[node.path] ?? ((node.children?.length || 0) > 30 && !activePath.startsWith(node.path + '/'));
+  return <div className="file-tree">{nodes.slice(0,visible).map(n => n.type === 'folder' ? <div key={n.path}><button className="folder-row" aria-expanded={!isClosed(n)} style={{ paddingLeft: 8 + depth*16 }} onClick={() => setClosed(c => ({ ...c, [n.path]: !isClosed(n) }))}>{isClosed(n) ? '▸' : '▾'} {n.name}</button>{!isClosed(n) && <FileTree nodes={n.children || []} activePath={activePath} openNote={openNote} depth={depth+1} />}</div> : <button key={n.path} className={'file-row '+(n.path===activePath?'active':'')} style={{ paddingLeft: 8 + depth*16 }} onClick={() => openNote(n.path)}>◦ {n.title}</button>)}{nodes.length>visible&&<button className="load-more" onClick={()=>setVisible(count=>count+100)}>Show more · {nodes.length-visible} remaining</button>}</div>;
 }
 
 function Palette({ title, query, setQuery, close, items }: { title: string; query: string; setQuery: (q: string) => void; close: () => void; items: { label: string; sub: string; run: () => void|Promise<void> }[] }) {
+  const panelRef = useDialogAccessibility<HTMLDivElement>(true, close);
   const filtered = items.filter(i => (i.label + ' ' + i.sub).toLowerCase().includes(query.toLowerCase())).slice(0, 12);
   const [selected, setSelected] = React.useState(0);
   React.useEffect(() => { setSelected(0); }, [query, title]);
   React.useEffect(() => { const el = document.querySelector('.palette input') as HTMLInputElement | null; setTimeout(() => el?.focus(), 20); }, []);
   const runSelected = async () => { const item = filtered[Math.min(selected, Math.max(0, filtered.length - 1))]; if (item) await item.run(); };
-  return <div className="modal-backdrop" onMouseDown={close}><div className="palette" onMouseDown={e => e.stopPropagation()}><h2>{title}</h2><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Type to filter..." onKeyDown={e => {
+  return <div className="modal-backdrop" onMouseDown={close}><div ref={panelRef} className="palette" role="dialog" aria-modal="true" aria-label={title} onMouseDown={e => e.stopPropagation()}><h2>{title}</h2><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Type to filter..." onKeyDown={e => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setSelected(i => Math.min(filtered.length - 1, i + 1)); }
     if (e.key === 'ArrowUp') { e.preventDefault(); setSelected(i => Math.max(0, i - 1)); }
     if (e.key === 'Enter') { e.preventDefault(); runSelected(); }

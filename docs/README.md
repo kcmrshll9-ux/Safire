@@ -1,10 +1,11 @@
 # Safire documentation
 
-This directory contains bundled Safire user and agent documentation. Safire is currently version 1.6.2; the searchable in-app Help Center is the complete current software guide, while versioned manuals are retained as clearly labeled historical references. The current application also contains the additive, opt-in general-agent memory foundation.
+This directory contains bundled Safire user and agent documentation. Safire is currently version 1.7.0; the searchable in-app Help Center is the complete current software guide, while versioned manuals are retained as clearly labeled historical references. The current application also contains the additive, opt-in general-agent memory foundation.
 
 ## Current references
 
 - [Project README](../README.md) — current product status, privacy boundaries, graph behavior, build instructions, and repository policies
+- [Writing and research workspace](PRODUCT_WORK.md) — protected drafts, conflicts, link-aware renames, library capacity, and research briefs
 - [Changelog](../CHANGELOG.md) — current and historical source milestones
 - [Support](../SUPPORT.md) — safe support and bug-reporting workflow
 - [Security policy](../SECURITY.md) — private vulnerability-reporting process

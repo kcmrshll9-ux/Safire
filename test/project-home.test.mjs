@@ -213,7 +213,6 @@ test('project Home opens entries in the editor and offers backed-up per-file del
   assert.match(home, /projectBackRef\.current\?\.focus\(\)/);
   assert.match(home, /projectCardRefs\.current\.get\(returnPath\)/);
   assert.match(home, /preferredEntry \|\| firstEntry \|\| createFirstEntryRef\.current \|\| projectHeadingRef\.current/);
-  assert.match(main, /setProjectIndexComplete\(notesData\.meta\?\.truncated !== true && treeData\.meta\?\.truncated !== true\)/);
   assert.match(main, /setStatus\(`Project \$\{data\.path\} is ready`\)/);
   assert.match(main, /const openProjectEntry = React\.useCallback\(async/);
   assert.match(main, /if \(path === activePath\)/);

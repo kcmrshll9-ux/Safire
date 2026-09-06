@@ -61,6 +61,54 @@ test('Safire accepts only loopback same-origin API browser requests', async () =
   });
 });
 
+test('route-equivalent API paths enforce origin, metadata, cache and attachment policies', async () => {
+  await withTemporaryVault(async ({ vault, backend }) => {
+    for (const endpoint of ['/API/daily', '/aPi/library/refresh']) {
+      for (const headers of [{ Origin: 'https://hostile.example' }, { 'Sec-Fetch-Site': 'cross-site' }]) {
+        const response = await fetch(`${backend.url}${endpoint}`, { method: 'POST', headers });
+        assert.equal(response.status, 403);
+        assert.equal(response.headers.get('cache-control'), 'no-store');
+      }
+    }
+    assert.equal((await fs.readdir(path.join(vault, 'Daily Notes')).catch(() => [])).length, 0);
+    const accepted = await fetch(`${backend.url}/aPi/daily`, { method: 'POST', headers: { Origin: backend.url, 'Sec-Fetch-Site': 'same-origin' } });
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.headers.get('cache-control'), 'no-store');
+    const note = await accepted.json();
+    assert.match(await fs.readFile(path.join(vault, note.path), 'utf8'), /## Notes/);
+    const raw = await fetch(`${backend.url}/API/ATTACHMENT?path=Attachments/missing.pdf&raw=1`);
+    assert.equal(raw.headers.get('x-frame-options'), 'SAMEORIGIN');
+    assert.equal(raw.headers.get('cache-control'), 'no-store');
+  });
+});
+
+test('configuration API rejects linked leaves without reading or changing outside files', async t => {
+  await withTemporaryVault(async ({ root, vault, backend }) => {
+    const cases = [
+      ['settings.json', '/api/settings', 'PUT', { theme: 'light' }],
+      ['workspace.json', '/api/workspace', 'POST', { name: 'Example', query: 'notes' }, '/api/workspace/search'],
+      ['web-clip-templates.json', '/api/web-clip/templates', 'POST', { id: 'example', name: 'Example', folder: 'Research', description: 'Example', body: '{{content}}' }],
+    ];
+    for (const [name, endpoint, method, body, writeEndpoint] of cases) {
+      const leaf = path.join(vault, '.safire', name);
+      const outside = path.join(root, `outside-${name}`);
+      await fs.writeFile(outside, 'outside non-JSON sentinel');
+      await fs.rm(leaf, { force: true });
+      try { await fs.symlink(outside, leaf, 'file'); }
+      catch (error) {
+        if (['EPERM', 'ENOSYS'].includes(error.code)) { t.skip(`File symlinks unavailable: ${error.code}`); return; }
+        throw error;
+      }
+      const read = await fetch(`${backend.url}${endpoint}`);
+      assert.equal(read.status, 400);
+      const write = await fetch(`${backend.url}${writeEndpoint || endpoint}`, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      assert.equal(write.status, 400);
+      assert.equal(await fs.readFile(outside, 'utf8'), 'outside non-JSON sentinel');
+      await fs.unlink(leaf);
+    }
+  });
+});
+
 test('Safire API responses do not disclose absolute vault paths', async () => {
   await withTemporaryVault(async ({ root, vault, backend }) => {
     for (const endpoint of ['/api/health', '/api/tree', '/api/notes']) {
@@ -76,6 +124,26 @@ test('Safire API responses do not disclose absolute vault paths', async () => {
     const error = await missing.json();
     assert.equal(error.error, 'The requested item was not found');
     assert.equal(JSON.stringify(error).includes(path.resolve(root)), false);
+  });
+});
+
+test('large existing custom template collections work and oversized collections preserve built-in clipping', async () => {
+  await withTemporaryVault(async ({ vault, backend }) => {
+    const custom = Array.from({ length: 12 }, (_, index) => ({ id: `custom-${index}`, name: `Template ${index}`, folder: 'Research', body: '界'.repeat(30000) }));
+    const filename = path.join(vault, '.safire', 'web-clip-templates.json');
+    await fs.writeFile(filename, JSON.stringify({ custom }));
+    const ordinary = await fetch(`${backend.url}/api/web-clip/templates`).then(r => r.json());
+    assert.ok(ordinary.templates.some(template => template.id === 'custom-11'));
+    const oversized = JSON.stringify({ custom: Array.from({ length: 100 }, (_, index) => ({ ...custom[0], id: `large-${index}` })) });
+    await fs.writeFile(filename, oversized);
+    const limited = await fetch(`${backend.url}/api/web-clip/templates`).then(r => r.json());
+    assert.match(limited.warning, /preserved/);
+    assert.ok(limited.templates.some(template => template.id === 'article'));
+    const clipped = await fetch(`${backend.url}/api/web-clip`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/article', html: '<html><title>Local fixture</title><article>Useful text.</article></html>', templateId: 'article' }) });
+    assert.equal(clipped.status, 201);
+    const write = await fetch(`${backend.url}/api/web-clip/templates`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...custom[0], id: 'new-template' }) });
+    assert.equal(write.status, 400);
+    assert.equal(await fs.readFile(filename, 'utf8'), oversized);
   });
 });
 

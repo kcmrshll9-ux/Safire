@@ -1,0 +1,141 @@
+/* Safire's shared visual language. All themes and semantic colors belong here. */
+:root {
+  color-scheme: dark;
+  --font-ui: 'Segoe UI', system-ui, sans-serif;
+  --font-display: Georgia, 'Times New Roman', serif;
+  --font-mono: 'Cascadia Code', Consolas, ui-monospace, monospace;
+  --ink: #edf0e7;
+  --muted: #a4afa5;
+  --paper: #18201c;
+  --surface: #222c25;
+  --chrome: #131b16;
+  --line: #3b473e;
+  --accent: #ddb27e;
+  --accent-ink: #252017;
+  --accent-hover: #ebc79c;
+  --accent-soft: #343127;
+  --success: #b2cca6;
+  --success-soft: #27372c;
+  --warning: #e3bb83;
+  --warning-soft: #393124;
+  --danger: #f0a8a2;
+  --danger-soft: #3a2828;
+  --danger-solid: #a04440;
+  --on-danger: #ffffff;
+  --info: #a7c8c1;
+  --info-soft: #22352f;
+  --overlay: #0b120fc2;
+  --shadow: 0 20px 64px #0005;
+  --shadow-popover: 0 12px 36px #0005;
+  --group-0: #b8cda7;
+  --group-1: #e0b287;
+  --group-2: #9bc6bd;
+  --group-3: #c4b6ca;
+  --group-4: #d9c987;
+  --group-5: #d4a3a6;
+}
+html[data-theme='light'] {
+  color-scheme: light;
+  --ink: #293a30;
+  --muted: #657168;
+  --paper: #fbfaf5;
+  --surface: #f0f2e9;
+  --chrome: #eeefe5;
+  --line: #d3d9cc;
+  --accent: #42614e;
+  --accent-ink: #fffef8;
+  --accent-hover: #304d3b;
+  --accent-soft: #e2e9da;
+  --success: #45643c;
+  --success-soft: #e5eddc;
+  --warning: #82551b;
+  --warning-soft: #f6ecd5;
+  --danger: #a33d36;
+  --danger-soft: #f8e6df;
+  --danger-solid: #a33d36;
+  --info: #3b6860;
+  --info-soft: #e2ede6;
+  --overlay: #18261e8f;
+  --shadow: 0 20px 64px #25392826;
+  --shadow-popover: 0 12px 36px #25392826;
+  --group-0: #486c42;
+  --group-1: #97653d;
+  --group-2: #36776c;
+  --group-3: #7d6787;
+  --group-4: #8c7629;
+  --group-5: #a35d67;
+}
+
+/* Compatibility aliases let existing components share the same source of truth. */
+html[data-theme] {
+  --text: var(--ink);
+  --text-primary: var(--ink);
+  --text-muted: var(--muted);
+  --bg: var(--chrome);
+  --bg-elevated: var(--paper);
+  --surface-strong: var(--paper);
+  --surface-soft: var(--surface);
+  --surface-hover: var(--surface);
+  --surface-selected: var(--accent-soft);
+  --surface-group: var(--surface);
+  --panel: var(--paper);
+  --panel2: var(--surface);
+  --border-soft: var(--line);
+  --control-border: var(--line);
+  --control-radius: 7px;
+  --card-radius: 10px;
+  --control-height: 36px;
+  --cta: var(--accent);
+  --cta-hover: var(--accent-hover);
+  --cta-soft: var(--accent-soft);
+  --focus-ring: var(--accent);
+  --shadow-panel: var(--shadow);
+  --accent-2: var(--accent);
+  --ember: var(--accent);
+  --rose: var(--danger);
+  --violet: var(--info);
+  --aqua: var(--info);
+  --gold: var(--accent);
+  --safire-gradient: var(--accent);
+  --safire-gradient-soft: var(--accent-soft);
+}
+
+html[data-theme] body { margin: 0; background: var(--paper); color: var(--ink); font: 14px/1.55 var(--font-ui); }
+body::before, body::after { content: none; }
+section { margin-top: 0; }
+button, input, select, textarea { font: inherit; }
+button, .secondary-action {
+  min-height: var(--control-height); padding: 8px 13px;
+  color: var(--ink); background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--control-radius); font-size: 13px; font-weight: 500;
+  line-height: 1.4; text-shadow: none; box-shadow: none;
+  text-decoration: none; cursor: pointer; transition: background .15s, border-color .15s, color .15s;
+}
+button:hover, .secondary-action:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); transform: none; box-shadow: none; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+input, select, textarea {
+  min-width: 0; color: var(--ink); background: var(--paper); border: 1px solid var(--line);
+  border-radius: var(--control-radius); padding: 10px 12px; font-size: 13px; line-height: 1.5; box-shadow: none;
+}
+input::placeholder, textarea::placeholder { color: var(--muted); opacity: .85; }
+input[type='checkbox'], input[type='radio'] { width: 17px; height: 17px; min-width: 17px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+input[type='range'] { accent-color: var(--accent); padding: 0; border: 0; background: transparent; }
+input:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: none; }
+:is(button, a, input, textarea, select, summary, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+:is(h1, h2, h3, h4, h5, h6) { color: var(--ink); text-shadow: none; }
+h2 { text-transform: none; letter-spacing: -.4px; }
+h3 { font-size: 16px; letter-spacing: 0; }
+a { color: var(--accent); text-underline-offset: 3px; }
+code, pre, kbd { font-family: var(--font-mono); }
+code, kbd { color: var(--ink); background: var(--surface); border-radius: 4px; }
+kbd { padding: 2px 5px; border: 1px solid var(--line); font-size: 11px; }
+hr { height: 1px; border: 0; background: var(--line); }
+::selection { background: var(--accent); color: var(--accent-ink); }
+* { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+
+.primary, .primary-action, .back-to-note { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+.primary:hover, .primary-action:hover, .back-to-note:hover { background: var(--accent-hover); color: var(--accent-ink); }
+.danger-action { background: var(--danger-solid); color: var(--on-danger); border-color: transparent; }
+.danger-action:hover { background: var(--danger-solid); color: var(--on-danger); filter: brightness(.95); }
+.danger, .form-error, .attachment-error { color: var(--danger); }
+.small, .empty, .empty-home, .empty-template, .crumb { color: var(--muted); }

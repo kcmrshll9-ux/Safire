@@ -10,52 +10,52 @@
 
 <p align="center">
   <a href="https://github.com/kcmrshll9-ux/Safire/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/kcmrshll9-ux/Safire/actions/workflows/ci.yml/badge.svg" /></a>
-  <img alt="Version 1.6.2" src="https://img.shields.io/badge/version-1.6.2-f97316" />
-  <img alt="Windows, macOS, and Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-2563eb" />
-  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-22c55e" /></a>
+  <img alt="Version 1.7.0" src="https://img.shields.io/badge/version-1.7.0-42614e" />
+  <img alt="Windows, macOS, and Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-657168" />
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-42614e" /></a>
 </p>
 
 Safire keeps notes as ordinary Markdown files in a vault you choose. It adds a focused desktop workspace for writing, linking, research capture, graph exploration, tasks, attachments, and recovery without requiring a cloud account.
 
+**Safire 1.7.0** brings protected drafts, conflict review, link-aware renames, a searchable library, and a research desk into one consistent workspace. Warm paper in light mode; forest and gold after dark. [Download the release](https://github.com/kcmrshll9-ux/Safire/releases/tag/v1.7.0) or explore [what changed](docs/PRODUCT_WORK.md).
+
 <p align="center">
-  <img src="docs/assets/safire-graph.png" alt="Safire mouse-rotatable full-screen 3D project graph" width="100%" />
+  <img src="docs/assets/safire-workspace-light.png" alt="Safire 1.7.0 writing and research workspace in light mode" width="100%" />
 </p>
 
-<p align="center"><sub>Mouse-rotatable 3D Full graph using an invented demonstration project.</sub></p>
+<p align="center"><sub>Safire 1.7.0 · Invented notes in a demonstration vault.</sub></p>
+
+<details>
+<summary>Explore dark mode and the research desk</summary>
+
+![Safire 1.7.0 workspace in dark mode](docs/assets/safire-workspace-dark.png)
+
+![Safire 1.7.0 research desk with invented source notes](docs/assets/safire-research.png)
+
+</details>
 
 ## Project status
 
 | Item | Current state |
 | --- | --- |
-| Current version | 1.6.2 |
-| Current source | Safire 1.6.2 release source; see the changelog below |
+| Current version | 1.7.0 |
+| Current source | Protected writing, connected projects, and research briefs |
 | Desktop targets | Windows x64, macOS Apple Silicon and Intel, Linux x64 |
 | Storage | Local Markdown vault selected by the user |
-| Official downloads | [Safire 1.6.2](https://github.com/kcmrshll9-ux/Safire/releases/tag/v1.6.2) |
+| Official downloads | [Safire 1.7.0](https://github.com/kcmrshll9-ux/Safire/releases/tag/v1.7.0) |
 | License | [MIT](LICENSE) |
 
-Safire is under active development. Version 1.6.2 is a focused Windows/Electron hotfix that restores native full-screen mode for the mouse-rotatable perspective 3D Full graph. It otherwise retains the graph experience introduced in 1.6.1: a deterministic, folder-clustered Project map, explicit grouped-note expansion, selected-note connections, and a lossless Full graph with project isolation and project-relative links. See the [changelog](CHANGELOG.md) for details. Back up important vaults independently and review the [security policy](SECURITY.md) before using Safire with sensitive material.
+Version 1.7.0 focuses on dependable writing and a coherent desktop experience. Your Markdown remains authoritative; recovery checkpoints, guarded saves, and rebuildable search support your work. See the [changelog](CHANGELOG.md) for the complete changes and the [privacy model](PRIVACY.md) for storage and network boundaries.
 
 ## Highlights
 
-- Project-only Home index built from user-named top-level folders, with entries and an isolated relationship graph inside each project
-- Local filesystem-backed Markdown vault with nested notes and folders
-- Split editor and preview, focused edit and reading modes, and tabbed notes
-- Search, tags, backlinks, outgoing links, and `[[wiki links]]`
-- Deterministic 2D Project map with stable folder regions, explicit grouped-note expansion, and selected-note connections; notes from other projects are excluded
-- Large graph responses are limited to 1,000 notes, 2,000 links, and 2 MiB of response data; link targets and aliases are limited to 1,024 characters and 2 KiB, at most 250 unique unresolved placeholders are rendered, the active note is retained, and truncation or omitted imported content is visibly labeled
-- Lossless Full graph with project-relative links, mouse-rotatable perspective 3D, full-screen exploration, depth, filters, folder/tag grouping, display controls, and adjustable forces
-- Node hover, drag, pan, zoom, keyboard navigation, accessible rotation and full-screen shortcuts, context actions, and in-graph note panels
-- Daily notes, Markdown tasks, templates, quick capture, and saved searches
-- Command palette, quick switcher, and Markdown formatting controls
-- Drag-and-drop, paste, and file attachments
-- Cross-process serialized note mutations with complete backup-before-write publication, exact versioned path metadata, preview, and contained restore tools
-- Web Clipper and private evidence receipts for local research workflows
-- Vault health summaries and configurable vault settings
-- Legacy vault-scoped MCP server with a deliberately narrow eight-tool surface
-- Optional, additive six-tool MCP sidecar for attributed general-agent memory
-- Searchable in-app Help Center with complete workflows, use cases, AI connection steps, safe prompt examples, troubleshooting, and licensing
-- More reliable Windows portable startup and vault-location restart behavior
+- **Write with confidence.** Draft checkpoints survive navigation and restarts. Conflicting external edits open a comparison instead of silently replacing your work.
+- **A workspace that fits together.** Home, editor, projects, graph, tasks, capture, settings, and Help share consistent light and dark themes. Focus mode clears space for writing.
+- **Find your way back.** Recent notes, saved searches, tags, and a paged SQLite library make large vaults easier to navigate. Import Markdown without overwriting existing files.
+- **Connect your ideas.** Wikilinks, backlinks, rename previews, and isolated project graphs keep relationships visible. Explore the deterministic Project map or the mouse-rotatable 3D Full graph.
+- **Make research useful.** Capture public pages, record evidence, filter recorded assessments, and export a self-contained Markdown or designed HTML brief.
+- **Everyday tools, close at hand.** Daily notes, tasks, templates, quick capture, attachments, keyboard commands, and searchable Help.
+- **Local agent integrations.** An eight-tool Markdown MCP and a separate, opt-in six-tool attributed memory MCP. Neither captures conversations automatically.
 
 ## Privacy model
 
@@ -69,8 +69,8 @@ Safire keeps its primary data in the selected local vault, but some user-request
 - The memory sidecar records only explicit tool or host calls. It does not monitor transcripts or auto-capture agent activity.
 - The Web Clipper makes an outbound request only when the user asks it to capture a public URL.
 - Recognized YouTube links use a local-only card and contact YouTube only after the user opens the link.
-- Imported note bodies larger than 1 MiB are checked by metadata only and omitted from generic metadata, search, MCP list/search, and graph indexing; explicit note reads remain available. A single index operation reads at most 16 MiB of note bodies.
-- Generic note, tree, template, search, task, backlink, backup-list, vault-health, graph, and matching eight-tool MCP index responses retain at most 1,000 notes or backup entries and 2 MiB of serialized output. Task lists retain at most 2,000 tasks; tags, links, evidence receipts, paths, fields, traversed directories, directory entries, and nesting depth have additional fixed per-note and per-operation ceilings. Generic backup metadata and filtered content verification share a 16 MiB operation-read budget; explicit backup preview and restore remain separate explicit reads. Truncated results include conservative completion metadata: observed counts are lower bounds once traversal stops, not exact vault totals.
+- Imported note bodies larger than 1 MiB are checked by metadata only and omitted from generic metadata, search, MCP list/search, and graph indexing; explicit note reads remain available. The library catalog supports 100,000 notes, 250,000 entries, and a 256 MiB body-read budget per refresh. Search returns pages of at most 500 notes; the sidebar loads up to 10,000. Legacy projections retain a 16 MiB body-read budget.
+- Legacy note, tree, template, search, task, backlink, backup-list, vault-health, graph, and matching eight-tool MCP index responses retain at most 1,000 notes or backup entries and 2 MiB of serialized output. Task lists retain at most 2,000 tasks; tags, links, evidence receipts, paths, fields, traversed directories, directory entries, and nesting depth have additional fixed per-note and per-operation ceilings. Generic backup metadata and filtered content verification share a 16 MiB operation-read budget; explicit backup preview and restore remain separate explicit reads. Truncated results include conservative completion metadata: observed counts are lower bounds once traversal stops, not exact vault totals.
 - Generic metadata, search, graph, health, task, and MCP projections exclude ordinary fenced code. Valid `safire-evidence` blocks contribute only their allowlisted public fields; private, malformed, ambiguous, and unclosed evidence contributes nothing. Explicit note reads retain raw Markdown, while explicit evidence reads retain private evidence fields by design.
 - Safire reserves `.safire`, `.safire-backups`, and `.safire-note-mutations.lock` as internal vault path components. Note and folder mutations targeting those components are rejected before mutation-lock acquisition; on Windows, DOS short-name and alternate-stream spellings are conservatively rejected as aliases of internal paths.
 - The desktop content policy blocks remote Markdown images; attach images to the local vault for Preview.
@@ -109,8 +109,8 @@ npm run dist:mac     # macOS
 Windows output includes:
 
 ```text
-release/Safire-Setup-1.6.2.exe
-release/Safire-Portable-1.6.2.exe
+release/Safire-Setup-1.7.0.exe
+release/Safire-Portable-1.7.0.exe
 ```
 
 The selected vault remains outside the application installation directory and is never packaged into an application update.
@@ -151,7 +151,7 @@ Documents/Safire Vault
 
 Without `SAFIRE_VAULT_PATH`, the source server follows the saved desktop selection or uses `Documents/Safire Vault`. In the desktop app, use **Safire → Change Vault Location…** to switch later. The desktop application and MCP servers can share that saved selection.
 
-Home treats each top-level user folder as one named project and shows only project cards. Open a project to create, edit, or backup-before-delete its Markdown entries and to explore a graph limited to that project’s notes and internal links. To manage several existing project folders together, select their common parent as the vault; Safire reads the folders in place and does not move or rewrite them when you switch.
+Home combines recent writing, recovery, quick capture, and projects. Each top-level user folder is one named project. Open a project to create, edit, or backup-before-delete its Markdown entries and to explore a graph limited to that project’s notes and internal links. To manage several existing project folders together, select their common parent as the vault; Safire reads the folders in place and does not move or rewrite them when you switch.
 
 ## MCP integrations
 

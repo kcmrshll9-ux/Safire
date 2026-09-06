@@ -2,7 +2,41 @@
 
 Notable changes to Safire are recorded here. Application versions follow the version in `package.json`. Historical entries below describe source milestones and tagged releases.
 
-## [Unreleased]
+## [1.7.0] - 2026-09-06
+
+### Added
+
+- A redesigned writing workspace with light paper and dark forest themes, recent notes, focus mode, and a dedicated research desk.
+- Evidence filters, source review, and portable Markdown or designed HTML research briefs. Private receipt fields are excluded from these exports.
+- Local draft checkpoints, a recovery panel, conflicting-version comparison, and recovery copies.
+- A persistent, rebuildable vault catalog with paged search beyond 1,000 notes, incremental refresh, explicit capacity notices, and damaged-cache fallback.
+- Markdown file import, paginated search results, and bounded folder rendering.
+
+### Fixed
+
+- Unsaved work survives navigation and reloads; desktop shutdown and vault switching wait for draft checkpoints.
+- Conditional note writes check content revisions under the vault mutation lock. Saving an older snapshot keeps subsequent typing dirty.
+- Rename previews update resolved wikilinks, preserve aliases and headings, and keep outgoing relative links working when a note changes folders. Changed notes receive backups.
+- Notes MCP reads return revisions, and updates can supply them for conflict protection.
+
+### Changed
+
+- Unified older panels and new screens with shared light and dark colors, typography, controls, focus states, and responsive layouts. Dialogs consistently support Escape, keyboard focus, and returning to the invoking control.
+- Clarified that backups remain until manually removed; removed an inactive retention preference.
+
+### Security
+
+- Configuration reads and atomic writes reject linked files outside the selected vault; damaged settings are preserved until explicitly replaced.
+- Web Clipper bounds decoded response content while streaming, including compressed responses, and cancels rejected bodies.
+- API origin, fetch-metadata, cache, and attachment policies cover case-equivalent route spellings.
+- Research briefs use receipt-free prose excerpts and refresh older cached projections before export.
+- Memory get and recall omit internal idempotency digests from every event projection.
+- Updated three transitive dependencies to resolve the current advisory findings.
+
+### Validation
+
+- Added security regression coverage for the corrected boundaries, alongside backend regressions and an extended packaged desktop gate for draft recovery, conflicts, and typing during a pending save.
+
 
 ## [1.6.2] - 2026-08-20
 

@@ -1,6 +1,6 @@
 # Safire privacy notice
 
-Last updated: August 14, 2026
+Last updated: September 6, 2026
 
 This notice describes the Safire application contained in this repository. It
 does not govern GitHub, an operating system, an MCP host, a web page opened or
@@ -19,6 +19,13 @@ Safire stores and processes the following locally:
   backup copies in the vault folder selected by the user.
 - Settings, pinned and recent note paths, saved searches, and custom web-clip
   templates in the vault's `.safire` folder.
+- Unsaved draft checkpoints as plaintext JSON under `.safire/drafts`. They can
+  contain the complete note, including private evidence fields. A successful save
+  clears the matching checkpoint; recovery copies do not delete the original draft.
+- A rebuildable SQLite search catalog under `.safire/catalog`, containing paths,
+  timestamps, and the public text projection of notes. Private receipt fields and
+  ordinary fenced code are excluded; the catalog is not encrypted. It is refreshed
+  on demand, so external edits and deletions can remain cached until the next scan.
 - When the separate agent-memory integration is enabled and explicitly used,
   attributed events, feedback, provenance, namespace metadata, and recovery
   state as plaintext JSON under `<vault>/.safire/memory/v1/`.
@@ -62,6 +69,19 @@ directories, directory entries, and nesting depth have additional fixed caps.
 When a cap is reached, completion metadata is conservative and observed counts
 are lower bounds rather than exact vault totals. Explicit single-note reads are
 not generic indexes and remain available, including for an oversized note.
+
+The new library and research desk use a separate paged catalog: up to 100,000
+notes, 250,000 directory entries, depth 64, 1 MiB per indexed note body, and
+256 MiB of note bodies per refresh. Pages contain up to 500 notes and 1.5 MB of
+serialized metadata. The file browser loads at most 10,000 notes, while library
+search queries the whole catalog. Limits and incomplete scans are shown in the
+interface. Legacy graph, task, health, and MCP projections retain the limits above.
+
+Research brief exports are explicit local downloads. They contain selected note
+excerpts, public claims, recorded assessments, and HTTP(S) source URLs. Private
+receipt fields and local source fields are excluded; text the user writes in
+ordinary prose or the report summary remains included. No report is uploaded by
+Safire. Review a report before sharing it through another application.
 
 The agent-memory sidecar records only explicit MCP calls or deliberate host
 library calls. It does not monitor conversations, modify Hermes or another

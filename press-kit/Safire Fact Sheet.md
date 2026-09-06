@@ -3,8 +3,8 @@
 | Field | Detail |
 | --- | --- |
 | Product | Safire |
-| Version | 1.6.2 |
-| Release focus | Focused Windows/Electron native-fullscreen hotfix for the mouse-rotatable 3D Full graph |
+| Version | 1.7.0 |
+| Release focus | Protected writing, connected projects, portable research briefs, and a consistent interface |
 | Category | Privacy-focused Markdown knowledge workspace |
 | Platform | Windows x64, macOS Apple Silicon and Intel, Linux x64; local browser/developer mode |
 | Storage | Plain `.md` files in a user-selected local vault |
@@ -18,11 +18,16 @@ Safire is a Markdown knowledge forge for connected notes, interactive relationsh
 
 ## Key features
 
+- Protected drafts, recovery, conflict comparison, and save-as-copy
+- Consistent warm-paper light and forest/gold dark themes across the app
+- Research desk with evidence filters and Markdown or designed HTML briefs
+- Paged, rebuildable catalog for up to 100,000 notes
+- Previewed, backup-protected wikilink updates when renaming notes
 - User-selected, filesystem-backed Markdown vault
 - Split Markdown editor and sanitized preview
 - Folders, nested notes, tabs, full-vault search, tags, and saved searches
 - Wikilinks, backlinks, outgoing links, and missing-note creation
-- Named projects built from top-level vault folders, with project entries kept out of the Home index until a project is opened
+- Named projects built from top-level vault folders, with a Home workspace for recent notes, recovery, and projects
 - A separate relationship graph for each project, limited to that project's notes and internal links, with a deterministic two-dimensional Project map for readable first-open organization
 - A lossless Full graph with optional mouse-rotatable perspective 3D and full-screen exploration—including restored native full-screen mode in the Windows Electron app—plus project-relative wikilink resolution, project and local scopes, filters, grouping, hover highlighting, pan, zoom, and node dragging
 - Daily notes, vault-wide tasks, quick capture, and Markdown templates

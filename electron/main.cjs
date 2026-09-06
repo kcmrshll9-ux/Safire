@@ -8,6 +8,15 @@ const { allowsSafireDesktopPermission } = require('./permission-policy.cjs');
 let mainWindow = null;
 let safireServer = null;
 
+async function protectDrafts() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  await mainWindow.webContents.executeJavaScript(`(async () => {
+    const pending = [];
+    window.dispatchEvent(new CustomEvent('safire:checkpoint', { detail: { waitUntil: promise => pending.push(promise) } }));
+    await Promise.all(pending);
+  })()`);
+}
+
 function appRoot() {
   return app.isPackaged ? path.join(process.resourcesPath, 'app.asar') : path.resolve(__dirname, '..');
 }
@@ -58,12 +67,17 @@ async function startBackend() {
   return safireServer.url;
 }
 
-function changeVaultLocation() {
+async function changeVaultLocation() {
   const folders = dialog.showOpenDialogSync(mainWindow, {
     title: 'Choose a new Safire vault folder',
     properties: ['openDirectory', 'createDirectory'],
   });
   if (!folders?.[0]) return;
+  try { await protectDrafts(); }
+  catch {
+    await dialog.showMessageBox(mainWindow, { type: 'error', message: 'Your draft could not be protected.', detail: 'Save your open note before changing vaults. Your current vault is still open.' });
+    return;
+  }
   const vault = useVault(folders[0]);
   dialog.showMessageBox(mainWindow, {
     type: 'info',
@@ -77,7 +91,7 @@ function changeVaultLocation() {
     } else {
       app.relaunch();
     }
-    app.exit(0);
+    app.quit();
   });
 }
 
@@ -139,7 +153,7 @@ async function createWindow() {
     minHeight: 680,
     title: 'Safire',
     icon: localPath('public', process.platform === 'win32' ? 'app-icon.ico' : 'fire-icon.png'),
-    backgroundColor: '#070812',
+    backgroundColor: '#17201b',
     show: false,
     webPreferences: {
       contextIsolation: true,
@@ -154,6 +168,20 @@ async function createWindow() {
     appOrigin: new URL(url).origin,
     mainWebContents: mainWindow.webContents,
   };
+  let protectedClose = false;
+  let closePending = false;
+  mainWindow.on('close', event => {
+    if (protectedClose) return;
+    event.preventDefault();
+    if (closePending) return;
+    closePending = true;
+    protectDrafts().then(() => {
+      protectedClose = true;
+      mainWindow.close();
+    }).catch(() => {
+      dialog.showMessageBox(mainWindow, { type: 'error', message: 'Safire is keeping your draft open.', detail: 'Draft recovery could not finish. Save your note, then close Safire again.' });
+    }).finally(() => { closePending = false; });
+  });
   mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => (
     allowsSafireDesktopPermission({
       ...permissionContext,
@@ -204,16 +232,25 @@ async function createWindow() {
 }
 
 app.setName('Safire');
-app.whenReady().then(createWindow).catch((err) => {
-  dialog.showErrorBox('Safire failed to start', String(err?.stack || err));
-  app.quit();
-});
+if (!app.requestSingleInstanceLock()) app.quit();
+else {
+  app.on('second-instance', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+  app.whenReady().then(createWindow).catch((err) => {
+    dialog.showErrorBox('Safire failed to start', String(err?.stack || err));
+    app.quit();
+  });
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
+app.on('will-quit', () => {
   if (safireServer?.server) safireServer.server.close();
 });
 

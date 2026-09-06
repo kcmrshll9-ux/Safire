@@ -5,6 +5,8 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { WebSocket } from 'undici';
+import { verifyPackagedWorkspace } from './packaged-workspace-probe.mjs';
+import { verifyPackagedVisuals } from './packaged-visual-probe.mjs';
 
 const STARTUP_TIMEOUT_MS = 45_000;
 const RENDER_TIMEOUT_MS = 20_000;
@@ -402,6 +404,7 @@ async function main() {
     await pollUntil('the synthetic Markdown preview', RENDER_TIMEOUT_MS, async () => {
       if (exited.settled) throw packagedExitError(exited);
       return cdp.evaluate(`(() => {
+        document.querySelector('button[aria-label="Files"]')?.click();
         const preview = document.querySelector('article.preview.markdown');
         return Boolean(preview && ${JSON.stringify(attackMarkers)}.every((marker) => preview.textContent.includes(marker)));
       })()`, sessionId);
@@ -479,6 +482,8 @@ async function main() {
     }, 'renderer-owned preview classes did not survive final sanitization');
 
     process.stdout.write('Packaged Chromium Markdown renderer security gate passed.\n');
+    await verifyPackagedWorkspace({ cdp, sessionId, vaultDir, pollUntil });
+    await verifyPackagedVisuals({ cdp, sessionId, vaultDir, pollUntil });
   } catch (error) {
     const diagnostics = stderr.trim() ? `\nPackaged app diagnostics (tail):\n${stderr.trim()}` : '';
     error.message = `${error.message}${diagnostics}`;
