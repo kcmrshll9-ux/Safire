@@ -45,6 +45,10 @@ test('multi-platform release assets receive a complete deterministic checksum ma
   assert.match(releaseNotes, /Protected drafts/);
   assert.match(releaseNotes, /Security and reliability/);
   assert.match(releaseNotes, /not code-signed/);
+  for (const name of [...names, `Safire-${packageVersion}-checksums.txt`]) {
+    const url = `https://github.com/kcmrshll9-ux/Safire/releases/download/v${packageVersion}/${name}`;
+    assert.ok(releaseNotes.includes(`[**${name}**](${url})`), `Download must be a clickable link: ${name}`);
+  }
   assert.match(releaseNotes, new RegExp(`Safire-${packageVersion.replaceAll('.', '\\.')}-macos-arm64\\.dmg`));
   assert.match(releaseNotes, new RegExp(`Safire-${packageVersion.replaceAll('.', '\\.')}-linux-x64\\.AppImage`));
   assert.match(releaseNotes, new RegExp(`compare/v${previousVersion.replaceAll('.', '\\.')}\\.\\.\\.v${packageVersion.replaceAll('.', '\\.')}`));
