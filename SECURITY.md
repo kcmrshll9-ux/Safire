@@ -44,6 +44,21 @@ General defects, feature requests, and setup questions belong in the normal issu
 
 Please allow maintainers time to reproduce, correct, and distribute a fix before sharing technical details publicly. The maintainer will coordinate validation and disclosure with the reporter. Do not test against another person’s vault or system without explicit permission.
 
+## Defensive security review support
+
+Safire's maintainer uses OpenAI Daybreak Blue, including GPT-5.6-Sol, for lawful, authorized defensive security review of this repository. Daybreak-assisted findings are treated as leads rather than proof: maintainers reproduce issues with synthetic data, record the exact commit and test conditions, and require independent verification before disclosure or release.
+
+Daybreak access does not waive OpenAI's usage policies and is not authorization to test third-party systems. The redacted approval email below documents access while withholding personal and account-linked information. It is not a security certification or endorsement of Safire by OpenAI.
+
+<details>
+<summary>Redacted OpenAI Daybreak Blue approval email</summary>
+
+![Redacted OpenAI Daybreak Blue approval email, page 1](docs/security/openai-daybreak-blue-approval-redacted-page-1.png)
+
+![Redacted OpenAI Daybreak Blue approval email, page 2](docs/security/openai-daybreak-blue-approval-redacted-page-2.png)
+
+</details>
+
 ## Security boundaries
 
 Safire stores its primary data in the selected local vault, but the Web Clipper performs outbound requests for URLs the user submits, recognized YouTube links contact YouTube after the user opens them, and external links may open in the system browser. See the privacy model in [README.md](README.md) when evaluating a report.
