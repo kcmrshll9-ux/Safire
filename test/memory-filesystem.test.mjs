@@ -723,6 +723,9 @@ test('a delayed contender cannot remove or release a newly acquired owner lock',
     retryDelayMs: 100,
     signal: contentionSignal,
   });
+  // The expected timeout may settle while slow CI is still doing owner I/O.
+  // Handle it immediately; assert.rejects below still verifies the original promise.
+  contender.catch(() => {});
   await firstContention;
 
   await first.release();
