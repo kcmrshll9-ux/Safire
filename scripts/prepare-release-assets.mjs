@@ -37,6 +37,7 @@ await fs.writeFile(path.join(artifactDirectory, checksumName), `${checksumLines.
 
 const previousVersion = '1.6.2';
 const highlights = await fs.readFile(new URL(`../docs/releases/${version}.md`, import.meta.url), 'utf8');
+const downloadUrl = (name) => `https://github.com/kcmrshll9-ux/Safire/releases/download/v${version}/${name}`;
 
 const notes = `${highlights.trim()}
 
@@ -44,20 +45,20 @@ const notes = `${highlights.trim()}
 
 ### Windows x64
 
-- **Safire-Setup-${version}.exe** — recommended Windows installer.
-- **Safire-Portable-${version}.exe** — portable Windows application.
+- [**Safire-Setup-${version}.exe**](${downloadUrl(`Safire-Setup-${version}.exe`)}) — recommended Windows installer.
+- [**Safire-Portable-${version}.exe**](${downloadUrl(`Safire-Portable-${version}.exe`)}) — portable Windows application.
 
 ### macOS
 
-- **Safire-${version}-macos-arm64.dmg** — Apple Silicon Macs.
-- **Safire-${version}-macos-x64.dmg** — Intel Macs.
+- [**Safire-${version}-macos-arm64.dmg**](${downloadUrl(`Safire-${version}-macos-arm64.dmg`)}) — Apple Silicon Macs.
+- [**Safire-${version}-macos-x64.dmg**](${downloadUrl(`Safire-${version}-macos-x64.dmg`)}) — Intel Macs.
 
 ### Linux x64
 
-- **Safire-${version}-linux-x64.AppImage** — portable Linux application.
-- **Safire-${version}-linux-x64.deb** — Debian and Ubuntu package.
+- [**Safire-${version}-linux-x64.AppImage**](${downloadUrl(`Safire-${version}-linux-x64.AppImage`)}) — portable Linux application.
+- [**Safire-${version}-linux-x64.deb**](${downloadUrl(`Safire-${version}-linux-x64.deb`)}) — Debian and Ubuntu package.
 
-- **Safire-${version}-checksums.txt** — SHA-256 verification manifest for every download.
+- [**Safire-${version}-checksums.txt**](${downloadUrl(`Safire-${version}-checksums.txt`)}) — SHA-256 verification manifest for every download.
 
 > [!IMPORTANT]
 > The Windows and macOS applications are not code-signed. Windows SmartScreen or macOS Gatekeeper may display a warning. Download Safire only from this official GitHub release and verify the SHA-256 checksum.
