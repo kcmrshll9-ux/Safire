@@ -34,10 +34,11 @@ The new library has a persistent SQLite catalog with incremental scans, paginati
 ## Verification
 
 - Clean install from `package-lock.json`; TypeScript and production build pass.
-- Full suite: 453 passing tests, two platform-specific skips, zero failures.
+- Full suite: 455 passing tests, including the two packaged memory-launcher checks; zero skips and zero failures.
 - Ten new backend regressions cover concurrent saves, draft cleanup, 1,025-note discovery, private-field exclusion, damaged catalogs, combined evidence filters, outgoing links, stale rename plans, backups, and rollback with external edits.
 - The packaged Windows gate verifies Markdown sanitization, draft navigation and reload recovery, conflicting external writes, recovery copies, typing while a save response is delayed, and the desktop checkpoint handshake. These checks use invented notes in an isolated profile.
 - Browser checks cover recovery across server restarts, the research board, source URLs, designed report export, keyboard dialog dismissal, and the visual workspace.
+- The portable executable's archive passes its integrity check, and its application payload matches the unpacked application used by the Windows gates. A SHA-256 checksum is provided beside the executable.
 
 ## Current boundaries
 
